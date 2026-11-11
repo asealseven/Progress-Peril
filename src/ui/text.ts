@@ -1,0 +1,40 @@
+import type Phaser from 'phaser';
+import { FONTS } from '../data/fonts';
+import { PALETTE } from '../data/palette';
+
+export type TextRole = 'heading' | 'body' | 'hand';
+
+export interface TextOptions {
+  role?: TextRole;
+  size?: number;
+  colour?: string;
+  weight?: '400' | '500' | '700';
+  align?: 'left' | 'center' | 'right';
+  wrapWidth?: number;
+}
+
+/** Text draws at twice the logical resolution so scaled-up screens stay sharp. */
+const TEXT_RESOLUTION = 2;
+
+/** Creates text in one of the three GDD 15.1 typefaces. */
+export function addText(
+  scene: Phaser.Scene,
+  x: number,
+  y: number,
+  content: string,
+  options: TextOptions = {},
+): Phaser.GameObjects.Text {
+  const role = options.role ?? 'body';
+  const style: Phaser.Types.GameObjects.Text.TextStyle = {
+    fontFamily: `"${FONTS[role]}", ${role === 'body' ? 'sans-serif' : 'serif'}`,
+    fontSize: `${options.size ?? 20}px`,
+    fontStyle: options.weight ?? '400',
+    color: options.colour ?? PALETTE.ink,
+    align: options.align ?? 'left',
+    resolution: TEXT_RESOLUTION,
+  };
+  if (options.wrapWidth !== undefined) {
+    style.wordWrap = { width: options.wrapWidth };
+  }
+  return scene.add.text(x, y, content, style);
+}
