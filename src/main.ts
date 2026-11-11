@@ -10,6 +10,8 @@ import { PALETTE } from './data/palette';
 import { SCREEN } from './data/screen';
 import { STRINGS } from './data/strings';
 import { Boot } from './scenes/Boot';
+import { Combat } from './scenes/Combat';
+import { Results } from './scenes/Results';
 
 const FONT_TIMEOUT_MS = 3000;
 
@@ -32,7 +34,7 @@ async function start(): Promise<void> {
   registerSW({ immediate: true });
   await loadFonts();
 
-  new Phaser.Game({
+  const game = new Phaser.Game({
     type: Phaser.AUTO,
     parent: 'game',
     width: SCREEN.width,
@@ -45,8 +47,13 @@ async function start(): Promise<void> {
     input: {
       activePointers: 3,
     },
-    scene: [Boot],
+    scene: [Boot, Combat, Results],
   });
+
+  // Development builds expose the game for browser test scripts.
+  if (import.meta.env.DEV) {
+    (window as unknown as { __game?: Phaser.Game }).__game = game;
+  }
 }
 
 void start();
