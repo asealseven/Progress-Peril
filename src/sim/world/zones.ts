@@ -1,7 +1,8 @@
 // Lingering area effects (burning pools, rubble, smoke) and snap traps.
 
-import { WEAPON_RULES } from '../../data/tiers';
+import { REACTION_RULES, SYNERGY_RULES, WEAPON_RULES, tierValue } from '../../data/tiers';
 import { explode, hitEnemy } from './damage';
+import { buildStatus, reactionScale, statusHit, trailStatuses } from './status';
 import type { Trap, Zone, ZoneKind } from './types';
 import type { World } from './world';
 
@@ -67,14 +68,16 @@ export function updateZones(world: World, dt: number): void {
       continue;
     }
 
-    let burn = false;
-    if (zone.kind === 'burning') {
+    // Burning pools, toxic fumes and status trails act on a tick.
+    let pulse = false;
+    if (zone.kind === 'burning' || zone.kind === 'fumes' || zone.kind === 'trail') {
       zone.tick -= dt;
       if (zone.tick <= 0) {
         zone.tick += tickSeconds;
-        burn = true;
+        pulse = true;
       }
     }
+    const weaponDamage = world.weapons[zone.weaponIndex]?.resolved.damage ?? 0;
 
     for (const slot of world.grid.query(zone.x, zone.y, zone.radius + world.maxEnemyRadius, scratch).slice()) {
       const enemy = world.enemies.items[slot];
@@ -90,8 +93,19 @@ export function updateZones(world: World, dt: number): void {
       } else if (zone.kind === 'smoke') {
         // Enemies inside smoke lose their target briefly (GDD 7.18).
         enemy.confused = Math.max(enemy.confused, 0.3);
-      } else if (burn) {
+      } else if (!pulse) {
+        continue;
+      } else if (zone.kind === 'burning') {
         hitEnemy(world, enemy, zone.weaponIndex, { scale: WEAPON_RULES.burningPoolDamageShare, primary: false });
+      } else if (zone.kind === 'fumes') {
+        // Toxic Fumes: a poison cloud. Toxic damage ignores Armour, as Poisoned does (GDD 9.14).
+        const amount = weaponDamage * REACTION_RULES.fumesDamageShare * reactionScale(world, 'Toxic Fumes');
+        statusHit(world, enemy, zone.weaponIndex, amount, 'Toxic', true);
+      } else {
+        // Chemical Ballistics: the trail carries the payload status.
+        for (const status of trailStatuses(world, zone.weaponIndex)) {
+          buildStatus(world, enemy, zone.weaponIndex, status, tierValue('statusBuildUp', SYNERGY_RULES.trailBuild));
+        }
       }
     }
   }
@@ -148,6 +162,10 @@ export function updateTraps(world: World, dt: number): void {
     const radius = Math.max(weapon?.resolved.area ?? 0, WEAPON_RULES.singleTargetReach);
     world.emit({ type: 'trapSnap', x: trap.x, y: trap.y, radius });
     world.traps.release(trap);
-    explode(world, trap.x, trap.y, radius, trap.weaponIndex, { primary: true, quiet: true });
+    explode(world, trap.x, trap.y, radius * (weapon?.resolved.explosionArea ?? 1), trap.weaponIndex, {
+      primary: true,
+      quiet: true,
+      fromConstruct: true,
+    });
   }
 }

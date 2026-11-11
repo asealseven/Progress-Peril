@@ -34,7 +34,9 @@ export type StatKey =
 /** A stat effect applies only while the condition holds. */
 export type EffectCondition =
   | { readonly kind: 'damageType'; readonly damageType: DamageType }
-  | { readonly kind: 'playerBelowHalfHealth' };
+  | { readonly kind: 'playerBelowHalfHealth' }
+  /** Limits a status duration effect to one status. */
+  | { readonly kind: 'status'; readonly status: string };
 
 /** Milestone at which an effect starts working. Absent means active now. */
 type Later = { readonly activeFrom?: number };
@@ -72,7 +74,7 @@ export type Effect = Later &
     | { readonly kind: 'onDamageTaken'; readonly action: 'smoke' }
     | { readonly kind: 'secondaryAttack'; readonly attack: 'bayonet' }
     | { readonly kind: 'constructRepair' }
-    // --- Status effects and reactions: active from Milestone 3 ---------------
+    // --- Status effects and reactions (GDD 9.14) ------------------------------
     | { readonly kind: 'statusBuild'; readonly status: string; readonly tier: Tier }
     | { readonly kind: 'statusSpreadOnDeath'; readonly status: string }
     | { readonly kind: 'parasiteOnDeath' }

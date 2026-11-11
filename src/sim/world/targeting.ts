@@ -72,12 +72,19 @@ export interface TargetQuery {
   readonly markedFirst?: boolean;
   /** Weapon Area, for the Clustered rule. */
   readonly area?: number;
+  /** Enemies passing this test come before any other target: Kill Zone and Combined Arms (GDD 7.19). */
+  readonly prefer?: (enemy: Enemy) => boolean;
 }
 
 /** Applies one targeting rule from GDD 7.15. */
 export function selectTarget(world: World, query: TargetQuery): Enemy | undefined {
   let pool: readonly Enemy[] = enemiesInRange(world, query.x, query.y, query.range, candidates);
   if (pool.length === 0) return undefined;
+
+  if (query.prefer) {
+    const preferred = pool.filter(query.prefer);
+    if (preferred.length > 0) pool = preferred;
+  }
 
   if (query.markedFirst || query.rule === 'Marked first') {
     const marked = pool.filter((enemy) => enemy.marked);
@@ -156,6 +163,11 @@ export function acquireTarget(
       rule: resolved.targeting,
       markedFirst: resolved.markedFirst,
       area: resolved.area,
+      // Combined Arms: Siege weapons target enemies recently hit by melee.
+      prefer:
+        world.synergies.has('combined-arms') && resolved.def.family === 'Siege'
+          ? (enemy) => enemy.meleeMark > 0
+          : undefined,
     });
   }
 

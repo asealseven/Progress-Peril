@@ -42,6 +42,19 @@
 - Debug tools on F3 or a three-finger tap: Loadout menu for any weapon and component, Spawn 10 and Invincible.
 - 194 tests. New: catalogue checks against GDD counts, modifiers, slot rules, every weapon, every behaviour, targeting rules, focus, 29 component tests and a headless three-round run with each starting weapon.
 
+### Milestone 3: Damage types, status effects and synergies
+
+- Weaknesses, resistances and immunities from GDD 9.11 in the damage order.
+- Build-up meters per status per enemy: fill, trigger, empty, refresh, drain and rank sizes.
+- Eleven statuses: Burning, Poisoned, Corroded, Electrified, Frozen, Bleeding, Stunned, Infected, Marked, Overheated and Short-circuited, with the Artificial enemy rules.
+- Seven reactions: Shatter, Steam Burst, Toxic Fumes, Galvanic Surge, Septic Wound, Short Circuit and Calculated Strike.
+- All 23 synergies with their effects. The seven research synergies stay locked until Milestone 6, with a debug toggle.
+- Synergies recalculate at round start. Near misses and locked synergies come back with the report.
+- Chain reactions cover kill explosions, Electric arcs, infection spread and Recursive Artillery copies, with generation falloff, a depth limit and a per-step queue.
+- 14 more components work in full: every status payload, Reagent Recycler, Resonance Fork, Parasite Larvae and the Grand Calculus Engine. Research Notebook and Specimen Jar wait for Milestone 5.
+- Screens: status pips and outlines on enemies, reaction names, gold glow on weapon tiles with an active synergy, synergy list on the pause screen and in the debug menu.
+- 267 tests. New: 40 for statuses, reactions and chain limits, 33 for synergies.
+
 ### Asset folders
 
 - ART_PROMPTS.md sits in the repo root.
@@ -51,16 +64,19 @@
 
 - Phone checks ran in an emulated phone viewport with touch events. No test on a physical phone yet.
 - Controller input has no automated test.
-- Rounds run long. A test bot clears Rounds 1 to 3 in 42 to 147 seconds by starting weapon, against targets of 30 to 35 seconds. War Hammer: 42, 52, 60. Pike: 45, 54, 66. Knife Bandolier: 55, 72, 92. Forged Longsword: 62, 87, 130. Crossbow: 68, 101, 130. Longbow: 78, 110, 147. A run still holds one weapon of three, with no shop yet.
-- Only Royal Footmen exist, so properties such as Metallic have one test subject. Milestone 4 adds the other 22 enemies.
-- Enemies ignore constructs and traps until Milestone 4. Construct Health and repair have no effect in play yet.
-- A standing player gains nothing from the Spring Trap Layer: enemies stop to attack before reaching the trap under the player.
+- Rounds run long. A test bot clears Rounds 1 to 3 in 42 to 188 seconds by starting weapon, against targets of 30 to 35 seconds. War Hammer: 42, 52, 60. Pike: 45, 54, 66. Crossbow: 68, 101, 130. Longbow: 78, 110, 147. Knife Bandolier: 84, 113, 141. Forged Longsword: 102, 154, 188. A run still holds one weapon of three, with no shop yet.
+- Royal Footmen resist Slashing, so the Forged Longsword and Knife Bandolier now run 40 to 65 per cent slower than in Milestone 2. Milestone 4 adds enemies weak to Slashing.
+- Only Royal Footmen exist. Artificial enemy rules, Overheated, Short-circuited and Short Circuit run in tests only until Milestone 4.
+- No Cold weapon exists in GDD 7.17. Frozen comes from Frost Salts alone.
+- Enemies ignore constructs and traps until Milestone 4.
+- A standing player gains nothing from the Spring Trap Layer.
 - Weapons fire at targets behind pillars, and the pillar blocks Straight shots.
 - The HUD covers the player in the top left arena corner.
+- Status pips are small on a phone screen. Milestone 11 replaces them with icon shapes.
 - The debug menu uses small arrow buttons on a phone.
-- The asset manifest lists keys and paths. File loading with fallback arrives in Milestone 11, so a generated image dropped into `public/assets/` does not show yet. The app icon is the exception.
+- The asset manifest lists keys and paths. File loading with fallback arrives in Milestone 11. The app icon is the exception.
 - No sound yet. ZzFX arrives in Milestone 11.
 
 ## Next step
 
-Milestone 3: Damage types, status effects and synergies. Read GDD 7.13, 7.14, 7.19, 7.20 and 9.14.
+Milestone 4: Enemies and the encounter director. Read GDD 4.4 to 4.12 and 9.1 to 9.16.

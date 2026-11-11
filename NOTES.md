@@ -102,3 +102,93 @@ Numbers named below sit in `WEAPON_RULES`, `KNOCKBACK_PIXELS` and `PERFORMANCE_L
 - **GDD 15.9, character selection.** A plain screen shows the six starting weapons of The Inventor. Milestone 11 restyles the screen.
 - **CLAUDE.md, debug menu.** F3 or a three-finger tap opens the debug overlay with three tools: Loadout (L), Spawn 10 (K) and Invincible (I). Loadout opens a menu to equip any weapon and component. Applying restarts the current round.
 - **CLAUDE.md, folder layout.** New files: `src/data/tags.ts`, `src/data/effects.ts`, `src/sim/loadout.ts` (weapon instances, slot rules, resolution), `src/sim/world/attacks.ts`, `constructs.ts`, `zones.ts`, and the `DebugMenu` scene. Projectiles draw as code shapes, not textures.
+
+## Milestone 3
+
+Numbers named below sit in `DAMAGE_STEP`, `STATUS_RULES`, `REACTION_RULES` and `SYNERGY_RULES` in `src/data/tiers.ts`.
+
+### Decisions you made
+
+- **GDD 7.13 and 9.14, status sources.** Weapons dealing Fire, Cold, Electric, Toxic, Corrosive or Biological build their type's status at Low (20 per cent of a Normal meter per hit). The War Hammer builds Stunned and the Spring Trap Layer builds Bleeding at Low, as GDD 7.17 names them. Payload components add the tier GDD 7.18 lists. An added damage type, such as Electric from the Copper Coil Housing, builds its status too.
+- **GDD 9.11, one damage step.** A weakness multiplies damage by 1.7. A resistance multiplies damage by 0.6. Immune means no damage and no status.
+- **GDD 7.19, research synergies.** All seven work and have tests. They stay locked in normal play until Milestone 6. The debug menu has a toggle opening all seven.
+
+### Status meters
+
+- **GDD 9.14, hits building status.** Primary weapon hits build status: direct hits, blasts, sweeps, cone and aura ticks, construct hits. Burning pools, chain jumps and explosions from kills build none.
+- **CLAUDE.md, Medium build-up.** Medium is one third of a meter, written as 33 per cent in CLAUDE.md, so three Medium hits fill a Normal meter.
+- **GDD 9.14, drain.** A meter drains 10 per cent of its size per second after 1 second with no build-up. Slow weapons lose a little between hits. A fast weapon with a Medium payload triggers on the third hit.
+- **GDD 9.14, Artificial enemies.** Burning build-up fills Overheated. Electrified build-up fills Short-circuited. Poisoned, Bleeding and Infected build nothing. Short-circuited is the eleventh status in code: GDD 9.14 names the effect inside the Electrified row.
+- **GDD 3.6, Status Potency.** Base Low means no change. The stat multiplies meter fill, damage over time and duration once research raises it.
+- **GDD 7.14 step 5 and 6, order.** The type step applies before Armour. Corroded and Piercing lower Armour by tier steps and stack.
+
+### Status effects
+
+- **Damage over time.** A triggered effect deals a share of the triggering weapon's damage per hit, spread over the duration in ticks of 0.5 seconds: Burning 100 per cent over 4 seconds, Poisoned 100 per cent over 5 seconds with no Armour, Bleeding 75 per cent over 4 seconds, Electrified 75 per cent over 4 seconds, Infected 75 per cent over 6 seconds. The weapon gets credit for the damage and the kill.
+- **Bleeding.** Ticks twice as fast while the target moves.
+- **Electrified.** Each tick has a 25 per cent chance to arc to an enemy within 160 pixels for the tick's damage.
+- **Infected.** On death the infection moves to the nearest uninfected enemy within 160 pixels. Each move raises the chain generation, up to the depth limit (GDD 7.20).
+- **Corroded.** 5 seconds. Armour down one tier step, two steps on Metallic enemies.
+- **Frozen.** Each Cold build-up hit slows the target to 70 per cent for 1.5 seconds. A full meter freezes the target for 2 seconds: no movement and no attack.
+- **Stunned.** A 1 second stop. The Stun meter grows by half after each stun.
+- **Marked.** 6 seconds. Critical Chance against the target up by the Medium tier value, 10 points.
+- **Overheated.** 5 seconds. Attack timers run at two thirds speed. Electric and Cold damage up 20 per cent.
+- **Short-circuited.** A 1 second stop.
+
+### Reactions
+
+- **"X hit".** A hit counts as a damage type when a damage part has the type, or when the hit builds the type's status. A Crossbow with Frost Salts makes Cold hits.
+- **Shatter.** The Impact hit deals 100 per cent more (GDD 7.14 step 7). Frozen ends.
+- **Steam Burst.** A burst of 60 pixels radius for half of weapon damage as Fire. Frozen and Burning end.
+- **Toxic Fumes.** A cloud of 60 pixels radius for 3 seconds, dealing a quarter of weapon damage as Toxic per tick with no Armour. One cloud per enemy every 3 seconds.
+- **Galvanic Surge.** Electric damage against the target up 35 per cent while Electrified and Corroded overlap.
+- **Septic Wound.** While Bleeding and Infected overlap, the infection moves to a nearby enemy every 1.5 seconds, with no death needed.
+- **Short Circuit.** The Electric hit deals 100 per cent more and stuns for 1 second. A stunned enemy sets off no second Short Circuit.
+- **Calculated Strike.** The critical multiplier gains 0.35 for the hit. Marked ends.
+
+### Synergies
+
+- **GDD 7.19, requirements.** Internal and research synergies need every tag on one weapon. Cross-weapon synergies need one tag on each of two different weapons. "Melee weapon" and "Siege weapon" read the weapon family. A weapon takes part in each synergy once, so duplicates never stack.
+- **Catalytic Mix.** "Three different status payloads" counts the different statuses the equipped weapons build, from payloads and from the weapons themselves.
+- **Chemical Ballistics.** "Any Chemistry payload" means a payload component building Burning or Corroded, the statuses of the two Chemistry damage types.
+- **Grand Calculus Engine.** The weapon counts as having one missing tag per synergy. Families and payloads stay as they are. The engine raises the chain depth limit from 4 to 5 for the weapon (GDD 7.20).
+- **Reaction bonuses.** Thermal Shock (35 per cent) and Catalytic Mix (20 per cent) scale the reaction's own bonus. Both are synergies, one source type, so they add.
+- **Conductive Strike.** One extra jump for Tesla Rod chains, Leyden Jar Cell arcs and Tesla Capacitor lightning.
+- **Pressure Burst.** Radius times 1.2 for blasts, slams and the weapon's explosions.
+- **Envenomed Edge.** Poisoned from the weapon ticks twice as fast on Bleeding enemies.
+- **Flashpoint.** An enemy Burning from the weapon explodes on death: radius 30, half of weapon damage as Impact and Fire, at the next chain generation.
+- **Clockwork Precision.** Turrets, companions and traps roll no critical hits by default. With the synergy they roll player Critical Chance.
+- **Overgrowth.** An infection from the weapon moves to two enemies on death.
+- **Steady Hand.** The weapon's first hit on each enemy is critical.
+- **Galvanic Corrosion.** The Galvanic Surge bonus doubles to 70 per cent, and half of the Electric hit arcs to one enemy within 160 pixels.
+- **Fungal Network.** A primary hit on an Infected enemy deals a quarter of its damage to other Infected enemies within 150 pixels.
+- **Kill Zone.** A trap hit marks an enemy as trapped for 3 seconds. Turrets and companions pick trapped enemies first and deal 20 per cent more to them.
+- **Ballistic Tables.** Arcing shots aim where the target will stand after the flight time. Area up 10 per cent for Arcing weapons.
+- **Combined Arms.** A Melee weapon hit marks an enemy for 3 seconds. Siege weapons pick marked enemies first and deal 10 per cent more to them.
+- **Magnetic Field.** Pickup Radius up 35 per cent. Metallic enemies within 200 pixels of the player move 20 per cent slower.
+- **Chemical Ballistics.** A projectile drops a trail patch every 60 pixels: radius 18, 1 second, building the payload status at Minimal per tick.
+- **Electromagnetic Launchers.** Penetration plus one and Range up 20 per cent.
+- **Bioengineering.** Constructs regain 3 per cent Health per second. Damage up 5 per cent per completed round, capped at 35 per cent.
+- **Conductive Toxins.** A chain jump to a Poisoned enemy costs no jump, up to 8 jumps per chain.
+- **Recursive Artillery.** Each blast from the weapon queues one copy: 60 per cent radius, half damage, next chain generation. Copies make no copies.
+- **Kinetic Probability.** A knockback stopped by a wall, an obstacle or another enemy adds the critical bonus to the hit.
+- **Adaptive Armour.** Adaptation gain and cap double.
+
+### Components now active
+
+- **Spore Culture.** "Infection spreads on death" repeats the base rule for Infected, so the component adds build-up only.
+- **Parasite Larvae.** An enemy Infected by the weapon releases a parasite on death. The parasite flies up to 420 pixels, homes on the nearest enemy and infects the first enemy touched, with no damage on contact.
+- **Resonance Fork.** Damage up 20 per cent against Electrified and Frozen enemies, added to the component sum.
+- **Reagent Recycler and Heat Sink Housing.** Status duration times 1.2. The Heat Sink bonus covers Burning only.
+- **Frost Salts.** "Each hit also slows" matches the Frozen rule, so both set the same slow.
+
+### Screens and limits
+
+- **GDD 9.14, meter icons.** Each building or active status shows as a small pip above the enemy health bar, in the status colour. An active status fills its pip and adds a coloured outline. Icon shapes arrive in Milestone 11.
+- **GDD 15.4, reactions.** A reaction shows its name above the enemy for one second, with a ring. Milestone 11 adds one unique effect per reaction.
+- **GDD 15.7, tile glow.** A weapon tile pulses gold while its weapon takes part in an active synergy. The pause screen lists active synergies.
+- **GDD 7.19, near misses.** The debug menu lists active synergies, synergies waiting for research and up to five near misses. The Workbench in Milestone 5 takes over this list.
+- **GDD 7.20, visual merging.** Overlapping chain effects still draw one burst each. Merging arrives with the effects library in Milestone 11.
+- **GDD 7.19, Codex.** Synergies enter the Codex in Milestone 9.
+- **Test enemies.** `tests/helpers.ts` defines a plain target and an Artificial target for rules no enemy shows yet. They exist only in tests.
+- **CLAUDE.md, folder layout.** New files: `src/data/statusEffects.ts`, `src/data/synergies.ts`, `src/sim/synergies.ts`, `src/sim/world/status.ts`.

@@ -4,6 +4,7 @@
 // WEAPON_RULES in tiers.ts. NOTES.md records each choice.
 
 import type { DamageType } from './damageTypes';
+import type { StatusEffect } from './statusEffects';
 import type { Tag } from './tags';
 import type { Tier } from './tiers';
 
@@ -99,8 +100,12 @@ export interface WeaponDef {
   readonly zone?: WeaponZone;
   /** Kills set off a chain explosion. */
   readonly killExplosion?: boolean;
-  /** Status the weapon builds by itself (GDD 7.17). Active from Milestone 3. */
-  readonly builds?: string;
+  /**
+   * A status GDD 7.17 names for a weapon whose damage type builds none by
+   * itself: the War Hammer's Stun chance and the Spring Trap Layer's Bleeding.
+   * Elemental weapons build their type's status with no entry here.
+   */
+  readonly builds?: StatusEffect;
 }
 
 /** Penetration value meaning "through a full line". */
@@ -423,7 +428,6 @@ export const WEAPONS = {
     targeting: 'Clustered',
     disciplines: ['Chemistry'],
     description: 'Constant cone strips Armour.',
-    builds: 'Corroded',
   },
   'spore-censer': {
     id: 'spore-censer',
@@ -440,7 +444,6 @@ export const WEAPONS = {
     targeting: 'Clustered',
     disciplines: ['Biology'],
     description: 'Spore cloud around the player builds Infected.',
-    builds: 'Infected',
   },
   'alchemical-chain-reactor': {
     id: 'alchemical-chain-reactor',
@@ -496,7 +499,6 @@ export const WEAPONS = {
     disciplines: ['Biology', 'Engineering'],
     description: 'Autonomous creature, secretes toxins and adapts each round.',
     blast: true,
-    builds: 'Poisoned',
   },
   'tesla-rod': {
     id: 'tesla-rod',
@@ -514,7 +516,6 @@ export const WEAPONS = {
     disciplines: ['Physics'],
     description: 'Lightning arcs across several enemies.',
     chainJumps: 3,
-    builds: 'Electrified',
   },
   'burning-mirror': {
     id: 'burning-mirror',
@@ -531,7 +532,6 @@ export const WEAPONS = {
     targeting: 'Nearest',
     disciplines: ['Physics', 'Mathematics'],
     description: 'Focused sunbeam. Damage rises the longer the beam holds one target.',
-    builds: 'Burning',
   },
 } as const satisfies Record<string, WeaponDef>;
 

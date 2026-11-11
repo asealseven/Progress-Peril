@@ -31,6 +31,8 @@ export interface EnemyDef {
   readonly properties: readonly string[];
   readonly weakTo: readonly DamageType[];
   readonly resists: readonly DamageType[];
+  /** Immune means no damage and no status (GDD 9.11). */
+  readonly immune?: readonly DamageType[];
   /** Damage type of the enemy's attacks. See NOTES.md, GDD 9.10. */
   readonly damageType: DamageType;
   /** Signature behaviour wording from GDD 9.11. */

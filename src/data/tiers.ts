@@ -39,8 +39,11 @@ export const TIER_TABLES = {
   criticalDamage: row(1.25, 1.5, 1.75, 2.0, 2.5),
   /** Pickup Radius, pixels. */
   pickupRadius: row(40, 70, 110, 160, 230),
-  /** Status Build-up per hit, share of a Normal enemy meter. */
-  statusBuildUp: row(0.1, 0.2, 0.33, 0.5, 0.8),
+  /**
+   * Status Build-up per hit, share of a Normal enemy meter. Medium is one third
+   * (33 per cent in CLAUDE.md), so three Medium hits fill a meter (GDD 9.14).
+   */
+  statusBuildUp: row(0.1, 0.2, 1 / 3, 0.5, 0.8),
   /** Modifier size for "up" or "down" effects. */
   modifierSize: row(0.05, 0.1, 0.2, 0.35, 0.6),
 } as const;
@@ -268,6 +271,102 @@ export const WEAPON_RULES = {
   spreadDownFactor: 0.5,
   /** Size used where GDD 7.18 gives a direction with no tier, such as "Faster projectiles". */
   unsizedTier: 'Medium',
+} as const;
+
+/** One damage step for a weakness or a resistance (GDD 9.11). Immune means no damage and no status. */
+export const DAMAGE_STEP = { weak: 1.7, resist: 0.6 } as const;
+
+/**
+ * Status effect numbers with no value in GDD.md (GDD 9.14). Damage over time
+ * is a share of the triggering weapon's damage per hit, spread over the duration.
+ */
+export const STATUS_RULES = {
+  /** Seconds between damage ticks. */
+  tickSeconds: 0.5,
+  /** Seconds with no build-up before a meter starts to drain. */
+  drainDelay: 1,
+  /** Build-up tier for elemental weapons and for weapons whose GDD 7.17 text names a status. */
+  intrinsicBuild: 'Low',
+  burning: { seconds: 4, damageShare: 1 },
+  poisoned: { seconds: 5, damageShare: 1 },
+  /** Bleeding ticks faster while the target moves. */
+  bleeding: { seconds: 4, damageShare: 0.75, movingRate: 2 },
+  /** Each Electrified tick has a chance to arc to a nearby enemy. */
+  electrified: { seconds: 4, damageShare: 0.75, arcChance: 0.25 },
+  infected: { seconds: 6, damageShare: 0.75, spreadRange: 160 },
+  /** Corroded lowers Armour by tier steps, more against Metallic enemies. */
+  corroded: { seconds: 5, armourSteps: 1, metallicSteps: 2 },
+  /** Each Cold hit slows. A full meter freezes the target. */
+  frozen: { seconds: 2, hitSlowFactor: 0.7, hitSlowSeconds: 1.5 },
+  /** The Stun meter grows by this factor after each stun. */
+  stunned: { seconds: 1, meterGrowth: 1.5 },
+  marked: { seconds: 6, criticalChance: 'Medium' },
+  overheated: { seconds: 5, attackSlow: 1.5, extraDamage: 'Medium' },
+  shortCircuited: { seconds: 1 },
+} as const;
+
+/** Status reaction numbers with no value in GDD.md (GDD 9.14). */
+export const REACTION_RULES = {
+  /** Shatter: bonus on the Impact hit, as a share of the hit. */
+  shatterBonus: 1,
+  steamRadius: 60,
+  steamDamageShare: 0.5,
+  fumesRadius: 60,
+  fumesSeconds: 3,
+  /** Toxic Fumes: share of weapon damage per tick. */
+  fumesDamageShare: 0.25,
+  /** Seconds before the same enemy releases fumes again. */
+  fumesCooldown: 3,
+  /** Galvanic Surge: Electric damage up against the target. */
+  galvanicBonus: 'High',
+  /** Galvanic Corrosion: share of the Electric hit arcing to one nearby enemy. */
+  galvanicArcShare: 0.5,
+  /** Septic Wound: seconds between spreads to a nearby enemy. */
+  septicSpreadSeconds: 1.5,
+  shortCircuitBonus: 1,
+  shortCircuitStun: 1,
+  /** Calculated Strike: Critical Damage up for the hit. */
+  calculatedStrikeBonus: 'High',
+} as const;
+
+/** Synergy numbers with no value in GDD.md (GDD 7.19). */
+export const SYNERGY_RULES = {
+  flashpointRadius: 30,
+  flashpointDamageShare: 0.5,
+  /** Envenomed Edge: Poisoned tick rate on Bleeding enemies. */
+  envenomedTickRate: 2,
+  overgrowthSpreads: 2,
+  /** Fungal Network: share of a hit spread to other Infected enemies, and the reach. */
+  fungalShare: 0.25,
+  fungalRange: 150,
+  /** Kill Zone: seconds an enemy counts as trapped after a trap hit. */
+  trappedSeconds: 3,
+  /** Combined Arms: seconds an enemy counts as recently hit by melee. */
+  meleeMarkSeconds: 3,
+  magneticSlowRange: 200,
+  magneticSlow: 'Medium',
+  /** Chemical Ballistics: trail spacing, size, life and build-up per tick. */
+  trailSpacing: 60,
+  trailRadius: 18,
+  trailSeconds: 1,
+  trailBuild: 'Minimal',
+  launcherPenetration: 1,
+  /** Bioengineering: regeneration per second and growth per round. */
+  bioRegenPerSecond: 0.03,
+  bioGrowthPerRound: 'Minimal',
+  bioGrowthCap: 'High',
+  /** Conductive Toxins: most jumps one chain makes through Poisoned enemies. */
+  conductiveJumpCap: 8,
+  recursiveAreaShare: 0.6,
+  recursiveDamageShare: 0.5,
+  adaptiveFactor: 2,
+  /** Grand Calculus Engine: extra chain depth (GDD 7.20). */
+  calculusChainDepth: 1,
+  /** Resonance Fork: bonus damage against listed statuses. */
+  resonanceBonus: 'Medium',
+  parasiteSpeed: 260,
+  parasiteRange: 420,
+  parasiteTurn: 6,
 } as const;
 
 /** Performance limits (GDD 7.21). Milestone 12 sets final numbers from profiling. */

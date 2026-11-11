@@ -1,10 +1,12 @@
 // Weapon attacks: one function per delivery (GDD 7.16, 7.17), plus the
 // component extras tied to attacking.
 
-import { COMBAT, WEAPON_RULES, tierValue } from '../../data/tiers';
+import { COMBAT, SYNERGY_RULES, WEAPON_RULES, tierValue } from '../../data/tiers';
+import { hasSynergy } from '../loadout';
 import type { ResolvedWeapon } from '../loadout';
 import { explode, hitEnemy, nearestOther } from './damage';
 import { fireArcing, fireStraight } from './projectiles';
+import { hasStatus } from './status';
 import { acquireTarget, enemiesInRange } from './targeting';
 import type { Enemy, WeaponState } from './types';
 import type { World } from './world';
@@ -72,8 +74,10 @@ export function projectileRadius(resolved: ResolvedWeapon): number {
   return COMBAT.projectileRadius + resolved.area * WEAPON_RULES.projectileRadiusPerArea;
 }
 
-function blastRadius(resolved: ResolvedWeapon): number {
-  return resolved.blast ? Math.max(resolved.area, WEAPON_RULES.singleTargetReach) : 0;
+/** Blast radius on impact. Pressure Burst widens explosions (GDD 7.19). */
+export function blastRadius(resolved: ResolvedWeapon): number {
+  if (!resolved.blast) return 0;
+  return Math.max(resolved.area, WEAPON_RULES.singleTargetReach) * resolved.explosionArea;
 }
 
 /** Hits every enemy inside an arc in front of the player. */
@@ -130,18 +134,24 @@ function chainLightning(
   firstOptions: Parameters<typeof hitEnemy>[3],
   jumpScale: number,
 ): void {
+  const resolved = world.weapons[weaponIndex]?.resolved;
+  const conductive = resolved !== undefined && hasSynergy(resolved, 'conductive-toxins');
+  // Conductive Strike: Electric chains jump to one extra enemy (GDD 7.19).
+  let jumpsLeft = jumps + (resolved?.extraChainJumps ?? 0);
   const points = [startX, startY, first.x, first.y];
   const hitIds = [first.id];
   let lastX = first.x;
   let lastY = first.y;
   hitEnemy(world, first, weaponIndex, firstOptions);
-  for (let jump = 1; jump <= jumps; jump++) {
+  for (let jump = 1; jumpsLeft > 0 && jump <= SYNERGY_RULES.conductiveJumpCap; jump++) {
     const next = nearestOther(world, lastX, lastY, WEAPON_RULES.chainRange, hitIds);
     if (!next) break;
     hitIds.push(next.id);
     lastX = next.x;
     lastY = next.y;
     points.push(lastX, lastY);
+    // Conductive Toxins: Poisoned enemies conduct Electric chains, so the jump costs nothing.
+    if (!(conductive && hasStatus(next, 'Poisoned'))) jumpsLeft--;
     // Damage falls by a set share with each generation (GDD 7.20).
     hitEnemy(world, next, weaponIndex, {
       ...firstOptions,
@@ -210,6 +220,15 @@ function attack(world: World, weapon: WeaponState, weaponIndex: number, target: 
       break;
     }
     case 'arcing': {
+      const speed = WEAPON_RULES.arcingSpeed * (resolved.projectileSpeed / COMBAT.projectileSpeed);
+      // Ballistic Tables: Arcing shots lead moving targets (GDD 7.19).
+      let aimX = target.x;
+      let aimY = target.y;
+      if (resolved.leadTargets) {
+        const flight = Math.max(WEAPON_RULES.arcingMinFlight, distance / speed);
+        aimX += target.vx * flight;
+        aimY += target.vy * flight;
+      }
       for (let shot = 0; shot < count; shot++) {
         // The first projectile lands on the target. Extra ones scatter around the point.
         const scatterAngle = angle + (shot / Math.max(1, count - 1)) * Math.PI * 2;
@@ -217,10 +236,10 @@ function attack(world: World, weapon: WeaponState, weaponIndex: number, target: 
         fireArcing(world, {
           x: player.x,
           y: player.y,
-          targetX: target.x + Math.cos(scatterAngle) * scatter,
-          targetY: target.y + Math.sin(scatterAngle) * scatter,
+          targetX: aimX + Math.cos(scatterAngle) * scatter,
+          targetY: aimY + Math.sin(scatterAngle) * scatter,
           weaponIndex,
-          speed: WEAPON_RULES.arcingSpeed * (resolved.projectileSpeed / COMBAT.projectileSpeed),
+          speed,
           blastRadius: blastRadius(resolved),
           track: shot === 0 ? target : undefined,
         });
@@ -243,7 +262,7 @@ function attack(world: World, weapon: WeaponState, weaponIndex: number, target: 
       const reach = Math.min(resolved.range, distance);
       const x = player.x + dirX * reach;
       const y = player.y + dirY * reach;
-      const radius = Math.max(resolved.area, WEAPON_RULES.singleTargetReach) * resolved.arcWidth;
+      const radius = Math.max(resolved.area, WEAPON_RULES.singleTargetReach) * resolved.arcWidth * resolved.explosionArea;
       world.emit({ type: 'slam', x, y, radius, damageType: mainType });
       explode(world, x, y, radius, weaponIndex, { primary: true, quiet: true });
       break;

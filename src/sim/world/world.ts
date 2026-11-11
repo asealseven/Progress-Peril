@@ -31,6 +31,7 @@ import type {
   WorldPhase,
   Zone,
 } from './types';
+import { updateStatuses } from './status';
 import { createTrap, createZone, updateTraps, updateZones } from './zones';
 
 /** Seconds per simulation step. */
@@ -66,6 +67,7 @@ function createWeaponState(resolved: ResolvedWeapon): WeaponState {
     lightningTimer: WEAPON_RULES.lightningSeconds / 2,
     bayonetTimer: 0,
     smokeTimer: 0,
+    firstHits: new Set(),
     damageDealt: 0,
     kills: 0,
   };
@@ -80,6 +82,8 @@ export class World {
   readonly limits: PerformanceLimits;
   readonly player: PlayerState;
   readonly weapons: WeaponState[];
+  /** Ids of every active synergy (GDD 7.19). */
+  readonly synergies: ReadonlySet<string>;
   readonly enemies: Pool<Enemy>;
   readonly projectiles: Pool<Projectile>;
   readonly constructs: Pool<Construct>;
@@ -136,6 +140,7 @@ export class World {
     };
 
     this.weapons = config.weapons.map(createWeaponState);
+    this.synergies = new Set(config.synergies ?? []);
 
     const fallbackEnemy = ENEMIES['royal-footman'];
     this.enemies = new Pool<Enemy>((slot) => createEnemy(slot, fallbackEnemy), ENEMY_CAPACITY);
@@ -185,6 +190,7 @@ export class World {
     this.movePlayer(input, dt);
     updateEnemies(this, dt);
     this.rebuildGrid();
+    updateStatuses(this, dt);
     this.runChainEvents();
     updateWeapons(this, dt);
     updateConstructs(this, dt);

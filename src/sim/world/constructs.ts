@@ -1,8 +1,8 @@
 // Constructs: turrets, companions and trap laying (GDD 7.17).
 // Constructs use their own targeting rule and ignore manual focus (GDD 7.15).
 
-import { WEAPON_RULES } from '../../data/tiers';
-import { currentAttackSpeed, projectileRadius } from './attacks';
+import { SYNERGY_RULES, WEAPON_RULES } from '../../data/tiers';
+import { blastRadius, currentAttackSpeed, projectileRadius } from './attacks';
 import { explode, hitEnemy } from './damage';
 import { clampToArena, pushOutOfObstacles } from './movement';
 import { fireStraight } from './projectiles';
@@ -131,7 +131,14 @@ function updateTurret(world: World, construct: Construct, weapon: WeaponState, i
 
   let target: Enemy | undefined = world.enemies.items[construct.targetSlot];
   if (!target || !target.active || target.id !== construct.targetId || !inRange(construct.x, construct.y, target, resolved.range)) {
-    target = selectTarget(world, { x: construct.x, y: construct.y, range: resolved.range, rule: 'Nearest' });
+    target = selectTarget(world, {
+      x: construct.x,
+      y: construct.y,
+      range: resolved.range,
+      rule: 'Nearest',
+      // Kill Zone: constructs focus trapped enemies (GDD 7.19).
+      prefer: world.synergies.has('kill-zone') ? (enemy) => enemy.trapped > 0 : undefined,
+    });
     construct.targetSlot = target ? target.slot : -1;
     construct.targetId = target ? target.id : -1;
   }
@@ -159,6 +166,7 @@ function updateTurret(world: World, construct: Construct, weapon: WeaponState, i
       pierce: resolved.penetration,
       bounces: resolved.bounces,
       homing: resolved.homing,
+      fromConstruct: true,
     });
   }
   weapon.attackCount++;
@@ -178,7 +186,11 @@ function updateCompanion(world: World, construct: Construct, weapon: WeaponState
   if (!target || !target.active || target.id !== construct.targetId || !inRange(player.x, player.y, target, leash)) {
     target = undefined;
     let nearest = Infinity;
-    for (const enemy of enemiesInRange(world, player.x, player.y, leash, pool)) {
+    const near = enemiesInRange(world, player.x, player.y, leash, pool);
+    // Kill Zone: constructs focus trapped enemies (GDD 7.19).
+    const trappedOnly = world.synergies.has('kill-zone') && near.some((enemy) => enemy.trapped > 0);
+    for (const enemy of near) {
+      if (trappedOnly && enemy.trapped <= 0) continue;
       const distance = Math.hypot(enemy.x - construct.x, enemy.y - construct.y);
       if (distance < nearest) {
         nearest = distance;
@@ -213,11 +225,16 @@ function updateCompanion(world: World, construct: Construct, weapon: WeaponState
   weapon.attackCount++;
   construct.cooldown = interval;
   if (resolved.blast) {
-    explode(world, construct.x, construct.y, Math.max(resolved.area, WEAPON_RULES.singleTargetReach), construct.weaponIndex, {
+    explode(world, construct.x, construct.y, blastRadius(resolved), construct.weaponIndex, {
       primary: true,
+      fromConstruct: true,
     });
   } else {
-    hitEnemy(world, target, construct.weaponIndex, { dirX: construct.faceX, dirY: construct.faceY });
+    hitEnemy(world, target, construct.weaponIndex, {
+      dirX: construct.faceX,
+      dirY: construct.faceY,
+      fromConstruct: true,
+    });
   }
 }
 
@@ -239,11 +256,12 @@ export function updateConstructs(world: World, dt: number): void {
       continue;
     }
     const resolved = weapon.resolved;
-    if (resolved.constructRepair && construct.health < construct.maxHealth) {
-      construct.health = Math.min(
-        construct.maxHealth,
-        construct.health + construct.maxHealth * WEAPON_RULES.constructRepairPerSecond * dt,
-      );
+    // Repair Kit Housing repairs constructs. Bioengineering makes them regenerate (GDD 7.19).
+    const repair =
+      (resolved.constructRepair ? WEAPON_RULES.constructRepairPerSecond : 0) +
+      (resolved.constructRegen ? SYNERGY_RULES.bioRegenPerSecond : 0);
+    if (repair > 0 && construct.health < construct.maxHealth) {
+      construct.health = Math.min(construct.maxHealth, construct.health + construct.maxHealth * repair * dt);
     }
     if (weapon.jamTimer > 0) continue;
     const interval = 1 / (currentAttackSpeed(world, weapon) * resolved.constructAttackSpeedFactor);

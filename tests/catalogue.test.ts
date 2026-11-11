@@ -95,23 +95,7 @@ describe('component catalogue (GDD 7.18)', () => {
 
   it('marks effects for later milestones', () => {
     const waiting = COMPONENT_LIST.filter((component) => component.effects.some((effect) => effect.activeFrom));
-    expect(waiting.map((component) => component.name)).toEqual([
-      'Heat Sink Housing',
-      'Barbed Heads',
-      'Incendiary Oil',
-      'Venom Reservoir',
-      'Acid Vial',
-      'Frost Salts',
-      'Leyden Jar Cell',
-      'Spore Culture',
-      'Marking Chalk',
-      'Parasite Larvae',
-      "Philosopher's Reagent",
-      'Research Notebook',
-      'Specimen Jar',
-      'Reagent Recycler',
-      'Resonance Fork',
-      'Grand Calculus Engine',
-    ]);
+    // Status effects arrived in Milestone 3. Research Points and Specimens arrive in Milestone 5.
+    expect(waiting.map((component) => component.name)).toEqual(['Research Notebook', 'Specimen Jar']);
   });
 });

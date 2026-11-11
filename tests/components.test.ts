@@ -106,7 +106,8 @@ describe('components acting on hits', () => {
     const neighbour = dummy(world, 150, 100);
     const far = dummy(world, 150, -400);
     stepSeconds(world, 1);
-    expect(neighbour.maxHealth - neighbour.health).toBeCloseTo(10 * 0.75, 6);
+    // Half of 20 as Electric, against Armour 25 per cent. Royal Footmen are weak to Electric.
+    expect(neighbour.maxHealth - neighbour.health).toBeCloseTo(10 * 0.75 * 1.7, 6);
     expect(far.health).toBe(far.maxHealth);
   });
 
@@ -174,8 +175,8 @@ describe('components acting on hits', () => {
     const target = dummy(world, 190, 0);
     stepSeconds(world, 2.5);
     expect(eventsOf(world.events, 'chain')).toHaveLength(1);
-    // Medium damage 12, Electric, Armour 25 per cent.
-    expect(target.maxHealth - target.health).toBeCloseTo(9, 6);
+    // Medium damage 12, Electric, Armour 25 per cent, against a weakness to Electric.
+    expect(target.maxHealth - target.health).toBeCloseTo(9 * 1.7, 6);
     stepSeconds(world, 4);
     expect(eventsOf(world.events, 'chain')).toHaveLength(2);
   });

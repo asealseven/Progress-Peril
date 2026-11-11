@@ -1,9 +1,11 @@
 // Travelling projectiles (GDD 7.16): Straight, Arcing, Piercing, Ricochet and Homing.
 
 import type { DamageType } from '../../data/damageTypes';
-import { COMBAT, WEAPON_RULES } from '../../data/tiers';
+import { COMBAT, SYNERGY_RULES, WEAPON_RULES } from '../../data/tiers';
+import { hasSynergy } from '../loadout';
 import { explode, hitEnemy, nearestOther } from './damage';
 import { sweepCircle } from './movement';
+import { statusFor, triggerStatus } from './status';
 import type { Enemy, Projectile } from './types';
 import type { World } from './world';
 import { addZone } from './zones';
@@ -31,6 +33,9 @@ export function createProjectile(slot: number): Projectile {
     hitIds: [],
     homing: 0,
     blastRadius: 0,
+    fromConstruct: false,
+    parasite: false,
+    trailDistance: 0,
     startX: 0,
     startY: 0,
     targetX: 0,
@@ -61,6 +66,9 @@ function acquire(world: World): Projectile | undefined {
     projectile.forcedType = undefined;
     projectile.trackSlot = -1;
     projectile.trackId = -1;
+    projectile.fromConstruct = false;
+    projectile.parasite = false;
+    projectile.trailDistance = 0;
   }
   return projectile;
 }
@@ -81,6 +89,7 @@ export interface StraightShot {
   readonly bounces?: number;
   readonly homing?: number;
   readonly blastRadius?: number;
+  readonly fromConstruct?: boolean;
 }
 
 export function fireStraight(world: World, shot: StraightShot): Projectile | undefined {
@@ -102,6 +111,7 @@ export function fireStraight(world: World, shot: StraightShot): Projectile | und
   projectile.bouncesLeft = shot.bounces ?? 0;
   projectile.homing = shot.homing ?? 0;
   projectile.blastRadius = shot.blastRadius ?? 0;
+  projectile.fromConstruct = shot.fromConstruct ?? false;
   return projectile;
 }
 
@@ -173,17 +183,42 @@ export function spawnFragments(world: World, x: number, y: number, weaponIndex: 
   }
 }
 
+/**
+ * Parasite Larvae: a parasite leaves an Infected enemy on death and seeks a
+ * new host (GDD 7.18). The parasite infects the first enemy touched.
+ */
+export function spawnParasite(world: World, x: number, y: number, weaponIndex: number): void {
+  // The parasite sets off toward the nearest enemy, then homes.
+  const host = nearestOther(world, x, y, SYNERGY_RULES.parasiteRange, []);
+  const distance = host ? Math.hypot(host.x - x, host.y - y) : 0;
+  const parasite = fireStraight(world, {
+    x,
+    y,
+    dirX: host && distance > 1e-6 ? (host.x - x) / distance : 0,
+    dirY: host && distance > 1e-6 ? (host.y - y) / distance : -1,
+    weaponIndex,
+    speed: SYNERGY_RULES.parasiteSpeed,
+    range: SYNERGY_RULES.parasiteRange,
+    radius: 5,
+    damageScale: 0,
+    primary: false,
+    homing: SYNERGY_RULES.parasiteTurn,
+  });
+  if (parasite) parasite.parasite = true;
+}
+
 /** Turns a homing projectile toward its quarry. */
 function steer(world: World, projectile: Projectile, dt: number): void {
   const weapon = world.weapons[projectile.weaponIndex];
   if (!weapon) return;
+  const ahead = projectile.parasite ? 0 : 60;
   const quarry = nearestOther(
     world,
-    projectile.x + projectile.dx * 60,
-    projectile.y + projectile.dy * 60,
+    projectile.x + projectile.dx * ahead,
+    projectile.y + projectile.dy * ahead,
     WEAPON_RULES.homingSeekRange,
     projectile.hitIds,
-    weapon.resolved.homingProperty,
+    projectile.parasite ? undefined : weapon.resolved.homingProperty,
   );
   if (!quarry) return;
   const desired = Math.atan2(quarry.y - projectile.y, quarry.x - projectile.x);
@@ -270,10 +305,19 @@ function updateStraight(world: World, projectile: Projectile, dt: number): void 
     projectile.y += projectile.dy * hitAt;
     projectile.distanceLeft -= hitAt;
 
+    if (projectile.parasite) {
+      // The parasite infects its new host and deals no damage.
+      const status = statusFor(hit, 'Infected');
+      if (status) triggerStatus(world, hit, projectile.weaponIndex, status, 1);
+      world.projectiles.release(projectile);
+      return;
+    }
+
     if (projectile.blastRadius > 0) {
       explode(world, projectile.x, projectile.y, projectile.blastRadius, projectile.weaponIndex, {
         scale: projectile.damageScale,
         primary: projectile.primary,
+        fromConstruct: projectile.fromConstruct,
       });
       world.projectiles.release(projectile);
       return;
@@ -286,6 +330,7 @@ function updateStraight(world: World, projectile: Projectile, dt: number): void 
       scale: projectile.damageScale,
       primary: projectile.primary,
       forcedType: projectile.forcedType,
+      fromConstruct: projectile.fromConstruct,
       dirX: projectile.dx,
       dirY: projectile.dy,
     });
@@ -332,6 +377,26 @@ function updateStraight(world: World, projectile: Projectile, dt: number): void 
   projectile.y += projectile.dy * travel;
   projectile.distanceLeft -= travel;
 
+  // Chemical Ballistics: projectiles leave a short trail carrying the payload status (GDD 7.19).
+  if (projectile.primary && !projectile.parasite) {
+    const resolved = world.weapons[projectile.weaponIndex]?.resolved;
+    if (resolved && hasSynergy(resolved, 'chemical-ballistics')) {
+      projectile.trailDistance += travel;
+      if (projectile.trailDistance >= SYNERGY_RULES.trailSpacing) {
+        projectile.trailDistance = 0;
+        addZone(
+          world,
+          'trail',
+          projectile.x,
+          projectile.y,
+          SYNERGY_RULES.trailRadius,
+          SYNERGY_RULES.trailSeconds,
+          projectile.weaponIndex,
+        );
+      }
+    }
+  }
+
   const outside = projectile.x < 0 || projectile.y < 0 || projectile.x > arena.width || projectile.y > arena.height;
   if (outside || projectile.distanceLeft <= 1e-6) {
     if (projectile.blastRadius > 0) {
@@ -339,6 +404,7 @@ function updateStraight(world: World, projectile: Projectile, dt: number): void 
       explode(world, projectile.x, projectile.y, projectile.blastRadius, projectile.weaponIndex, {
         scale: projectile.damageScale,
         primary: projectile.primary,
+        fromConstruct: projectile.fromConstruct,
       });
     } else if (outside) {
       world.emit({ type: 'projectileBlocked', x: projectile.x, y: projectile.y });

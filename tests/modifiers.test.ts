@@ -168,7 +168,8 @@ describe('weapon resolution', () => {
     const cannon = resolved('Field Cannon', 'Heat Sink Housing');
     expect(cannon.damageParts[0]).toEqual({ type: 'Impact', amount: 17.5 });
     expect(cannon.damageParts[1]?.amount).toBeCloseTo(19.25, 10);
-    expect(cannon.inactive).toEqual([{ component: 'Heat Sink Housing', activeFrom: 3 }]);
+    expect(cannon.statusDurationFor.Burning).toBeCloseTo(1.2, 10);
+    expect(cannon.inactive).toEqual([]);
   });
 
   it('changes projectile counts, penetration and bounces', () => {
@@ -254,7 +255,7 @@ describe('weapon resolution', () => {
   });
 
   it('lists components waiting for a later milestone', () => {
-    expect(resolved('Crossbow', 'Incendiary Oil').inactive).toEqual([{ component: 'Incendiary Oil', activeFrom: 3 }]);
+    expect(resolved('Crossbow', 'Incendiary Oil').inactive).toEqual([]);
     expect(resolved('Crossbow', 'Research Notebook').inactive).toEqual([{ component: 'Research Notebook', activeFrom: 5 }]);
     expect(resolved('Crossbow', 'Tempered Steel Frame').inactive).toEqual([]);
   });

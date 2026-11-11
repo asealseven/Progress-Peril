@@ -1,11 +1,33 @@
-// Applies damage to enemies and to the player, with on-hit and on-kill effects.
+// Applies damage to enemies and to the player, with on-hit and on-kill
+// effects, status build-up and status reactions.
 
 import type { DamageType } from '../../data/damageTypes';
-import { COMBAT, WEAPON_RULES } from '../../data/tiers';
+import { STATUS_INDEX } from '../../data/statusEffects';
+import {
+  COMBAT,
+  REACTION_RULES,
+  SYNERGY_RULES,
+  WEAPON_RULES,
+  tierValue,
+} from '../../data/tiers';
 import type { DamagePart } from '../loadout';
-import { computeDamage, effectiveArmour, resolvePlayerHit } from '../modifiers';
+import { hasSynergy } from '../loadout';
+import { computeDamage, resolvePlayerHit } from '../modifiers';
+import type { PercentBonus } from '../modifiers';
 import { clampToArena, pushOutOfObstacles } from './movement';
-import { spawnFragments } from './projectiles';
+import { spawnFragments, spawnParasite } from './projectiles';
+import {
+  applyStatusBuilds,
+  enemyArmour,
+  hasStatus,
+  hitTypes,
+  reactToHit,
+  reactionScale,
+  spreadInfection,
+  statusHit,
+  triggerStatus,
+  typeMultiplier,
+} from './status';
 import type { Enemy, WeaponState } from './types';
 import type { World } from './world';
 import { addZone } from './zones';
@@ -17,7 +39,7 @@ const blastTargets: Enemy[] = [];
 export interface HitOptions {
   /** Share of weapon damage. Default 1. */
   readonly scale?: number;
-  /** Primary hits roll criticals and run on-hit effects. Default true. */
+  /** Primary hits roll criticals, build statuses and run on-hit effects. Default true. */
   readonly primary?: boolean;
   /** Replaces the weapon's damage types, keeping the total. */
   readonly forcedType?: DamageType;
@@ -30,14 +52,32 @@ export interface HitOptions {
   readonly generation?: number;
   /** The hit is part of a blast, so hits never explode again. */
   readonly fromBlast?: boolean;
+  /** The hit comes from a turret, companion or trap. Constructs roll criticals only with Clockwork Precision. */
+  readonly fromConstruct?: boolean;
 }
 
-/** Moves an enemy by a push, respecting walls and obstacles. */
-function push(world: World, enemy: Enemy, dx: number, dy: number): void {
+/** Moves an enemy by a push, respecting walls and obstacles. Returns the distance moved. */
+function push(world: World, enemy: Enemy, dx: number, dy: number): number {
+  const startX = enemy.x;
+  const startY = enemy.y;
   enemy.x += dx;
   enemy.y += dy;
   pushOutOfObstacles(enemy, world.arena);
   clampToArena(enemy, world.arena);
+  return Math.hypot(enemy.x - startX, enemy.y - startY);
+}
+
+/** True when another enemy overlaps this one. */
+function touchesEnemy(world: World, enemy: Enemy): boolean {
+  for (const slot of world.grid.query(enemy.x, enemy.y, enemy.radius + world.maxEnemyRadius, scratch)) {
+    const other = world.enemies.items[slot];
+    if (!other || !other.active || other === enemy) continue;
+    const reach = enemy.radius + other.radius;
+    const dx = other.x - enemy.x;
+    const dy = other.y - enemy.y;
+    if (dx * dx + dy * dy < reach * reach) return true;
+  }
+  return false;
 }
 
 /**
@@ -51,38 +91,119 @@ export function hitEnemy(world: World, enemy: Enemy, weaponIndex: number, option
   const scale = options.scale ?? 1;
   const primary = options.primary ?? true;
   const generation = options.generation ?? 0;
-
-  const critical = primary && world.rng.chance(resolved.criticalChance);
-  const criticalMultiplier = critical ? resolved.criticalDamage : 1;
   const parts: readonly DamagePart[] =
     options.parts ??
     (options.forcedType ? [{ type: options.forcedType, amount: resolved.damage }] : resolved.damageParts);
+  const mainType = parts[0]?.type ?? 'Impact';
+  const types = hitTypes(world, weaponIndex, parts.map((part) => part.type), primary);
+
+  // Step 4. Critical roll. Marked raises Critical Chance against the target.
+  let critical = false;
+  if (primary) {
+    const construct = options.fromConstruct === true;
+    if (!construct || resolved.constructsCrit) {
+      let chance = construct ? world.player.stats.criticalChance : resolved.criticalChance;
+      if (hasStatus(enemy, 'Marked')) chance += tierValue('criticalChance', 'Medium');
+      // Steady Hand: the first hit on each enemy is a critical hit.
+      const first = hasSynergy(resolved, 'steady-hand') && !weapon.firstHits.has(enemy.id);
+      critical = first || world.rng.chance(chance);
+    }
+    weapon.firstHits.add(enemy.id);
+  }
+
+  // Step 7. Status reactions set off by this hit.
+  const reactions = reactToHit(world, enemy, types, critical);
+  const criticalMultiplier = critical ? resolved.criticalDamage + reactions.criticalBonus : 1;
+
+  // Step 3 extras decided per hit. Component bonuses join the component sum. Synergies multiply.
+  let componentFactor = 1;
+  if (resolved.bonusAgainst.some((status) => hasStatus(enemy, status))) {
+    const base = Math.max(0.2, 1 + resolved.componentDamageBonus);
+    componentFactor = Math.max(0.2, 1 + resolved.componentDamageBonus + resolved.bonusAgainstAmount) / base;
+  }
+  const synergyBonuses: PercentBonus[] = [];
+  const delivery = resolved.delivery;
+  if (world.synergies.has('kill-zone') && (delivery === 'turret' || delivery === 'companion') && enemy.trapped > 0) {
+    synergyBonuses.push({ source: 'synergies', amount: tierValue('modifierSize', 'Medium') });
+  }
+  if (world.synergies.has('combined-arms') && resolved.def.family === 'Siege' && enemy.meleeMark > 0) {
+    synergyBonuses.push({ source: 'synergies', amount: tierValue('modifierSize', 'Low') });
+  }
 
   let amount = 0;
+  let electric = 0;
   for (const part of parts) {
-    amount += computeDamage({
-      base: part.amount * scale,
+    const dealt = computeDamage({
+      base: part.amount * scale * componentFactor,
+      percentBonuses: synergyBonuses,
       criticalMultiplier,
-      armour: effectiveArmour(enemy.armour, part.type),
+      typeMultiplier: typeMultiplier(enemy, part.type),
+      armour: enemyArmour(enemy, part.type),
+      reactionBonus: reactions.bonus + (part.type === 'Electric' ? reactions.electricBonus : 0),
     });
+    amount += dealt;
+    if (part.type === 'Electric') electric += dealt;
   }
-  const mainType = parts[0]?.type ?? 'Impact';
 
+  const x = enemy.x;
+  const y = enemy.y;
   const dealt = Math.min(amount, enemy.health);
   enemy.health -= amount;
   enemy.hitFlash = HIT_FLASH_SECONDS;
   world.stats.damageDealt += dealt;
   weapon.damageDealt += dealt;
   if (critical) world.stats.criticalHits++;
-  world.emit({ type: 'enemyHit', x: enemy.x, y: enemy.y, amount, critical, damageType: mainType });
+  world.emit({ type: 'enemyHit', x, y, amount, critical, damageType: mainType });
 
-  if (enemy.health <= 0) {
-    killEnemy(world, enemy, weaponIndex, generation);
-    return true;
+  // Kill Zone and Combined Arms read these marks.
+  if (delivery === 'trap') enemy.trapped = SYNERGY_RULES.trappedSeconds;
+  if (resolved.def.family === 'Melee') enemy.meleeMark = SYNERGY_RULES.meleeMarkSeconds;
+
+  // Fungal Network: damage to one Infected enemy spreads in part to other Infected enemies nearby.
+  if (primary && world.synergies.has('fungal-network') && hasStatus(enemy, 'Infected')) {
+    const share = amount * SYNERGY_RULES.fungalShare;
+    for (const other of enemiesNear(world, x, y, SYNERGY_RULES.fungalRange, enemy)) {
+      if (hasStatus(other, 'Infected')) statusHit(world, other, weaponIndex, share, mainType, true);
+    }
   }
 
-  if (primary) runHitEffects(world, enemy, weapon, weaponIndex, options);
-  return false;
+  const killed = enemy.health <= 0;
+  if (killed) killEnemy(world, enemy, weaponIndex, generation);
+
+  // Reaction follow-ups happen at the hit point, whether or not the target survived.
+  if (reactions.steamBurst) {
+    explode(world, x, y, REACTION_RULES.steamRadius, weaponIndex, {
+      scale: REACTION_RULES.steamDamageShare * reactionScale(world, 'Steam Burst'),
+      generation: 1,
+      parts: [{ type: 'Fire', amount: resolved.damage }],
+    });
+  }
+  if (reactions.galvanicArc && electric > 0) {
+    const next = nearestOther(world, x, y, WEAPON_RULES.chainRange, [enemy.id]);
+    if (next) {
+      world.emit({ type: 'chain', points: [x, y, next.x, next.y], damageType: 'Electric' });
+      statusHit(world, next, weaponIndex, electric * REACTION_RULES.galvanicArcShare, 'Electric', true);
+    }
+  }
+  if (killed) return true;
+
+  if (reactions.shortCircuit) triggerStatus(world, enemy, weaponIndex, 'Stunned');
+  if (primary) {
+    applyStatusBuilds(world, enemy, weaponIndex);
+    if (enemy.active) runHitEffects(world, enemy, weapon, weaponIndex, options, amount, critical);
+  }
+  return !enemy.active;
+}
+
+/** Active enemies inside a radius around a point, except one. In slot order. */
+function enemiesNear(world: World, x: number, y: number, radius: number, except: Enemy): Enemy[] {
+  const found: Enemy[] = [];
+  for (const slot of world.grid.query(x, y, radius + world.maxEnemyRadius, scratch)) {
+    const other = world.enemies.items[slot];
+    if (!other || !other.active || other === except) continue;
+    if (Math.hypot(other.x - x, other.y - y) <= radius + other.radius) found.push(other);
+  }
+  return found.sort((a, b) => a.slot - b.slot);
 }
 
 function runHitEffects(
@@ -91,16 +212,27 @@ function runHitEffects(
   weapon: WeaponState,
   weaponIndex: number,
   options: HitOptions,
+  amount: number,
+  critical: boolean,
 ): void {
   const resolved = weapon.resolved;
   const triggers = resolved.triggers;
 
   if (resolved.knockback > 0 && options.dirX !== undefined && options.dirY !== undefined) {
-    push(world, enemy, options.dirX * resolved.knockback, options.dirY * resolved.knockback);
+    const moved = push(world, enemy, options.dirX * resolved.knockback, options.dirY * resolved.knockback);
+    // Kinetic Probability: knockback into walls or enemies counts as a critical hit.
+    if (!critical && hasSynergy(resolved, 'kinetic-probability')) {
+      const blocked = moved < resolved.knockback * 0.6 || touchesEnemy(world, enemy);
+      if (blocked) {
+        world.stats.criticalHits++;
+        const extra = amount * (resolved.criticalDamage - 1);
+        if (statusHit(world, enemy, weaponIndex, extra, resolved.damageParts[0]?.type ?? 'Impact', true)) return;
+      }
+    }
   }
 
   if (triggers.slowOnHit) {
-    enemy.slowTimer = WEAPON_RULES.slowSeconds;
+    enemy.slowTimer = Math.max(enemy.slowTimer, WEAPON_RULES.slowSeconds);
     enemy.slowFactor = Math.min(enemy.slowFactor, WEAPON_RULES.slowFactor);
   }
 
@@ -117,20 +249,30 @@ function runHitEffects(
   if (triggers.pullOnHit) pullSmallEnemies(world, enemy.x, enemy.y, enemy);
 
   if (triggers.arcOnHit) {
-    const next = nearestOther(world, enemy.x, enemy.y, WEAPON_RULES.chainRange, [enemy.id]);
-    if (next) {
-      world.emit({ type: 'chain', points: [enemy.x, enemy.y, next.x, next.y], damageType: 'Electric' });
+    // Leyden Jar Cell: arcs to one nearby enemy. Conductive Strike adds a jump.
+    const hitIds = [enemy.id];
+    const points = [enemy.x, enemy.y];
+    let fromX = enemy.x;
+    let fromY = enemy.y;
+    for (let jump = 1; jump <= 1 + resolved.extraChainJumps; jump++) {
+      const next = nearestOther(world, fromX, fromY, WEAPON_RULES.chainRange, hitIds);
+      if (!next) break;
+      hitIds.push(next.id);
+      fromX = next.x;
+      fromY = next.y;
+      points.push(fromX, fromY);
       hitEnemy(world, next, weaponIndex, {
-        scale: WEAPON_RULES.arcOnHitDamageShare,
+        scale: WEAPON_RULES.arcOnHitDamageShare * WEAPON_RULES.chainFalloff ** (jump - 1),
         primary: false,
         forcedType: 'Electric',
-        generation: 1,
+        generation: jump,
       });
     }
+    if (points.length > 2) world.emit({ type: 'chain', points, damageType: 'Electric' });
   }
 
-  if (triggers.explodeOnHit && !options.fromBlast) {
-    explode(world, enemy.x, enemy.y, WEAPON_RULES.explodeOnHitRadius, weaponIndex, {
+  if (triggers.explodeOnHit && !options.fromBlast && enemy.active) {
+    explode(world, enemy.x, enemy.y, WEAPON_RULES.explodeOnHitRadius * resolved.explosionArea, weaponIndex, {
       scale: WEAPON_RULES.explodeOnHitDamageShare,
       primary: false,
       explosive: true,
@@ -184,10 +326,15 @@ export interface ExplodeOptions {
   readonly primary?: boolean;
   /** Explosions from the Explosive delivery deal Impact and Fire (GDD 7.13). */
   readonly explosive?: boolean;
+  /** Explicit damage, replacing the weapon's parts. */
+  readonly parts?: readonly DamagePart[];
   readonly generation?: number;
   readonly skipId?: number;
   /** No explosion event, for attacks drawing their own shape. */
   readonly quiet?: boolean;
+  readonly fromConstruct?: boolean;
+  /** Recursive Artillery copies never copy again. */
+  readonly isCopy?: boolean;
 }
 
 /** Hits every enemy inside a radius. Returns the number of enemies hit. */
@@ -211,7 +358,7 @@ export function explode(
         { type: 'Impact', amount: resolved.damage / 2 },
         { type: 'Fire', amount: resolved.damage / 2 },
       ]
-    : undefined;
+    : options.parts;
 
   if (!options.quiet) {
     world.emit({
@@ -219,7 +366,7 @@ export function explode(
       x,
       y,
       radius,
-      damageType: options.explosive ? 'Fire' : (resolved.damageParts[0]?.type ?? 'Impact'),
+      damageType: options.explosive ? 'Fire' : (parts?.[0]?.type ?? resolved.damageParts[0]?.type ?? 'Impact'),
       generation,
     });
   }
@@ -251,12 +398,27 @@ export function explode(
       parts,
       generation,
       fromBlast: true,
+      fromConstruct: options.fromConstruct,
       dirX: dx / distance,
       dirY: dy / distance,
     });
   }
 
-  if (primary && resolved.triggers.fragmentsOnExplosion) spawnFragments(world, x, y, weaponIndex);
+  if (primary) {
+    if (resolved.triggers.fragmentsOnExplosion) spawnFragments(world, x, y, weaponIndex);
+    // Recursive Artillery: each explosion triggers one smaller copy.
+    if (hasSynergy(resolved, 'recursive-artillery') && !options.isCopy) {
+      world.queueExplosion({
+        x,
+        y,
+        radius: radius * SYNERGY_RULES.recursiveAreaShare,
+        weaponIndex,
+        damageScale: scale * SYNERGY_RULES.recursiveDamageShare,
+        generation: generation + 1,
+        explosive: false,
+      });
+    }
+  }
   return targets.length;
 }
 
@@ -265,9 +427,42 @@ export function killEnemy(world: World, enemy: Enemy, weaponIndex = -1, generati
   if (!enemy.active) return;
   const x = enemy.x;
   const y = enemy.y;
+
+  // Read the statuses before the slot returns to the pool.
+  const infectedIndex = STATUS_INDEX.Infected;
+  const burningIndex = STATUS_INDEX.Burning;
+  const infected = hasStatus(enemy, 'Infected');
+  const infectionSource = enemy.statusSource[infectedIndex] ?? -1;
+  const infectionGeneration = enemy.statusGeneration[infectedIndex] ?? 0;
+  const burning = hasStatus(enemy, 'Burning');
+  const burnSource = enemy.statusSource[burningIndex] ?? -1;
+
   world.stats.kills++;
   world.emit({ type: 'enemyKilled', x, y, enemyId: enemy.def.id });
   world.enemies.release(enemy);
+
+  // Infected spreads to a nearby enemy on death (GDD 9.14). Overgrowth spreads to two.
+  if (infected) {
+    const source = world.weapons[infectionSource]?.resolved;
+    const count = source && hasSynergy(source, 'overgrowth') ? SYNERGY_RULES.overgrowthSpreads : 1;
+    spreadInfection(world, enemy, infectionSource, infectionGeneration, count);
+    // Parasite Larvae: Infected enemies release a parasite on death, which seeks a new host.
+    if (source?.triggers.parasite) spawnParasite(world, x, y, infectionSource);
+  }
+
+  // Flashpoint: Burning enemies explode on death.
+  const burner = world.weapons[burnSource]?.resolved;
+  if (burning && burner && hasSynergy(burner, 'flashpoint') && generation < burner.chainDepthLimit) {
+    world.queueExplosion({
+      x,
+      y,
+      radius: SYNERGY_RULES.flashpointRadius * burner.explosionArea,
+      weaponIndex: burnSource,
+      damageScale: SYNERGY_RULES.flashpointDamageShare,
+      generation: generation + 1,
+      explosive: true,
+    });
+  }
 
   const weapon = world.weapons[weaponIndex];
   if (!weapon) return;
@@ -289,12 +484,14 @@ export function killEnemy(world: World, enemy: Enemy, weaponIndex = -1, generati
   }
 
   // Kill explosions join the chain queue and resolve on a later step (GDD 7.20).
-  if (generation < WEAPON_RULES.chainDepthLimit) {
+  if (generation < resolved.chainDepthLimit) {
     if (resolved.killExplosion) {
       world.queueExplosion({
         x,
         y,
-        radius: Math.max(WEAPON_RULES.explodeOnKillRadius, resolved.area * WEAPON_RULES.killExplosionAreaShare),
+        radius:
+          Math.max(WEAPON_RULES.explodeOnKillRadius, resolved.area * WEAPON_RULES.killExplosionAreaShare) *
+          resolved.explosionArea,
         weaponIndex,
         damageScale: WEAPON_RULES.killExplosionDamageShare,
         generation: generation + 1,
@@ -305,7 +502,7 @@ export function killEnemy(world: World, enemy: Enemy, weaponIndex = -1, generati
       world.queueExplosion({
         x,
         y,
-        radius: WEAPON_RULES.explodeOnKillRadius,
+        radius: WEAPON_RULES.explodeOnKillRadius * resolved.explosionArea,
         weaponIndex,
         damageScale: WEAPON_RULES.explodeOnKillDamageShare,
         generation: generation + 1,

@@ -3,6 +3,7 @@
 import type { ArenaDef } from '../../data/arenas';
 import type { DamageType } from '../../data/damageTypes';
 import type { EnemyDef } from '../../data/enemies';
+import type { Reaction, StatusEffect } from '../../data/statusEffects';
 import type { PerformanceLimits } from '../../data/tiers';
 import type { ResolvedWeapon } from '../loadout';
 import type { Poolable } from './pool';
@@ -22,6 +23,8 @@ export interface PlayerStats {
   readonly criticalDamage: number;
   readonly adaptationPerHit: number;
   readonly adaptationCap: number;
+  /** Multiplier for status meter fill, strength and duration (GDD 3.6). 1 at the base tier. */
+  readonly statusPotency: number;
 }
 
 export type AdaptationMap = Partial<Record<DamageType, number>>;
@@ -78,6 +81,8 @@ export interface WeaponState {
   lightningTimer: number;
   bayonetTimer: number;
   smokeTimer: number;
+  /** Steady Hand: ids of enemies this weapon has hit. */
+  readonly firstHits: Set<number>;
   damageDealt: number;
   kills: number;
 }
@@ -115,10 +120,44 @@ export interface Enemy extends Poolable {
   slowFactor: number;
   /** Seconds the enemy has lost its target, for example inside smoke. */
   confused: number;
-  /** Marked status (GDD 9.14). Milestone 3 sets the flag. */
+  /** True while the Marked status is active (GDD 9.14). */
   marked: boolean;
   /** Seconds the enemy ignores further chain generations (GDD 7.20). */
   chainGuard: number;
+  /** Velocity over the last step, pushes included, for shots leading the target. */
+  vx: number;
+  vy: number;
+  /** Position at the start of the last step. */
+  prevX: number;
+  prevY: number;
+
+  // Status meters (GDD 9.14). One entry per status, in STATUS_EFFECTS order.
+  /** Meter fill, from 0 to the meter size. */
+  readonly statusMeter: number[];
+  /** Seconds of the active effect left. 0 means inactive. */
+  readonly statusActive: number[];
+  /** Weapon index credited with the active effect. */
+  readonly statusSource: number[];
+  /** Seconds until the next damage tick. */
+  readonly statusTick: number[];
+  /** Damage per tick. */
+  readonly statusDamage: number[];
+  /** Seconds since the last build-up. */
+  readonly statusSince: number[];
+  /** Chain generation of the active effect, for spreading infections (GDD 7.20). */
+  readonly statusGeneration: number[];
+  /** Meter size multiplier by rank: Normal 1, Elite 2, Champion 3, Boss 5. */
+  meterScale: number;
+  /** The Stun meter grows after each stun. */
+  stunGrowth: number;
+  fumesCooldown: number;
+  septicTimer: number;
+  /** Kill Zone: seconds the enemy counts as trapped. */
+  trapped: number;
+  /** Combined Arms: seconds the enemy counts as recently hit by melee. */
+  meleeMark: number;
+  /** Passive reactions already announced, as bit flags. */
+  reactionFlags: number;
 }
 
 export interface Projectile extends Poolable {
@@ -148,6 +187,12 @@ export interface Projectile extends Poolable {
   homing: number;
   /** Radius of the blast on contact. 0 means none. */
   blastRadius: number;
+  /** Shots from turrets roll critical hits only with Clockwork Precision. */
+  fromConstruct: boolean;
+  /** Parasite Larvae: the projectile infects the first enemy touched and deals no damage. */
+  parasite: boolean;
+  /** Chemical Ballistics: pixels travelled since the last trail drop. */
+  trailDistance: number;
   // Arcing flight.
   startX: number;
   startY: number;
@@ -191,7 +236,7 @@ export interface Trap extends Poolable {
   born: number;
 }
 
-export type ZoneKind = 'burning' | 'rubble' | 'smoke';
+export type ZoneKind = 'burning' | 'rubble' | 'smoke' | 'fumes' | 'trail';
 
 /** Lingering area effects: pools, rubble and smoke (GDD 7.21). */
 export interface Zone extends Poolable {
@@ -296,6 +341,9 @@ export type WorldEvent =
   /** Lightning between points: x and y pairs. */
   | { readonly type: 'chain'; readonly points: readonly number[]; readonly damageType: DamageType }
   | { readonly type: 'trapSnap'; readonly x: number; readonly y: number; readonly radius: number }
+  /** A status meter filled and the effect began (GDD 9.14). */
+  | { readonly type: 'status'; readonly status: StatusEffect; readonly x: number; readonly y: number }
+  | { readonly type: 'reaction'; readonly reaction: Reaction; readonly x: number; readonly y: number }
   | { readonly type: 'jam'; readonly weaponIndex: number };
 
 export interface WorldConfig {
@@ -307,6 +355,8 @@ export interface WorldConfig {
   readonly spawns: readonly SpawnEntry[];
   readonly playerStats: PlayerStats;
   readonly weapons: readonly ResolvedWeapon[];
+  /** Ids of every active synergy (GDD 7.19). */
+  readonly synergies?: readonly string[];
   /** Adaptation carried over from earlier rounds in the territory. */
   readonly adaptation?: AdaptationMap;
   /** Performance limits (GDD 7.21). Defaults to the PC limits. */

@@ -2,9 +2,10 @@
 // player and strike in melee. Milestone 4 moves decisions to src/sim/ai.ts.
 
 import type { EnemyDef } from '../../data/enemies';
-import { COMBAT, THREAT_COST, tierValue } from '../../data/tiers';
+import { COMBAT, STATUS_RULES, SYNERGY_RULES, THREAT_COST, tierValue } from '../../data/tiers';
 import { hitPlayer } from './damage';
 import { clampToArena, insideObstacle, pushOutOfObstacles } from './movement';
+import { createStatusArrays, hasStatus, isStopped, resetStatuses } from './status';
 import type { Enemy } from './types';
 import type { World } from './world';
 
@@ -37,6 +38,24 @@ export function createEnemy(slot: number, def: EnemyDef): Enemy {
     confused: 0,
     marked: false,
     chainGuard: 0,
+    vx: 0,
+    vy: 0,
+    prevX: 0,
+    prevY: 0,
+    statusMeter: createStatusArrays(),
+    statusActive: createStatusArrays(),
+    statusSource: createStatusArrays(),
+    statusTick: createStatusArrays(),
+    statusDamage: createStatusArrays(),
+    statusSince: createStatusArrays(),
+    statusGeneration: createStatusArrays(),
+    meterScale: 1,
+    stunGrowth: 1,
+    fumesCooldown: 0,
+    septicTimer: 0,
+    trapped: 0,
+    meleeMark: 0,
+    reactionFlags: 0,
   };
 }
 
@@ -60,12 +79,16 @@ export function spawnEnemy(world: World, def: EnemyDef, x: number, y: number): E
   enemy.slowTimer = 0;
   enemy.slowFactor = 1;
   enemy.confused = 0;
-  enemy.marked = false;
   enemy.chainGuard = 0;
+  enemy.vx = 0;
+  enemy.vy = 0;
+  resetStatuses(enemy);
   enemy.x = x;
   enemy.y = y;
   clampToArena(enemy, world.arena);
   pushOutOfObstacles(enemy, world.arena);
+  enemy.prevX = enemy.x;
+  enemy.prevY = enemy.y;
   world.maxEnemyRadius = Math.max(world.maxEnemyRadius, enemy.radius);
   world.emit({ type: 'enemySpawned', x: enemy.x, y: enemy.y });
   return enemy;
@@ -109,9 +132,16 @@ export function spawnGroup(world: World, def: EnemyDef, count: number): void {
 export function updateEnemies(world: World, dt: number): void {
   const player = world.player;
   const enemies = world.enemies.items;
+  const magneticField = world.synergies.has('magnetic-field');
+  const magneticSlow = 1 - tierValue('modifierSize', SYNERGY_RULES.magneticSlow);
 
   for (const enemy of enemies) {
     if (!enemy.active) continue;
+    // Velocity over the last step, measured from position, so pushes and pulls count.
+    enemy.vx = (enemy.x - enemy.prevX) / dt;
+    enemy.vy = (enemy.y - enemy.prevY) / dt;
+    enemy.prevX = enemy.x;
+    enemy.prevY = enemy.y;
     enemy.hitFlash = Math.max(0, enemy.hitFlash - dt);
     enemy.chainGuard = Math.max(0, enemy.chainGuard - dt);
     enemy.confused = Math.max(0, enemy.confused - dt);
@@ -119,8 +149,12 @@ export function updateEnemies(world: World, dt: number): void {
       enemy.slowTimer -= dt;
       if (enemy.slowTimer <= 0) enemy.slowFactor = 1;
     }
+    // Frozen, Stunned and Short-circuited enemies stop: no movement, no attack, timers on hold (GDD 9.14).
+    if (isStopped(enemy)) continue;
     // An enemy with no target stands still and starts no attack (Smoke Canister, GDD 7.18).
     const lost = enemy.confused > 0;
+    // Overheated enemies attack slower (GDD 9.14).
+    const actionDt = hasStatus(enemy, 'Overheated') ? dt / STATUS_RULES.overheated.attackSlow : dt;
 
     let dx = player.x - enemy.x;
     let dy = player.y - enemy.y;
@@ -131,7 +165,11 @@ export function updateEnemies(world: World, dt: number): void {
     }
 
     if (enemy.action === 'chase' && !lost) {
-      const speed = enemy.speed * (enemy.slowTimer > 0 ? enemy.slowFactor : 1);
+      let speed = enemy.speed * (enemy.slowTimer > 0 ? enemy.slowFactor : 1);
+      // Magnetic Field: Metallic enemies slow down near the player (GDD 7.19).
+      if (magneticField && distance <= SYNERGY_RULES.magneticSlowRange && enemy.def.properties.includes('Metallic')) {
+        speed *= magneticSlow;
+      }
       const step = Math.min(speed * dt, Math.max(0, distance - enemy.radius - player.radius));
       enemy.x += enemy.faceX * step;
       enemy.y += enemy.faceY * step;
@@ -182,7 +220,7 @@ export function updateEnemies(world: World, dt: number): void {
         enemy.actionTimer = COMBAT.enemyMeleeWindup;
       }
     } else if (enemy.action === 'windup') {
-      enemy.actionTimer -= dt;
+      enemy.actionTimer -= actionDt;
       if (enemy.actionTimer <= 0) {
         // The strike lands when the player is still in range (GDD 15.3).
         if (edgeGap <= enemy.range) hitPlayer(world, enemy.damage, enemy.def.damageType);
@@ -190,7 +228,7 @@ export function updateEnemies(world: World, dt: number): void {
         enemy.actionTimer = COMBAT.enemyMeleeRecover;
       }
     } else {
-      enemy.actionTimer -= dt;
+      enemy.actionTimer -= actionDt;
       if (enemy.actionTimer <= 0) enemy.action = 'chase';
     }
   }

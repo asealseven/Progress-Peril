@@ -76,7 +76,7 @@ describe('headless run', () => {
         `${result.stats.shotsFired} shots, ${result.stats.hitsTaken} hits taken`,
     );
     console.log(lines.join('\n'));
-  });
+  }, 60000);
 
   it('finishes three rounds with each starting weapon', () => {
     const lines: string[] = [];

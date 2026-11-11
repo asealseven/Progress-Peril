@@ -19,6 +19,9 @@ import type { RunState } from '../sim/run';
 import { auraRadius, currentAttackSpeed, orbitHeadRadius, orbitRadius } from '../sim/world/attacks';
 import { spawnGroup } from '../sim/world/enemies';
 import { ENEMIES } from '../data/enemies';
+import { REACTION_DEFS, STATUS_DEFS, STATUS_EFFECTS } from '../data/statusEffects';
+import { SYNERGIES } from '../data/synergies';
+import { meterSize, trailStatuses } from '../sim/world/status';
 import type { World } from '../sim/world/world';
 import { STEP_SECONDS } from '../sim/world/world';
 import { Button } from '../ui/button';
@@ -67,6 +70,9 @@ const LOOK_SMOOTHING = 4;
 const TOUCH_ZOOM = 0.85;
 const LOW_HEALTH = 0.3;
 const END_DELAY_MS = 1100;
+const PIP_SIZE = 6;
+const MAX_FLOATERS = 10;
+const FLOATER_SECONDS = 1.1;
 const HUD_MARGIN = 24;
 
 /** The combat scene: owns one simulation, feeds input in, steps and draws. */
@@ -104,6 +110,8 @@ export class Combat extends Phaser.Scene {
   private pauseZone?: Phaser.GameObjects.Zone;
   private debugButtons: Button[] = [];
   private focusPoint: { x: number; y: number } | undefined;
+  /** Floating labels naming status reactions (GDD 15.4). */
+  private floaters: Array<{ text: Phaser.GameObjects.Text; life: number }> = [];
 
   private lastHealthLabel = '';
   private lastTimerLabel = '';
@@ -130,6 +138,7 @@ export class Combat extends Phaser.Scene {
     this.weaponLabels = [];
     this.debugButtons = [];
     this.focusPoint = undefined;
+    this.floaters = [];
     this.pauseObjects = [];
     this.pauseButtons = [];
     this.pauseZone = undefined;
@@ -367,8 +376,8 @@ export class Combat extends Phaser.Scene {
     const s = this.scale1;
     const centreX = SCREEN.width / 2;
     const centreY = SCREEN.height / 2;
-    const panelWidth = 460 * s;
-    const panelHeight = 380 * s;
+    const panelWidth = 520 * s;
+    const panelHeight = 430 * s;
 
     const dim = this.add.rectangle(centreX, centreY, SCREEN.width, SCREEN.height, INK, 0.6);
     dim.setInteractive();
@@ -386,14 +395,23 @@ export class Combat extends Phaser.Scene {
       { role: 'hand', size: 28 * s, colour: PALETTE.brass },
     ).setOrigin(0.5);
 
-    const resume = new Button(this, centreX, centreY + 20 * s, {
+    // The pause screen shows the active synergies of the build (GDD 3.12).
+    const names = [...this.sim.synergies].map((id) => SYNERGIES[id]?.name ?? id);
+    const synergies = addText(this, centreX, centreY - panelHeight / 2 + 134 * s, STRINGS.pause.synergies(names), {
+      size: 16 * s,
+      weight: '500',
+      align: 'center',
+      wrapWidth: panelWidth - 40,
+    }).setOrigin(0.5, 0);
+
+    const resume = new Button(this, centreX, centreY + 64 * s, {
       label: STRINGS.pause.resume,
       width: 320 * s,
       height: 64 * s,
       textSize: 28 * s,
       onClick: () => this.setPaused(false),
     });
-    const quit = new Button(this, centreX, centreY + 106 * s, {
+    const quit = new Button(this, centreX, centreY + 146 * s, {
       label: STRINGS.pause.quit,
       width: 320 * s,
       height: 64 * s,
@@ -401,9 +419,9 @@ export class Combat extends Phaser.Scene {
       onClick: () => this.scene.start('Boot'),
     });
 
-    this.pauseObjects = [dim, panel, title, seed];
+    this.pauseObjects = [dim, panel, title, seed, synergies];
     this.pauseButtons = [resume, quit];
-    [dim, panel, title, seed].forEach((object, index) => {
+    [dim, panel, title, seed, synergies].forEach((object, index) => {
       this.inHud(object).setDepth(DEPTH.overlay + index);
     });
     for (const button of this.pauseButtons) {
@@ -557,11 +575,48 @@ export class Combat extends Phaser.Scene {
         case 'trapSnap':
           this.effects.ring(event.x, event.y, event.radius, GOLD, 0.2);
           break;
+        case 'status':
+          this.effects.burst(event.x, event.y, hexToNumber(STATUS_DEFS[event.status].colour), 6, 110, 3, 0.4);
+          break;
+        case 'reaction':
+          this.showReaction(event.reaction, event.x, event.y);
+          break;
         default:
           break;
       }
     }
     this.sim.events.length = 0;
+  }
+
+  /** Names a status reaction above the enemy, so the player learns each one (GDD 15.4). */
+  private showReaction(reaction: keyof typeof REACTION_DEFS, x: number, y: number): void {
+    const colour = hexToNumber(REACTION_DEFS[reaction].colour);
+    this.effects.ring(x, y, 34, colour, 0.35);
+    let floater = this.floaters.find((entry) => entry.life <= 0);
+    if (!floater) {
+      if (this.floaters.length >= MAX_FLOATERS) return;
+      const text = this.inWorld(addText(this, 0, 0, '', { role: 'hand', size: 24 }))
+        .setOrigin(0.5)
+        .setDepth(DEPTH.bars + 1);
+      text.setStroke(PALETTE.parchment, 5);
+      floater = { text, life: 0 };
+      this.floaters.push(floater);
+    }
+    floater.life = FLOATER_SECONDS;
+    floater.text.setText(reaction).setPosition(x, y - 30).setAlpha(1).setVisible(true);
+  }
+
+  private drawFloaters(frame: number): void {
+    for (const floater of this.floaters) {
+      if (floater.life <= 0) continue;
+      floater.life -= frame;
+      if (floater.life <= 0) {
+        floater.text.setVisible(false);
+        continue;
+      }
+      floater.text.y -= 26 * frame;
+      floater.text.setAlpha(Math.min(1, floater.life / 0.3));
+    }
   }
 
   // --- Drawing ------------------------------------------------------------------
@@ -572,6 +627,7 @@ export class Combat extends Phaser.Scene {
     this.drawEnemies();
     this.drawUnder();
     this.drawOver();
+    this.drawFloaters(frame);
     this.effects.update(frame);
     this.drawHud();
     if (this.debugVisible) this.drawDebug();
@@ -656,6 +712,34 @@ export class Combat extends Phaser.Scene {
         bars.fillStyle(PARCHMENT, 1);
         bars.fillRect(left, top, width * Math.max(0, enemy.health / enemy.maxHealth), 4);
       }
+
+      // Status meters show as small pips above the health bar, so players see effects coming (GDD 9.14).
+      // A triggered effect fills its pip and adds a coloured outline to the enemy (GDD 15.4).
+      let pip = 0;
+      let outlines = 0;
+      for (let index = 0; index < STATUS_EFFECTS.length; index++) {
+        const meter = enemy.statusMeter[index] ?? 0;
+        const active = (enemy.statusActive[index] ?? 0) > 0;
+        if (meter <= 0 && !active) continue;
+        const status = STATUS_EFFECTS[index];
+        if (!status) continue;
+        const colour = hexToNumber(STATUS_DEFS[status].colour);
+        const pipX = enemy.x - enemy.radius - 2 + pip * (PIP_SIZE + 2);
+        const pipY = enemy.y - enemy.radius - 20;
+        const fill = active ? 1 : Math.min(1, meter / meterSize(enemy, status));
+        bars.fillStyle(INK, 1);
+        bars.fillRect(pipX - 1, pipY - 1, PIP_SIZE + 2, PIP_SIZE + 2);
+        bars.fillStyle(PARCHMENT, 1);
+        bars.fillRect(pipX, pipY, PIP_SIZE, PIP_SIZE);
+        bars.fillStyle(colour, 1);
+        bars.fillRect(pipX, pipY + PIP_SIZE * (1 - fill), PIP_SIZE, PIP_SIZE * fill);
+        pip++;
+        if (active && outlines < 2) {
+          bars.lineStyle(3, colour, 0.95);
+          bars.strokeCircle(enemy.x, enemy.y, enemy.radius + 4 + outlines * 4);
+          outlines++;
+        }
+      }
     }
   }
 
@@ -681,6 +765,17 @@ export class Combat extends Phaser.Scene {
         g.lineStyle(2, INK, 0.45 * fade);
         g.strokeCircle(zone.x, zone.y, zone.radius * 0.6);
         g.strokeCircle(zone.x, zone.y, zone.radius);
+      } else if (zone.kind === 'fumes') {
+        const toxic = hexToNumber(DAMAGE_TYPE_COLOURS.Toxic);
+        g.fillStyle(toxic, 0.3 * fade);
+        g.fillCircle(zone.x, zone.y, zone.radius);
+        g.lineStyle(2, toxic, 0.8 * fade);
+        g.strokeCircle(zone.x, zone.y, zone.radius);
+      } else if (zone.kind === 'trail') {
+        const status = trailStatuses(sim, zone.weaponIndex)[0];
+        const colour = hexToNumber(status ? STATUS_DEFS[status].colour : DAMAGE_TYPE_COLOURS.Fire);
+        g.fillStyle(colour, 0.4 * Math.min(1, zone.timeLeft / zone.duration + 0.2));
+        g.fillCircle(zone.x, zone.y, zone.radius);
       } else {
         g.fillStyle(SMOKE, 0.6 * fade);
         g.fillCircle(zone.x, zone.y, zone.radius);
@@ -798,9 +893,11 @@ export class Combat extends Phaser.Scene {
         g.lineStyle(1.5, GOLD, 0.5);
         g.strokeCircle(projectile.targetX, projectile.targetY, Math.max(8, projectile.blastRadius));
       } else {
-        g.lineStyle(Math.max(2, radius * 0.8), GOLD, 0.45);
+        // A parasite shows in the Biological colour.
+        const colour = projectile.parasite ? hexToNumber(DAMAGE_TYPE_COLOURS.Biological) : GOLD;
+        g.lineStyle(Math.max(2, radius * 0.8), colour, 0.45);
         g.lineBetween(projectile.x - projectile.dx * 14, projectile.y - projectile.dy * 14, projectile.x, projectile.y);
-        g.fillStyle(GOLD, 1);
+        g.fillStyle(colour, 1);
         g.fillCircle(projectile.x, projectile.y, radius);
         g.lineStyle(1.5, INK, 1);
         g.strokeCircle(projectile.x, projectile.y, radius);
@@ -891,6 +988,14 @@ export class Combat extends Phaser.Scene {
       }
       hud.lineStyle(weapon ? 3 : 2, weapon ? INK : BRASS, weapon ? 1 : 0.7);
       hud.strokeRect(x, tile.y, tile.size, tile.size);
+      // Weapon tiles glow when a synergy is active (GDD 15.7).
+      if (weapon && weapon.resolved.synergies.length > 0) {
+        const pulse = 0.55 + 0.4 * (0.5 + 0.5 * Math.sin(this.clock * 4 + slot));
+        hud.lineStyle(5, GOLD, pulse);
+        hud.strokeRect(x - 5, tile.y - 5, tile.size + 10, tile.size + 10);
+        hud.lineStyle(2, GOLD, pulse * 0.5);
+        hud.strokeRect(x - 10, tile.y - 10, tile.size + 20, tile.size + 20);
+      }
     }
 
     // Pause button on touch devices.

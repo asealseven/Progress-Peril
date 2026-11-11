@@ -26,6 +26,8 @@ export const STRINGS = {
   pause: {
     title: 'Paused',
     seed: (seed: string) => `Seed ${seed}`,
+    synergies: (names: readonly string[]) =>
+      names.length > 0 ? `Synergies: ${names.join(', ')}` : 'No active synergies',
     resume: 'Resume',
     quit: 'Quit to title',
     hintKeyboard: 'Esc resumes',
@@ -80,6 +82,13 @@ export const STRINGS = {
     cancel: 'Cancel',
     waiting: (component: string, milestone: number) => `${component}: active from Milestone ${milestone}`,
     needWeapon: 'Equip at least one weapon.',
+    researchLocked: 'Research synergies: locked',
+    researchOpen: 'Research synergies: open',
+    activeSynergies: (names: readonly string[]) =>
+      names.length > 0 ? `Active synergies: ${names.join(', ')}` : 'Active synergies: none',
+    nearMisses: (texts: readonly string[]) => (texts.length > 0 ? `Near: ${texts.join('. ')}` : ''),
+    lockedSynergies: (names: readonly string[]) =>
+      names.length > 0 ? `Needs research: ${names.join(', ')}` : '',
   },
 } as const;
 

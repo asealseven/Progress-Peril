@@ -44,6 +44,8 @@ export interface RunState {
   status: RunStatus;
   /** Adaptation lasts for a territory (GDD 3.7). */
   adaptation: AdaptationMap;
+  /** Research synergies opened by research nodes (GDD 7.19). Milestone 6 fills the list. */
+  researchSynergies: string[];
   readonly history: RoundResult[];
 }
 
@@ -56,6 +58,7 @@ export function createRun(seed: number, character: CharacterDef, startingWeapon:
     round: 1,
     status: 'active',
     adaptation: {},
+    researchSynergies: [],
     history: [],
   };
 }
@@ -74,6 +77,8 @@ export function resolvePlayerStats(character: CharacterDef): PlayerStats {
     criticalDamage: tierValue('criticalDamage', base.criticalDamage),
     adaptationPerHit: ADAPTATION.perHit,
     adaptationCap: ADAPTATION.baseCap,
+    // Status Potency has base Low (GDD 3.6): no change at the base tier.
+    statusPotency: 1,
   };
 }
 
@@ -82,7 +87,10 @@ export function createWorldForRound(run: RunState, limits: PerformanceLimits = P
   // One generator per round, so a round replays the same way from the run seed.
   const roundRng = new Rng(run.seed).fork(run.round);
   // Tags and stats only change during preparation, so the loadout resolves once per round.
-  const loadout = resolveLoadout(run.weapons.slice(0, WEAPON_SLOTS), resolvePlayerStats(run.character));
+  // Synergies recalculate here, when the player presses Start (CLAUDE.md rule 7).
+  const loadout = resolveLoadout(run.weapons.slice(0, WEAPON_SLOTS), resolvePlayerStats(run.character), {
+    researchSynergies: run.researchSynergies,
+  });
   return new World({
     arena: run.arena,
     seed: roundRng.int(0, 0xffffffff),
@@ -91,6 +99,7 @@ export function createWorldForRound(run: RunState, limits: PerformanceLimits = P
     spawns: planRound(run.round, ENEMIES['royal-footman'], roundRng),
     playerStats: loadout.playerStats,
     weapons: loadout.weapons,
+    synergies: loadout.synergies,
     adaptation: run.adaptation,
     limits,
   });

@@ -4,17 +4,24 @@
 import { SCRAP_RETURN, componentFitsFamily } from '../data/components';
 import type { ComponentDef, SlotType } from '../data/components';
 import type { DamageType } from '../data/damageTypes';
+import { ELEMENTAL_TYPES } from '../data/damageTypes';
 import type { Effect, StatKey } from '../data/effects';
+import { STATUS_EFFECTS, STATUS_FOR_DAMAGE_TYPE } from '../data/statusEffects';
+import type { StatusEffect } from '../data/statusEffects';
 import type { Tag } from '../data/tags';
 import {
   COMBAT,
   KNOCKBACK_PIXELS,
   PLAYER_STAT_CAPS,
+  STATUS_RULES,
+  SYNERGY_RULES,
   WEAPON_RULES,
   tierValue,
 } from '../data/tiers';
 import type { Delivery, ProjectileBehaviour, TargetingRule, WeaponDef, WeaponZone } from '../data/weapons';
 import { ModifierStack, stackArmour } from './modifiers';
+import { evaluateSynergies } from './synergies';
+import type { SynergyReport, SynergyWeapon } from './synergies';
 import type { PlayerStats } from './world/types';
 
 // --- Instances ---------------------------------------------------------------
@@ -134,7 +141,7 @@ export function weaponTags(weapon: WeaponInstance): Tag[] {
 // --- Resolution --------------------------------------------------------------
 
 /** The milestone the build has reached. Effects marked for a later milestone stay inactive. */
-export const CURRENT_MILESTONE = 2;
+export const CURRENT_MILESTONE = 3;
 
 export function isActive(effect: Effect): boolean {
   return (effect.activeFrom ?? 0) <= CURRENT_MILESTONE;
@@ -163,6 +170,14 @@ export interface WeaponTriggers {
   readonly lightning: boolean;
   readonly smoke: boolean;
   readonly bayonet: boolean;
+  /** Parasite Larvae: Infected enemies release a parasite on death. */
+  readonly parasite: boolean;
+}
+
+/** Meter fill per hit for one status, as a share of a Normal enemy meter (GDD 9.14). */
+export interface StatusBuild {
+  readonly status: StatusEffect;
+  readonly share: number;
 }
 
 export interface InactiveEffect {
@@ -220,6 +235,94 @@ export interface ResolvedWeapon {
   readonly triggers: WeaponTriggers;
   /** Components with effects waiting for a later milestone. */
   readonly inactive: readonly InactiveEffect[];
+
+  // --- Status effects (GDD 9.14) ---
+  /** Statuses the weapon's hits build. */
+  readonly statusBuilds: readonly StatusBuild[];
+  /** Multiplier for the duration of statuses this weapon triggers. */
+  readonly statusDuration: number;
+  /** Extra duration multiplier for single statuses. */
+  readonly statusDurationFor: Readonly<Partial<Record<StatusEffect, number>>>;
+  /** Summed component Damage percentage, so per-hit component bonuses add to the same source. */
+  readonly componentDamageBonus: number;
+  /** Resonance Fork: bonus damage against enemies with one of these statuses. */
+  readonly bonusAgainst: readonly StatusEffect[];
+  readonly bonusAgainstAmount: number;
+
+  // --- Synergies (GDD 7.19) ---
+  /** Ids of the active synergies this weapon takes part in. */
+  readonly synergies: readonly string[];
+  /** Conductive Strike: extra jumps for Electric chains. */
+  readonly extraChainJumps: number;
+  /** Pressure Burst: multiplier for explosion radius. */
+  readonly explosionArea: number;
+  /** Ballistic Tables: Arcing shots lead moving targets. */
+  readonly leadTargets: boolean;
+  /** Chain depth limit for this weapon's chain reactions (GDD 7.20). */
+  readonly chainDepthLimit: number;
+  /** Clockwork Precision: constructs roll critical hits with player Critical Chance. */
+  readonly constructsCrit: boolean;
+  /** Bioengineering: constructs regenerate. */
+  readonly constructRegen: boolean;
+}
+
+/** True when the weapon takes part in the active synergy. */
+export function hasSynergy(weapon: ResolvedWeapon, id: string): boolean {
+  return weapon.synergies.includes(id);
+}
+
+/** Statuses a weapon builds with its components, before synergies (GDD 9.14, NOTES.md). */
+export function weaponStatusBuilds(weapon: WeaponInstance): { builds: StatusBuild[]; payload: StatusEffect[] } {
+  const shares = new Map<StatusEffect, number>();
+  const payload: StatusEffect[] = [];
+  const add = (status: StatusEffect, share: number): void => {
+    shares.set(status, (shares.get(status) ?? 0) + share);
+  };
+  const intrinsic = tierValue('statusBuildUp', STATUS_RULES.intrinsicBuild);
+
+  // Elemental weapons build their type's status. Added damage types count too.
+  const types = [...weapon.def.damageTypes];
+  for (const component of installedComponents(weapon)) {
+    for (const effect of component.def.effects) {
+      if (effect.kind === 'addDamage' && isActive(effect)) types.push(effect.damageType);
+    }
+  }
+  for (const type of new Set(types)) {
+    const status = STATUS_FOR_DAMAGE_TYPE[type];
+    if (status && ELEMENTAL_TYPES.includes(type)) add(status, intrinsic);
+  }
+  // Weapons whose GDD 7.17 text names a status.
+  if (weapon.def.builds) add(weapon.def.builds, intrinsic);
+
+  for (const component of installedComponents(weapon)) {
+    for (const effect of component.def.effects) {
+      if (effect.kind !== 'statusBuild' || !isActive(effect)) continue;
+      const status = STATUS_EFFECTS.find((name) => name === effect.status);
+      if (!status) continue;
+      add(status, tierValue('statusBuildUp', effect.tier));
+      if (component.def.slot === 'Payload' && !payload.includes(status)) payload.push(status);
+    }
+  }
+  return { builds: [...shares].map(([status, share]) => ({ status, share })), payload };
+}
+
+/** True when a Grand Calculus Engine sits in an open slot. */
+function hasWildcard(weapon: WeaponInstance): boolean {
+  return installedComponents(weapon).some((component) =>
+    component.def.effects.some((effect) => effect.kind === 'extraSynergyTag' && isActive(effect)),
+  );
+}
+
+/** What the synergy rules read from a weapon. */
+export function synergyProfile(weapon: WeaponInstance): SynergyWeapon {
+  const status = weaponStatusBuilds(weapon);
+  return {
+    tags: weaponTags(weapon),
+    family: weapon.def.family,
+    statuses: status.builds.map((build) => build.status),
+    payloadStatuses: status.payload,
+    wildcard: hasWildcard(weapon),
+  };
 }
 
 type WeaponStat = StatKey;
@@ -228,8 +331,15 @@ function tierSize(effect: Extract<Effect, { kind: 'stat' }>): number {
   return tierValue('modifierSize', effect.tier) * (effect.direction === 'up' ? 1 : -1);
 }
 
-/** Applies every installed component to a weapon (CLAUDE.md rule 5). */
-export function resolveWeapon(weapon: WeaponInstance, player: PlayerStats): ResolvedWeapon {
+/**
+ * Applies every installed component and every active synergy to a weapon (CLAUDE.md rule 5).
+ * `synergies` lists the ids of the active synergies the weapon takes part in.
+ */
+export function resolveWeapon(
+  weapon: WeaponInstance,
+  player: PlayerStats,
+  synergies: readonly string[] = [],
+): ResolvedWeapon {
   const def = weapon.def;
   const components = installedComponents(weapon);
   const stack = new ModifierStack<WeaponStat>();
@@ -249,6 +359,9 @@ export function resolveWeapon(weapon: WeaponInstance, player: PlayerStats): Reso
   let knockback = 0;
   let lowHealthAttackSpeed = 0;
   let constructRepair = false;
+  let chainDepthLimit: number = WEAPON_RULES.chainDepthLimit;
+  let bonusAgainst: StatusEffect[] = [];
+  const statusDurationFor: Partial<Record<StatusEffect, number>> = {};
   const typeDamage = new Map<DamageType, number>();
   const addedDamage: Array<{ type: DamageType; share: number }> = [];
   const inactive: InactiveEffect[] = [];
@@ -269,6 +382,7 @@ export function resolveWeapon(weapon: WeaponInstance, player: PlayerStats): Reso
     lightning: false,
     smoke: false,
     bayonet: false,
+    parasite: false,
   };
 
   for (const component of components) {
@@ -294,6 +408,11 @@ export function resolveWeapon(weapon: WeaponInstance, player: PlayerStats): Reso
             knockback += KNOCKBACK_PIXELS[effect.tier] * (effect.direction === 'up' ? 1 : -1);
           } else if (effect.stat === 'playerArmour') {
             // Applied to the player in resolveLoadout.
+          } else if (effect.when?.kind === 'status') {
+            const status = STATUS_EFFECTS.find((name) => name === (effect.when as { status: string }).status);
+            if (status && effect.stat === 'statusDuration') {
+              statusDurationFor[status] = (statusDurationFor[status] ?? 1) + size;
+            }
           } else if (effect.when?.kind === 'damageType') {
             if (effect.stat === 'damage') {
               typeDamage.set(effect.when.damageType, (typeDamage.get(effect.when.damageType) ?? 0) + size);
@@ -373,6 +492,16 @@ export function resolveWeapon(weapon: WeaponInstance, player: PlayerStats): Reso
         case 'constructRepair':
           constructRepair = true;
           break;
+        case 'parasiteOnDeath':
+          triggers.parasite = true;
+          break;
+        case 'bonusAgainstStatus':
+          bonusAgainst = STATUS_EFFECTS.filter((name) => effect.statuses.includes(name));
+          break;
+        case 'extraSynergyTag':
+          // The Grand Calculus Engine also raises the chain depth limit (GDD 7.20).
+          chainDepthLimit += SYNERGY_RULES.calculusChainDepth;
+          break;
         default:
           // Tag grants are read by weaponTags. Later-milestone kinds never reach here.
           break;
@@ -385,6 +514,23 @@ export function resolveWeapon(weapon: WeaponInstance, player: PlayerStats): Reso
     const step = tierValue('modifierSize', WEAPON_RULES.adaptPerRound);
     const cap = tierValue('modifierSize', WEAPON_RULES.adaptCap);
     stack.addPercent('damage', 'weapon', Math.min(cap, step * weapon.rounds));
+  }
+
+  // Synergies with fixed effects on the weapon's numbers (GDD 7.19).
+  const active = (id: string): boolean => synergies.includes(id);
+  if (active('rail-shot')) penetration += 2;
+  if (active('electromagnetic-launchers')) {
+    penetration += SYNERGY_RULES.launcherPenetration;
+    stack.addPercent('range', 'synergies', tierValue('modifierSize', 'Medium'));
+  }
+  const arcingWeapon = tags.includes('Arcing');
+  if (active('ballistic-tables') && arcingWeapon) {
+    stack.addPercent('area', 'synergies', tierValue('modifierSize', 'Low'));
+  }
+  if (active('bioengineering')) {
+    const step = tierValue('modifierSize', SYNERGY_RULES.bioGrowthPerRound);
+    const cap = tierValue('modifierSize', SYNERGY_RULES.bioGrowthCap);
+    stack.addPercent('damage', 'synergies', Math.min(cap, step * weapon.rounds));
   }
 
   // Damage (GDD 7.14 steps 1 to 3). Two damage types split the damage evenly.
@@ -463,16 +609,50 @@ export function resolveWeapon(weapon: WeaponInstance, player: PlayerStats): Reso
     constructRepair,
     triggers,
     inactive,
+    statusBuilds: weaponStatusBuilds(weapon).builds,
+    statusDuration: stack.factor('statusDuration'),
+    statusDurationFor,
+    componentDamageBonus: stack.percentFor('damage', 'components'),
+    bonusAgainst,
+    bonusAgainstAmount: tierValue('modifierSize', SYNERGY_RULES.resonanceBonus),
+    synergies,
+    extraChainJumps: active('conductive-strike') ? 1 : 0,
+    explosionArea: active('pressure-burst') ? 1 + tierValue('modifierSize', 'Medium') : 1,
+    leadTargets: active('ballistic-tables') && arcingWeapon,
+    chainDepthLimit,
+    constructsCrit: active('clockwork-precision'),
+    constructRegen: active('bioengineering'),
   };
 }
 
 export interface ResolvedLoadout {
   readonly playerStats: PlayerStats;
   readonly weapons: ResolvedWeapon[];
+  /** Active synergies, near misses and locked research synergies, for the build panel. */
+  readonly report: SynergyReport;
+  /** Ids of every active synergy. */
+  readonly synergies: readonly string[];
 }
 
-/** Resolves every weapon and the player-level effects of their components. */
-export function resolveLoadout(weapons: readonly WeaponInstance[], base: PlayerStats): ResolvedLoadout {
+export interface LoadoutOptions {
+  /** Ids of research synergies opened by research nodes (Milestone 6). */
+  readonly researchSynergies?: readonly string[];
+}
+
+/**
+ * Resolves every weapon, the active synergies and the player-level effects of
+ * components and synergies. Runs once per round, when the player presses Start.
+ */
+export function resolveLoadout(
+  weapons: readonly WeaponInstance[],
+  base: PlayerStats,
+  options: LoadoutOptions = {},
+): ResolvedLoadout {
+  const report = evaluateSynergies(weapons.map(synergyProfile), options.researchSynergies ?? []);
+  const synergies = report.active.map((entry) => entry.def.id);
+  const forWeapon = (index: number): string[] =>
+    report.active.filter((entry) => entry.weapons.includes(index)).map((entry) => entry.def.id);
+
   const armourSources = [base.armour];
   for (const weapon of weapons) {
     for (const component of installedComponents(weapon)) {
@@ -483,9 +663,20 @@ export function resolveLoadout(weapons: readonly WeaponInstance[], base: PlayerS
     }
   }
   const armourCap = tierValue('armour', PLAYER_STAT_CAPS.armour);
+  const adaptive = synergies.includes('adaptive-armour') ? SYNERGY_RULES.adaptiveFactor : 1;
   const playerStats: PlayerStats = {
     ...base,
     armour: Math.min(armourCap, stackArmour(armourSources)),
+    // Magnetic Field: Pickup Radius up, High.
+    pickupRadius: base.pickupRadius * (synergies.includes('magnetic-field') ? 1 + tierValue('modifierSize', 'High') : 1),
+    // Adaptive Armour: damage adaptation gain and cap double.
+    adaptationPerHit: base.adaptationPerHit * adaptive,
+    adaptationCap: base.adaptationCap * adaptive,
   };
-  return { playerStats, weapons: weapons.map((weapon) => resolveWeapon(weapon, playerStats)) };
+  return {
+    playerStats,
+    weapons: weapons.map((weapon, index) => resolveWeapon(weapon, playerStats, forWeapon(index))),
+    report,
+    synergies,
+  };
 }

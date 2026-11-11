@@ -3,6 +3,8 @@ import type { ArenaDef } from '../src/data/arenas';
 import { CHARACTERS } from '../src/data/characters';
 import { componentByName } from '../src/data/components';
 import { ENEMIES } from '../src/data/enemies';
+import type { EnemyDef } from '../src/data/enemies';
+import { RESEARCH_SYNERGY_IDS } from '../src/data/synergies';
 import { weaponByName } from '../src/data/weapons';
 import { createWeapon, installComponent, resolveLoadout } from '../src/sim/loadout';
 import type { ResolvedWeapon, WeaponInstance } from '../src/sim/loadout';
@@ -59,15 +61,20 @@ export interface TestWorldOptions {
   invincible?: boolean;
   /** Critical Chance 0 removes the critical roll from a test. */
   noCriticals?: boolean;
+  /** Critical Chance 1 makes every primary hit critical. */
+  alwaysCritical?: boolean;
+  /** Research synergies opened, by id. 'all' opens every one. */
+  research?: readonly string[] | 'all';
 }
 
 export function makeWorld(options: TestWorldOptions = {}): World {
   const base = { ...BASE_STATS, ...options.playerStats };
   const instances = options.armed === false ? [] : (options.weapons ?? [arm('Crossbow')]);
-  const loadout = resolveLoadout(instances, base);
-  const weapons = options.noCriticals
-    ? loadout.weapons.map((weapon) => ({ ...weapon, criticalChance: 0 }))
-    : loadout.weapons;
+  const researchSynergies = options.research === 'all' ? RESEARCH_SYNERGY_IDS : (options.research ?? []);
+  const loadout = resolveLoadout(instances, base, { researchSynergies });
+  let weapons = loadout.weapons;
+  if (options.noCriticals) weapons = weapons.map((weapon) => ({ ...weapon, criticalChance: 0 }));
+  if (options.alwaysCritical) weapons = weapons.map((weapon) => ({ ...weapon, criticalChance: 1 }));
   return new World({
     arena: options.arena ?? OPEN_ARENA,
     seed: options.seed ?? 12345,
@@ -76,6 +83,7 @@ export function makeWorld(options: TestWorldOptions = {}): World {
     spawns: options.spawns ?? HOLD_OPEN,
     playerStats: loadout.playerStats,
     weapons,
+    synergies: loadout.synergies,
     invincible: options.invincible,
   });
 }
@@ -90,5 +98,48 @@ export function footmanAt(world: World, dx: number, dy: number, still = true): E
   const enemy = spawnEnemy(world, FOOTMAN, world.player.x + dx, world.player.y + dy);
   if (!enemy) throw new Error('Enemy pool full');
   if (still) enemy.speed = 0;
+  // Area queries read the grid, which the world rebuilds once per step.
+  world.grid.insert(enemy.slot, enemy.x, enemy.y);
   return enemy;
+}
+
+/**
+ * Test enemies. They exist only in tests, to reach rules no Milestone 3 enemy
+ * shows yet: a target with no weakness, resistance or Armour, and an Artificial one.
+ */
+export const PLAIN_ENEMY: EnemyDef = {
+  ...FOOTMAN,
+  id: 'test-plain',
+  name: 'Test Dummy',
+  armour: 'Minimal',
+  properties: ['Organic'],
+  weakTo: [],
+  resists: [],
+};
+
+export const ARTIFICIAL_ENEMY: EnemyDef = {
+  ...PLAIN_ENEMY,
+  id: 'test-artificial',
+  name: 'Test Automaton',
+  properties: ['Artificial', 'Mechanical', 'Metallic'],
+  immune: ['Toxic', 'Biological'],
+};
+
+/** Spawns a test enemy at an offset from the player, standing still, with a set health pool. */
+export function dummyAt(world: World, dx: number, dy: number, def: EnemyDef = PLAIN_ENEMY, health = 100000): Enemy {
+  const enemy = spawnEnemy(world, def, world.player.x + dx, world.player.y + dy);
+  if (!enemy) throw new Error('Enemy pool full');
+  enemy.speed = 0;
+  enemy.health = enemy.maxHealth = health;
+  world.grid.insert(enemy.slot, enemy.x, enemy.y);
+  return enemy;
+}
+
+/** Stops every weapon from attacking, for tests driving hits by hand. */
+export function holdFire(world: World): void {
+  for (const weapon of world.weapons) {
+    weapon.cooldown = 1e9;
+    weapon.deployTimer = 1e9;
+    weapon.lightningTimer = 1e9;
+  }
 }

@@ -48,7 +48,7 @@ function down(stat: Extract<Effect, { kind: 'stat' }>['stat'], tier: Tier): Effe
 }
 
 function builds(status: string, tier: Tier): Effect {
-  return { kind: 'statusBuild', status, tier, activeFrom: 3 };
+  return { kind: 'statusBuild', status, tier };
 }
 
 function component(
@@ -151,7 +151,13 @@ export const COMPONENT_LIST: readonly ComponentDef[] = [
     'Uncommon',
     [
       { kind: 'stat', stat: 'damage', direction: 'up', tier: 'Low', when: { kind: 'damageType', damageType: 'Fire' } },
-      { kind: 'stat', stat: 'statusDuration', direction: 'up', tier: 'Medium', activeFrom: 3 },
+      {
+        kind: 'stat',
+        stat: 'statusDuration',
+        direction: 'up',
+        tier: 'Medium',
+        when: { kind: 'status', status: 'Burning' },
+      },
     ],
   ),
   component(
@@ -367,7 +373,7 @@ export const COMPONENT_LIST: readonly ComponentDef[] = [
     'Builds Infected, Medium. Infection spreads on death',
     'All',
     'Uncommon',
-    [builds('Infected', 'Medium'), { kind: 'statusSpreadOnDeath', status: 'Infected', activeFrom: 3 }],
+    [builds('Infected', 'Medium'), { kind: 'statusSpreadOnDeath', status: 'Infected' }],
   ),
   component('Payload', 'Marking Chalk', ['Precise'], 'Builds Marked, Medium', 'All', 'Uncommon', [
     builds('Marked', 'Medium'),
@@ -406,7 +412,7 @@ export const COMPONENT_LIST: readonly ComponentDef[] = [
     'Infected enemies release a parasite on death, which seeks a new host',
     'All',
     'Experimental',
-    [{ kind: 'parasiteOnDeath', activeFrom: 3 }],
+    [{ kind: 'parasiteOnDeath' }],
   ),
   component(
     'Payload',
@@ -450,7 +456,7 @@ export const COMPONENT_LIST: readonly ComponentDef[] = [
     [{ kind: 'resourceOnKill', resource: 'Specimens', tier: 'Low', activeFrom: 5 }],
   ),
   component('Auxiliary', 'Reagent Recycler', ['Volatile'], 'Status duration up, Medium', 'All', 'Uncommon', [
-    { kind: 'stat', stat: 'statusDuration', direction: 'up', tier: 'Medium', activeFrom: 3 },
+    { kind: 'stat', stat: 'statusDuration', direction: 'up', tier: 'Medium' },
   ]),
   component(
     'Auxiliary',
@@ -510,7 +516,7 @@ export const COMPONENT_LIST: readonly ComponentDef[] = [
     'Bonus damage against Electrified and Frozen enemies',
     'All',
     'Rare',
-    [{ kind: 'bonusAgainstStatus', statuses: ['Electrified', 'Frozen'], activeFrom: 3 }],
+    [{ kind: 'bonusAgainstStatus', statuses: ['Electrified', 'Frozen'] }],
   ),
   component(
     'Auxiliary',
@@ -537,7 +543,7 @@ export const COMPONENT_LIST: readonly ComponentDef[] = [
     'Counts as one extra matching tag for every synergy on this weapon',
     'All',
     'Extraordinary',
-    [{ kind: 'extraSynergyTag', activeFrom: 3 }],
+    [{ kind: 'extraSynergyTag' }],
   ),
 ];
 

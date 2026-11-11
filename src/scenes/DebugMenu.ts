@@ -4,6 +4,7 @@ import type { ComponentDef, SlotType } from '../data/components';
 import { PALETTE, hexToNumber } from '../data/palette';
 import { SCREEN } from '../data/screen';
 import { STRINGS } from '../data/strings';
+import { RESEARCH_SYNERGY_IDS, SYNERGIES } from '../data/synergies';
 import { WEAPON_LIST } from '../data/weapons';
 import type { WeaponDef } from '../data/weapons';
 import {
@@ -25,6 +26,8 @@ export interface DebugMenuData {
   run: RunState;
   /** The loadout being edited. Absent on first open. */
   draft?: Array<WeaponInstance | undefined>;
+  /** Research synergies switched on for testing. Absent on first open. */
+  researchOpen?: boolean;
 }
 
 const COLUMN_WIDTH = 396;
@@ -41,6 +44,7 @@ const ARROW = 44;
 export class DebugMenu extends Phaser.Scene {
   private run!: RunState;
   private draft: Array<WeaponInstance | undefined> = [];
+  private researchOpen = false;
 
   constructor() {
     super('DebugMenu');
@@ -48,6 +52,7 @@ export class DebugMenu extends Phaser.Scene {
 
   init(data: DebugMenuData): void {
     this.run = data.run;
+    this.researchOpen = data.researchOpen ?? data.run.researchSynergies.length > 0;
     this.draft =
       data.draft ??
       Array.from({ length: WEAPON_SLOTS }, (_, index) => {
@@ -66,7 +71,36 @@ export class DebugMenu extends Phaser.Scene {
     addText(this, centreX, 76, STRINGS.debug.menuNote, { size: 15, colour: PALETTE.brass, weight: '500' }).setOrigin(0.5);
 
     const equipped = this.draft.filter((weapon): weapon is WeaponInstance => weapon !== undefined);
-    const loadout = resolveLoadout(equipped, resolvePlayerStats(this.run.character));
+    const loadout = resolveLoadout(equipped, resolvePlayerStats(this.run.character), {
+      researchSynergies: this.researchOpen ? RESEARCH_SYNERGY_IDS : [],
+    });
+
+    // Research synergies stay locked until Milestone 6. This toggle opens all seven for testing.
+    new Button(this, 150, 44, {
+      label: this.researchOpen ? STRINGS.debug.researchOpen : STRINGS.debug.researchLocked,
+      width: 250,
+      height: 34,
+      textSize: 16,
+      onClick: () => {
+        this.researchOpen = !this.researchOpen;
+        this.refresh();
+      },
+    });
+
+    // The build panel lists active synergies and flags near misses (GDD 7.19).
+    const report = loadout.report;
+    const summary = [
+      STRINGS.debug.activeSynergies(report.active.map((entry) => entry.def.name)),
+      STRINGS.debug.lockedSynergies(report.locked.map((entry) => entry.name)),
+      STRINGS.debug.nearMisses(report.nearMisses.slice(0, 5).map((miss) => miss.text)),
+    ].filter((line) => line.length > 0);
+    addText(this, centreX, height - 76, summary.join('\n'), {
+      size: 13,
+      weight: '500',
+      colour: PALETTE.brass,
+      align: 'center',
+      wrapWidth: width - 80,
+    }).setOrigin(0.5, 1);
     const total = WEAPON_SLOTS * COLUMN_WIDTH + (WEAPON_SLOTS - 1) * COLUMN_GAP;
     const left = centreX - total / 2;
     for (let slot = 0; slot < WEAPON_SLOTS; slot++) {
@@ -194,12 +228,18 @@ export class DebugMenu extends Phaser.Scene {
       `Projectiles ${resolved.projectiles}   Penetration ${resolved.penetration >= 99 ? 'full line' : resolved.penetration}   Bounces ${resolved.bounces}`,
       `Behaviour: ${resolved.behaviours.length > 0 ? resolved.behaviours.join(', ') : resolved.delivery}`,
       `Tags: ${resolved.tags.join(', ')}`,
+      ...(resolved.statusBuilds.length > 0
+        ? [`Builds: ${resolved.statusBuilds.map((build) => `${build.status} ${Math.round(build.share * 100)}%`).join(', ')}`]
+        : []),
+      ...(resolved.synergies.length > 0
+        ? [`Synergies: ${resolved.synergies.map((id) => SYNERGIES[id]?.name ?? id).join(', ')}`]
+        : []),
       ...Object.values(weapon.components)
         .filter((entry) => entry !== undefined)
         .map((entry) => `${entry.def.name}: ${entry.def.effect}`),
       ...resolved.inactive.map((entry) => STRINGS.debug.waiting(entry.component, entry.activeFrom)),
     ];
-    addText(this, x + 6, y, lines.join('\n'), { size: 13, wrapWidth: COLUMN_WIDTH - 12 });
+    addText(this, x + 6, y, lines.join('\n'), { size: 12, wrapWidth: COLUMN_WIDTH - 12 });
   }
 
   private cycle<T>(options: readonly T[], current: T, direction: 1 | -1): T {
@@ -225,11 +265,12 @@ export class DebugMenu extends Phaser.Scene {
   }
 
   private refresh(): void {
-    this.scene.restart({ run: this.run, draft: this.draft });
+    this.scene.restart({ run: this.run, draft: this.draft, researchOpen: this.researchOpen });
   }
 
   private apply(): void {
     this.run.weapons = this.draft.filter((weapon): weapon is WeaponInstance => weapon !== undefined);
+    this.run.researchSynergies = this.researchOpen ? [...RESEARCH_SYNERGY_IDS] : [];
     this.scene.stop('Combat');
     this.scene.start('Combat', { run: this.run });
   }

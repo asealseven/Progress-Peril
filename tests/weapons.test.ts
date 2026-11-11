@@ -185,12 +185,13 @@ describe('projectile behaviours (GDD 7.16)', () => {
     const world = makeWorld({ weapons: [arm('Tesla Rod')], invincible: true, noCriticals: true });
     const enemies = [150, 250, 350, 450, 550].map((x) => footmanAt(world, x, 0));
     stepSeconds(world, 0.45);
-    // Damage 7, Electric, Armour 25 per cent: 5.25, then 75 per cent per jump.
+    // Damage 7, Electric, Armour 25 per cent, against a weakness to Electric, then 75 per cent per jump.
+    const first = 7 * 0.75 * 1.7;
     const lost = enemies.map((enemy) => enemy.maxHealth - enemy.health);
-    expect(lost[0]).toBeCloseTo(5.25, 6);
-    expect(lost[1]).toBeCloseTo(5.25 * 0.75, 6);
-    expect(lost[2]).toBeCloseTo(5.25 * 0.75 ** 2, 6);
-    expect(lost[3]).toBeCloseTo(5.25 * 0.75 ** 3, 6);
+    expect(lost[0]).toBeCloseTo(first, 6);
+    expect(lost[1]).toBeCloseTo(first * 0.75, 6);
+    expect(lost[2]).toBeCloseTo(first * 0.75 ** 2, 6);
+    expect(lost[3]).toBeCloseTo(first * 0.75 ** 3, 6);
     expect(lost[4]).toBe(0);
     expect(eventsOf(world.events, 'chain')[0]!.points).toHaveLength(10);
   });
@@ -314,7 +315,8 @@ describe('constructs', () => {
     const world = makeWorld({ weapons: [arm('Clockwork Hound')], invincible: true });
     const near = footmanAt(world, 150, 0);
     const far = footmanAt(world, 600, 0);
-    stepSeconds(world, 6);
+    // Royal Footmen resist Slashing, so the hound needs seven bites.
+    stepSeconds(world, 10);
     expect(world.constructs.activeCount).toBe(1);
     expect(world.constructs.items[0]!.kind).toBe('hound');
     expect(near.active).toBe(false);
