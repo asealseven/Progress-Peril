@@ -28,15 +28,19 @@
 - Debug overlay on F3 or a three-finger tap: frame rate, counts, seed, invincibility toggle on I.
 - 59 tests: random numbers, tiers, Armour, damage order, player hits, timer, round end, movement, targeting, projectiles, enemy attacks, budget, headless three-round run, determinism.
 
+### Asset folders
+
+- ART_PROMPTS.md sits in the repo root.
+- The asset manifest and `public/assets/` follow the ART_PROMPTS.md folders. The app icon moved to `public/assets/icons/app/app-icon.png`.
+
 ## Known issues
 
 - Phone checks ran in an emulated phone viewport with touch events. No test on a physical phone yet.
 - Controller input has no automated test.
-- ART_PROMPTS.md is missing from the build pack. Asset folders follow the CLAUDE.md example until the file arrives.
 - Rounds run long. The headless bot clears Rounds 1 to 3 in 69, 104 and 133 seconds against targets of 30 to 35 seconds. One Crossbow needs two hits per Royal Footman at 0.7 attacks per second. Two more weapon slots, components and the Milestone 12 tuning pass address this.
 - Weapons fire at targets behind pillars, and the pillar blocks the bolt.
 - The HUD covers the player in the top left arena corner.
-- The asset manifest lists keys and paths. File loading with fallback arrives in Milestone 11.
+- The asset manifest lists keys and paths. File loading with fallback arrives in Milestone 11, so a generated image dropped into `public/assets/` does not show yet. The app icon is the exception.
 - No sound yet. ZzFX arrives in Milestone 11.
 
 ## Next step

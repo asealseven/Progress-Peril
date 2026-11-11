@@ -6,6 +6,7 @@ A top-down arena roguelike for the browser, on PC and phone. A personal, non-com
 
 - `GDD.md`: the game design document and source of truth.
 - `CLAUDE.md`: the build guide and milestone plan.
+- `ART_PROMPTS.md`: one prompt per generated image, with the file name and folder inside `public/assets/`.
 - `PROGRESS.md`: milestone status.
 - `NOTES.md`: decisions made where the design document leaves a gap.
 

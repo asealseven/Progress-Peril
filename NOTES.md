@@ -33,3 +33,11 @@ Gap decisions. Each entry names the GDD section, the gap and the rule chosen.
 - **GDD 15.14, seeds.** `?seed=ABC123` in the address starts a run with the given seed.
 - **CLAUDE.md, Milestone 1 scope.** The run ends after Round 3 with a results screen, since Round 4 needs the mini-boss from Milestone 8. `PLAYABLE_ROUNDS` in `src/sim/run.ts` holds the limit.
 - **CLAUDE.md, folder layout.** New small files: `src/data/rounds.ts` (GDD 4.2, 4.3, 4.11 tables), `src/data/characters.ts`, `src/scenes/input.ts`, `src/scenes/platform.ts`. Combat values with no GDD number sit in `COMBAT` in `src/data/tiers.ts`.
+
+## Asset folders (after Milestone 1)
+
+- **ART_PROMPTS.md, folders.** The manifest in `src/data/assets.ts` follows ART_PROMPTS.md. A key is `<group>.<file name>`. Groups and folders: `player` in `sprites/player`, `enemy` in `sprites/enemies`, `miniboss` in `sprites/minibosses`, `boss` in `sprites/bosses`, `weapon` in `icons/weapons`, `component` in `icons/components`, `relic` in `icons/relics`, `shopkeeper` in `portraits/shopkeepers`, `arena` in `arenas`, `card` in `cards`, `hub` in `hub`, `app` in `icons/app`. Every folder exists under `public/assets/`.
+- **ART_PROMPTS.md, player key.** The player key changed from `character.the-inventor` to `player.the-inventor`, to match the `sprites/player` folder.
+- **ART_PROMPTS.md, projectiles.** The file lists no projectile images. Projectiles stay code-drawn shapes (GDD 15.3). The manifest entry `projectile.player` has no file path.
+- **ART_PROMPTS.md, app icon.** The 512 pixel web app icon lives at `public/assets/icons/app/app-icon.png`, and the web app manifest points there. A generated file under the same name replaces the placeholder. `public/icons/icon-192.png` (browser tab and home screen) and `public/icons/icon-maskable-512.png` (Android adaptive icon) stay code-drawn until someone resizes the generated icon into both files.
+- **ART_PROMPTS.md, target sizes.** The file gives a target size per folder, such as 64 pixels tall for the player. Milestone 11 applies those sizes when image loading arrives. Placeholders keep the radii from CLAUDE.md.

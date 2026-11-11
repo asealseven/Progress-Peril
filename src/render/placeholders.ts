@@ -29,7 +29,7 @@ function drawTexture(
   texture.refresh();
 }
 
-export const PLAYER_KEY = 'character.the-inventor';
+export const PLAYER_KEY = 'player.the-inventor';
 export const PLAYER_PROJECTILE_KEY = 'projectile.player';
 const PLAYER_RING_GAP = 7;
 const OUTLINE = 3;
