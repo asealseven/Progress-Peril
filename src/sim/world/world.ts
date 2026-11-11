@@ -3,33 +3,73 @@
 
 import type { ArenaDef } from '../../data/arenas';
 import { ENEMIES } from '../../data/enemies';
-import { COMBAT } from '../../data/tiers';
+import { COMBAT, PERFORMANCE_LIMITS, WEAPON_RULES } from '../../data/tiers';
+import type { PerformanceLimits } from '../../data/tiers';
+import type { ResolvedWeapon } from '../loadout';
 import { Rng } from '../rng';
+import { updateWeapons } from './attacks';
+import { createConstruct, updateConstructs } from './constructs';
+import { explode } from './damage';
 import { createEnemy, spawnGroup, updateEnemies } from './enemies';
 import { SpatialGrid } from './grid';
 import { clampToArena, pushOutOfObstacles } from './movement';
 import { Pool } from './pool';
-import { updateProjectiles, updateWeapons } from './projectiles';
+import { createProjectile, updateProjectiles } from './projectiles';
 import type {
+  Construct,
   Enemy,
+  PendingExplosion,
   PlayerState,
   Projectile,
   RoundStats,
   SpawnEntry,
   StepInput,
+  Trap,
   WeaponState,
   WorldConfig,
   WorldEvent,
   WorldPhase,
+  Zone,
 } from './types';
+import { createTrap, createZone, updateTraps, updateZones } from './zones';
 
 /** Seconds per simulation step. */
 export const STEP_SECONDS = 1 / COMBAT.stepsPerSecond;
 
 const ENEMY_CAPACITY = 400;
-const PROJECTILE_CAPACITY = 300;
 const GRID_CELL = 64;
 const MAX_QUEUED_EVENTS = 4096;
+
+function createWeaponState(resolved: ResolvedWeapon): WeaponState {
+  return {
+    resolved,
+    cooldown: COMBAT.weaponStartDelay,
+    targetSlot: -1,
+    targetId: -1,
+    aimX: 0,
+    aimY: -1,
+    attackCount: 0,
+    rampStacks: 0,
+    sinceAttack: 0,
+    killStacks: 0,
+    killStackTimer: 0,
+    jamTimer: 0,
+    grappleReady: false,
+    orbitAngle: 0,
+    contactReady: new Map(),
+    beamTargetId: -1,
+    beamTicks: 0,
+    beamActive: false,
+    beamX: 0,
+    beamY: 0,
+    deployTimer: COMBAT.weaponStartDelay,
+    lightningTimer: WEAPON_RULES.lightningSeconds / 2,
+    bayonetTimer: 0,
+    smokeTimer: 0,
+    damageDealt: 0,
+    kills: 0,
+  };
+}
 
 export class World {
   readonly arena: ArenaDef;
@@ -37,10 +77,14 @@ export class World {
   readonly round: number;
   /** Target combat duration in seconds. */
   readonly duration: number;
+  readonly limits: PerformanceLimits;
   readonly player: PlayerState;
   readonly weapons: WeaponState[];
   readonly enemies: Pool<Enemy>;
   readonly projectiles: Pool<Projectile>;
+  readonly constructs: Pool<Construct>;
+  readonly traps: Pool<Trap>;
+  readonly zones: Pool<Zone>;
   readonly grid: SpatialGrid;
   readonly stats: RoundStats = {
     kills: 0,
@@ -58,18 +102,24 @@ export class World {
   /** Steps run so far. */
   steps = 0;
   nextEnemyId = 1;
+  nextConstructId = 1;
   /** Largest radius among spawned enemies, for grid queries. */
   maxEnemyRadius = 0;
   invincible: boolean;
+  /** Manual focus point while the focus input is held (GDD 3.4). */
+  focus: { x: number; y: number } | undefined;
 
   private readonly spawns: readonly SpawnEntry[];
   private nextSpawn = 0;
+  /** Chain explosions waiting for a later step (GDD 7.20). */
+  private readonly pendingExplosions: PendingExplosion[] = [];
 
   constructor(config: WorldConfig) {
     this.arena = config.arena;
     this.rng = new Rng(config.seed);
     this.round = config.round;
     this.duration = config.duration;
+    this.limits = config.limits ?? PERFORMANCE_LIMITS.pc;
     this.invincible = config.invincible ?? false;
     this.spawns = [...config.spawns].sort((a, b) => a.time - b.time);
 
@@ -85,33 +135,14 @@ export class World {
       adaptation: { ...config.adaptation },
     };
 
-    this.weapons = config.weapons.map((weapon) => ({
-      def: weapon.def,
-      stats: weapon.stats,
-      cooldown: COMBAT.weaponStartDelay,
-      targetSlot: -1,
-      targetId: -1,
-      aimX: 0,
-      aimY: -1,
-    }));
+    this.weapons = config.weapons.map(createWeaponState);
 
     const fallbackEnemy = ENEMIES['royal-footman'];
     this.enemies = new Pool<Enemy>((slot) => createEnemy(slot, fallbackEnemy), ENEMY_CAPACITY);
-    this.projectiles = new Pool<Projectile>(
-      (slot) => ({
-        active: false,
-        slot,
-        x: 0,
-        y: 0,
-        dx: 1,
-        dy: 0,
-        speed: 0,
-        radius: 0,
-        distanceLeft: 0,
-        weaponIndex: 0,
-      }),
-      PROJECTILE_CAPACITY,
-    );
+    this.projectiles = new Pool<Projectile>(createProjectile, this.limits.projectiles);
+    this.constructs = new Pool<Construct>(createConstruct, this.limits.constructs);
+    this.traps = new Pool<Trap>(createTrap, this.limits.traps);
+    this.zones = new Pool<Zone>(createZone, this.limits.areaEffects);
     this.grid = new SpatialGrid(config.arena.width, config.arena.height, GRID_CELL);
   }
 
@@ -135,17 +166,31 @@ export class World {
     this.events.push(event);
   }
 
+  /** Chain events queue across steps instead of resolving in one step (GDD 7.20). */
+  queueExplosion(explosion: PendingExplosion): void {
+    this.pendingExplosions.push(explosion);
+  }
+
   /** Advances the simulation by 1/60 second. */
   step(input: StepInput): void {
     if (this.phase !== 'running') return;
     const dt = STEP_SECONDS;
 
+    this.focus =
+      input.focusX !== undefined && input.focusY !== undefined && Number.isFinite(input.focusX + input.focusY)
+        ? { x: input.focusX, y: input.focusY }
+        : undefined;
+
     this.runSpawns();
     this.movePlayer(input, dt);
     updateEnemies(this, dt);
     this.rebuildGrid();
+    this.runChainEvents();
     updateWeapons(this, dt);
+    updateConstructs(this, dt);
+    updateTraps(this, dt);
     updateProjectiles(this, dt);
+    updateZones(this, dt);
     this.tickPlayer(dt);
 
     this.steps++;
@@ -166,6 +211,18 @@ export class World {
       if (!entry || entry.time > now) break;
       spawnGroup(this, entry.enemy, entry.count);
       this.nextSpawn++;
+    }
+  }
+
+  /** Resolves queued chain explosions, up to the per-step cap (GDD 7.20, 7.21). */
+  private runChainEvents(): void {
+    const batch = this.pendingExplosions.splice(0, this.limits.chainEventsPerStep);
+    for (const pending of batch) {
+      explode(this, pending.x, pending.y, pending.radius, pending.weaponIndex, {
+        scale: pending.damageScale * WEAPON_RULES.chainFalloff ** (pending.generation - 1),
+        generation: pending.generation,
+        explosive: pending.explosive,
+      });
     }
   }
 

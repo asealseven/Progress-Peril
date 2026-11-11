@@ -4,10 +4,7 @@ import { COMBAT } from '../src/data/tiers';
 import { hitPlayer } from '../src/sim/world/damage';
 import { spawnEnemy } from '../src/sim/world/enemies';
 import { STEP_SECONDS } from '../src/sim/world/world';
-import { FOOTMAN, IDLE, OPEN_ARENA, makeWorld, stepSeconds } from './helpers';
-
-/** A spawn far in the future keeps the round open for the test. */
-const HOLD_OPEN = [{ time: 9999, enemy: FOOTMAN, count: 1, kind: 'trickle' as const }];
+import { FOOTMAN, HOLD_OPEN, IDLE, OPEN_ARENA, makeWorld, stepSeconds } from './helpers';
 
 describe('round timer (GDD 4.3, 4.9)', () => {
   it('counts down one step at a time', () => {
@@ -116,10 +113,7 @@ describe('Crossbow against a Royal Footman', () => {
   });
 
   it('deals 18 damage per normal hit and kills in two hits without a critical', () => {
-    // Critical Chance 0 removes the random roll from this test.
-    const world = makeWorld({ spawns: HOLD_OPEN, invincible: true });
-    const weapon = world.weapons[0]!;
-    world.weapons[0] = { ...weapon, stats: { ...weapon.stats, criticalChance: 0 } };
+    const world = makeWorld({ spawns: HOLD_OPEN, invincible: true, noCriticals: true });
     const enemy = spawnEnemy(world, FOOTMAN, world.player.x + 200, world.player.y)!;
     enemy.speed = 0;
     stepSeconds(world, 1);

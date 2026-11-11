@@ -10,7 +10,9 @@ import { PALETTE } from './data/palette';
 import { SCREEN } from './data/screen';
 import { STRINGS } from './data/strings';
 import { Boot } from './scenes/Boot';
+import { CharacterSelect } from './scenes/CharacterSelect';
 import { Combat } from './scenes/Combat';
+import { DebugMenu } from './scenes/DebugMenu';
 import { Results } from './scenes/Results';
 
 const FONT_TIMEOUT_MS = 3000;
@@ -47,7 +49,7 @@ async function start(): Promise<void> {
     input: {
       activePointers: 3,
     },
-    scene: [Boot, Combat, Results],
+    scene: [Boot, CharacterSelect, Combat, Results, DebugMenu],
   });
 
   // Development builds expose the game for browser test scripts.

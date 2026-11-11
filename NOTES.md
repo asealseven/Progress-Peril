@@ -41,3 +41,64 @@ Gap decisions. Each entry names the GDD section, the gap and the rule chosen.
 - **ART_PROMPTS.md, projectiles.** The file lists no projectile images. Projectiles stay code-drawn shapes (GDD 15.3). The manifest entry `projectile.player` has no file path.
 - **ART_PROMPTS.md, app icon.** The 512 pixel web app icon lives at `public/assets/icons/app/app-icon.png`, and the web app manifest points there. A generated file under the same name replaces the placeholder. `public/icons/icon-192.png` (browser tab and home screen) and `public/icons/icon-maskable-512.png` (Android adaptive icon) stay code-drawn until someone resizes the generated icon into both files.
 - **ART_PROMPTS.md, target sizes.** The file gives a target size per folder, such as 64 pixels tall for the player. Milestone 11 applies those sizes when image loading arrives. Placeholders keep the radii from CLAUDE.md.
+
+## Milestone 2
+
+Numbers named below sit in `WEAPON_RULES`, `KNOCKBACK_PIXELS` and `PERFORMANCE_LIMITS` in `src/data/tiers.ts`, for the Milestone 12 tuning pass.
+
+### Effects and modifiers
+
+- **GDD 7.18, "up" and "down" effects.** Three rules by stat kind. Scaling stats (Damage, Attack Speed, Range, Area, projectile speed, arc width, status duration, construct health, construct attack speed) change by the modifier size of the tier: Low is 10 per cent. Critical Chance adds the tier's own Critical Chance value: Low adds 5 points. Critical Damage adds the modifier size to the multiplier: Medium adds 0.20. Player Armour adds an Armour source at the tier's own value, stacked with diminishing returns (GDD 3.7).
+- **GDD 7.14 step 3, source types.** Components form one source type, so component bonuses add. The Living Arsenal's adaptation uses a separate source type, so adaptation multiplies with component bonuses. A percentage factor never drops below 20 per cent.
+- **GDD 7.14, flat bonuses.** No component in GDD 7.18 gives a flat bonus. The modifier stack supports flat bonuses for later content.
+- **GDD 3.6, stat caps.** Player Armour caps at High (40 per cent). Weapon-level bonuses from components have no cap beyond 100 per cent Critical Chance. Caps for player-wide Damage, Attack Speed, Range and Area arrive with research in Milestone 6.
+- **GDD 7.14, Knockback.** Weapons have no base Knockback. "Knockback up" adds a push in pixels per hit: Minimal 5, Low 10, Medium 20, High 35, Extreme 60. Sources add.
+- **GDD 7.18, effects with no tier.** "Faster projectiles", "Area up" and "Range down" (Spray Nozzle) use Medium.
+- **GDD 7.18, later milestones.** Sixteen components carry effects waiting for a later system: status build-up, spread, duration and reactions (Milestone 3), the Grand Calculus Engine (Milestone 3), Research Points and Specimens (Milestone 5). Each effect has `activeFrom` in `src/data/components.ts`. The debug menu lists them. Weapon status build-up ("Builds Bleeding", "Stun chance") waits for Milestone 3 too.
+- **GDD 7.12, default components.** GDD names no default components per weapon. Weapons arrive with empty slots. Milestone 5 adds defaults by quality.
+
+### Weapons
+
+- **GDD 7.17, two damage types.** "Impact and Fire" and "Piercing and Electric" split weapon damage evenly. Each half runs through the damage order against Armour.
+- **GDD 7.17, shapes.** Sweep: radius is Range, arc is 40 degrees plus 1 degree per Area pixel. Slam: a circle of Area radius at the target, up to Range away. Thrust: a line of Range length, half-width 10 plus half of Area. Cone: length is Range, arc is 20 degrees plus 0.6 per Area pixel. Aura: radius is half of Range plus Area. Orbit: radius is 75 per cent of Range up to 150 pixels, head radius 10 plus a quarter of Area, turns per second half of Attack Speed between 0.5 and 2, one hit per enemy per attack interval.
+- **GDD 7.17, Area on projectiles.** Weapons with a blast (Field Cannon, Mortar, Siege Catapult, Firebomb Satchel, Alchemical Chain-Reactor) hit every enemy inside Area on impact. Other projectiles gain 0.2 pixels of radius per Area pixel.
+- **GDD 7.16, Arcing.** Flight speed 420 pixels per second, with a minimum flight of 0.35 seconds. Arcing shots pass over obstacles. Blast shots land on a fixed point with no lead (Ballistic Tables adds lead in Milestone 3). A single-target shot (Area Minimal) follows its target to the landing, since a fixed point misses every moving enemy.
+- **GDD 7.17, weapon counts.** Knife Bandolier: 3 knives across 24 degrees. Ballista: unlimited Penetration. Electromagnetic Repeater: Penetration 2, projectile speed times 1.6. Sawblade Launcher: 3 bounces within 220 pixels. Tesla Rod: 3 jumps within 160 pixels.
+- **GDD 7.20, chain falloff.** Chain jumps and chain explosions keep 75 per cent of damage per generation. Depth limit 4. An enemy ignores further chain generations for 0.25 seconds after a chain hit. Chain explosions queue and resolve on a later step, 12 per step on PC and 6 on mobile.
+- **GDD 7.17, Burning Mirror.** Damage rises 10 per cent per tick on one target, up to double.
+- **GDD 7.17, zones.** Firebomb pools last 3 seconds and deal 25 per cent of weapon damage twice per second. Catapult rubble lasts 4 seconds and slows enemies to 60 per cent speed.
+- **GDD 7.17, Alchemical Chain-Reactor.** A kill sets off an explosion of 60 per cent Area and 60 per cent damage, at the next chain generation.
+- **GDD 7.17, constructs.** Clockwork Turret: 2 turrets per weapon, 40 Health, one deployment every 4 seconds, and a turret more than 450 pixels behind moves up. Companions: one per weapon, 60 Health, speed 230, leash of Range plus 60 pixels around the player. Spring Trap Layer: 6 traps per weapon, 70 pixels apart, 0.4 seconds to arm. Enemies do not attack constructs until Milestone 4.
+- **GDD 7.17, Living Arsenal.** "Adapts each round": Damage up one Minimal step per completed round, capped at High, matching the Living Wood Frame.
+- **GDD 7.15, defaults.** Ranged and Experimental weapons use Nearest. Weapons with the Arcing tag and Alchemical weapons use Clustered. Siege weapons use Strongest. A weapon with the Precise tag takes Marked enemies first, then follows its rule. Clustered counts enemies inside Area, with a 40 pixel minimum.
+- **GDD 3.4, manual focus.** While held, each weapon targets the enemy in range closest to the focus direction. The hold rule is off during focus. Constructs, traps and companions ignore focus.
+
+### Components
+
+- **Copper Coil Housing.** Adds Electric damage worth 10 per cent of weapon damage.
+- **Blackpowder Charge.** Explosion radius 30, half of weapon damage as Impact and Fire, to every enemy except the one hit.
+- **Volatile Catalyst.** Kill explosion radius 30, half of weapon damage as Impact and Fire, at the next chain generation.
+- **Leyden Jar Cell.** The arc deals half of weapon damage as Electric to the nearest enemy within 160 pixels.
+- **Frost Salts.** The slow cuts speed to 70 per cent for 1.5 seconds.
+- **Magnetite Slugs.** Enemies of radius 14 or less within 90 pixels move 24 pixels toward the hit point.
+- **Grappling Line.** The first enemy hit by each attack moves 40 pixels toward the player.
+- **Shrapnel Shells.** 8 fragments, 25 per cent of weapon damage each as Impact, 160 pixels of travel.
+- **Ratchet Repeater and Multishot Rack.** Extra projectiles widen the fan by 8 degrees each. Extra Arcing shots land 36 pixels from the target point.
+- **Magnetised Core and Gyroscopic Stabiliser.** Homing turn rates of 5 and 1.6 radians per second. The Stabiliser halves the fan angle.
+- **Gear Train Accelerator.** Attack Speed up 5 per cent per attack, capped at 35 per cent, reset after 1.5 seconds with no attack.
+- **Feedback Loop Gear.** Attack Speed up 5 per cent per kill for 3 seconds, capped at 35 per cent.
+- **Prototype Overclock.** Each attack has a 5 per cent chance to jam the weapon for 1.5 seconds.
+- **Tesla Capacitor.** Every 4 seconds: Medium damage (12) as Electric to the nearest enemy within 220 pixels, then 3 jumps.
+- **Bayonet Mount.** Once per second: Low damage (7) as Piercing to an enemy within 26 pixels of the player's edge.
+- **Smoke Canister.** Radius 90, 3 seconds, 8 seconds between releases. Enemies inside stand still and start no attack.
+- **Healing Poultice Chamber.** 1 Health per kill.
+- **Repair Kit Housing.** 3 per cent of construct Health per second.
+- **Orbit Mount.** The weapon becomes an orbiting head with the weapon's damage. Multishot Rack adds a second head.
+- **Spray Nozzle.** The weapon becomes a cone. Blast and burning pool no longer apply.
+
+### Limits and screens
+
+- **GDD 7.21, limits.** PC: 400 projectiles, 30 area effects, 6 constructs, 18 traps. Mobile: 250, 16, 6, 12. At the limit the oldest projectile ends, a new area effect refreshes the nearest matching one, and a new turret replaces the oldest.
+- **GDD 15.9, character selection.** A plain screen shows the six starting weapons of The Inventor. Milestone 11 restyles the screen.
+- **CLAUDE.md, debug menu.** F3 or a three-finger tap opens the debug overlay with three tools: Loadout (L), Spawn 10 (K) and Invincible (I). Loadout opens a menu to equip any weapon and component. Applying restarts the current round.
+- **CLAUDE.md, folder layout.** New files: `src/data/tags.ts`, `src/data/effects.ts`, `src/sim/loadout.ts` (weapon instances, slot rules, resolution), `src/sim/world/attacks.ts`, `constructs.ts`, `zones.ts`, and the `DebugMenu` scene. Projectiles draw as code shapes, not textures.

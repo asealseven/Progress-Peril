@@ -2,7 +2,7 @@
 // player and strike in melee. Milestone 4 moves decisions to src/sim/ai.ts.
 
 import type { EnemyDef } from '../../data/enemies';
-import { COMBAT, tierValue } from '../../data/tiers';
+import { COMBAT, THREAT_COST, tierValue } from '../../data/tiers';
 import { hitPlayer } from './damage';
 import { clampToArena, insideObstacle, pushOutOfObstacles } from './movement';
 import type { Enemy } from './types';
@@ -31,6 +31,12 @@ export function createEnemy(slot: number, def: EnemyDef): Enemy {
     hitFlash: 0,
     faceX: 0,
     faceY: 1,
+    threat: 0,
+    slowTimer: 0,
+    slowFactor: 1,
+    confused: 0,
+    marked: false,
+    chainGuard: 0,
   };
 }
 
@@ -47,9 +53,15 @@ export function spawnEnemy(world: World, def: EnemyDef, x: number, y: number): E
   enemy.damage = tierValue('enemyDamage', def.damage);
   enemy.speed = tierValue('enemySpeed', def.speed);
   enemy.range = tierValue('enemyRange', def.range);
+  enemy.threat = THREAT_COST[def.threat];
   enemy.action = 'chase';
   enemy.actionTimer = 0;
   enemy.hitFlash = 0;
+  enemy.slowTimer = 0;
+  enemy.slowFactor = 1;
+  enemy.confused = 0;
+  enemy.marked = false;
+  enemy.chainGuard = 0;
   enemy.x = x;
   enemy.y = y;
   clampToArena(enemy, world.arena);
@@ -101,6 +113,14 @@ export function updateEnemies(world: World, dt: number): void {
   for (const enemy of enemies) {
     if (!enemy.active) continue;
     enemy.hitFlash = Math.max(0, enemy.hitFlash - dt);
+    enemy.chainGuard = Math.max(0, enemy.chainGuard - dt);
+    enemy.confused = Math.max(0, enemy.confused - dt);
+    if (enemy.slowTimer > 0) {
+      enemy.slowTimer -= dt;
+      if (enemy.slowTimer <= 0) enemy.slowFactor = 1;
+    }
+    // An enemy with no target stands still and starts no attack (Smoke Canister, GDD 7.18).
+    const lost = enemy.confused > 0;
 
     let dx = player.x - enemy.x;
     let dy = player.y - enemy.y;
@@ -110,8 +130,9 @@ export function updateEnemies(world: World, dt: number): void {
       enemy.faceY = dy / distance;
     }
 
-    if (enemy.action === 'chase') {
-      const step = Math.min(enemy.speed * dt, Math.max(0, distance - enemy.radius - player.radius));
+    if (enemy.action === 'chase' && !lost) {
+      const speed = enemy.speed * (enemy.slowTimer > 0 ? enemy.slowFactor : 1);
+      const step = Math.min(speed * dt, Math.max(0, distance - enemy.radius - player.radius));
       enemy.x += enemy.faceX * step;
       enemy.y += enemy.faceY * step;
     }
@@ -156,7 +177,7 @@ export function updateEnemies(world: World, dt: number): void {
     const edgeGap = Math.sqrt(dx * dx + dy * dy) - enemy.radius - player.radius;
 
     if (enemy.action === 'chase') {
-      if (edgeGap <= enemy.range && player.health > 0) {
+      if (!lost && edgeGap <= enemy.range && player.health > 0) {
         enemy.action = 'windup';
         enemy.actionTimer = COMBAT.enemyMeleeWindup;
       }

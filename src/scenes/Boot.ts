@@ -1,11 +1,7 @@
 import Phaser from 'phaser';
-import { CHARACTERS } from '../data/characters';
 import { PALETTE, hexToNumber } from '../data/palette';
 import { SCREEN } from '../data/screen';
 import { STRINGS } from '../data/strings';
-import { WEAPONS } from '../data/weapons';
-import { newSeed, parseSeed } from '../sim/rng';
-import { createRun } from '../sim/run';
 import { drawPageFrame } from '../ui/frame';
 import { addText } from '../ui/text';
 import { isTouchPrimary, uiScale } from './platform';
@@ -13,7 +9,7 @@ import { isTouchPrimary, uiScale } from './platform';
 /** Ignores input for a moment, so a held key or a stray tap never skips the title. */
 const START_GUARD_MS = 350;
 
-/** Title screen: "Progress & Peril" on parchment. Any input starts a run. */
+/** Title screen: "Progress & Peril" on parchment. Any input opens character selection. */
 export class Boot extends Phaser.Scene {
   private readyAt = 0;
 
@@ -88,10 +84,6 @@ export class Boot extends Phaser.Scene {
 
   private startRun(): void {
     if (!this.scene.isActive()) return;
-    // A seed in the address (?seed=ABC123) replays a run, for reproducing bugs (GDD 15.14).
-    const requested = new URLSearchParams(window.location.search).get('seed');
-    const seed = (requested ? parseSeed(requested) : undefined) ?? newSeed();
-    const run = createRun(seed, CHARACTERS.inventor, WEAPONS.crossbow);
-    this.scene.start('Combat', { run });
+    this.scene.start('CharacterSelect');
   }
 }

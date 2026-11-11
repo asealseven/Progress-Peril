@@ -1,17 +1,20 @@
-// Run state: the campaign between rounds. Milestone 1 holds one territory,
-// one weapon and no economy. Later milestones add kingdoms, resources,
-// weapons, components and relics.
+// Run state: the campaign between rounds. So far: one territory, up to three
+// weapons with components, and no economy. Later milestones add kingdoms,
+// resources and relics.
 
 import { ARENAS } from '../data/arenas';
 import type { ArenaDef } from '../data/arenas';
 import type { CharacterDef } from '../data/characters';
 import { ENEMIES } from '../data/enemies';
 import { roundDuration } from '../data/rounds';
-import { ADAPTATION, tierValue } from '../data/tiers';
+import { ADAPTATION, PERFORMANCE_LIMITS, tierValue } from '../data/tiers';
+import type { PerformanceLimits } from '../data/tiers';
 import type { WeaponDef } from '../data/weapons';
 import { planRound } from './director';
+import { WEAPON_SLOTS, createWeapon, installedComponents, resolveLoadout } from './loadout';
+import type { WeaponInstance } from './loadout';
 import { Rng } from './rng';
-import type { AdaptationMap, PlayerStats, RoundStats, WeaponStats } from './world/types';
+import type { AdaptationMap, PlayerStats, RoundStats } from './world/types';
 import { World } from './world/world';
 
 /**
@@ -33,7 +36,8 @@ export interface RoundResult {
 export interface RunState {
   readonly seed: number;
   readonly character: CharacterDef;
-  readonly weapons: WeaponDef[];
+  /** Up to three weapons (GDD 7.1). */
+  weapons: WeaponInstance[];
   readonly arena: ArenaDef;
   /** The round about to start or in progress, from 1. */
   round: number;
@@ -47,7 +51,7 @@ export function createRun(seed: number, character: CharacterDef, startingWeapon:
   return {
     seed: seed >>> 0,
     character,
-    weapons: [startingWeapon],
+    weapons: [createWeapon(startingWeapon)],
     arena: ARENAS['great-foundry'],
     round: 1,
     status: 'active',
@@ -73,34 +77,22 @@ export function resolvePlayerStats(character: CharacterDef): PlayerStats {
   };
 }
 
-/** Weapon numbers from the weapon's tiers (GDD 7.14) and the player's critical stats. */
-export function resolveWeaponStats(weapon: WeaponDef, player: PlayerStats): WeaponStats {
-  return {
-    damage: tierValue('weaponDamage', weapon.damage),
-    attacksPerSecond: tierValue('weaponAttackSpeed', weapon.attackSpeed),
-    range: tierValue('weaponRange', weapon.range),
-    area: tierValue('weaponArea', weapon.area),
-    criticalChance: weapon.criticalChance
-      ? tierValue('criticalChance', weapon.criticalChance)
-      : player.criticalChance,
-    criticalDamage: player.criticalDamage,
-  };
-}
-
 /** Builds the combat simulation for the run's current round. */
-export function createWorldForRound(run: RunState): World {
+export function createWorldForRound(run: RunState, limits: PerformanceLimits = PERFORMANCE_LIMITS.pc): World {
   // One generator per round, so a round replays the same way from the run seed.
   const roundRng = new Rng(run.seed).fork(run.round);
-  const playerStats = resolvePlayerStats(run.character);
+  // Tags and stats only change during preparation, so the loadout resolves once per round.
+  const loadout = resolveLoadout(run.weapons.slice(0, WEAPON_SLOTS), resolvePlayerStats(run.character));
   return new World({
     arena: run.arena,
     seed: roundRng.int(0, 0xffffffff),
     round: run.round,
     duration: roundDuration(run.round),
     spawns: planRound(run.round, ENEMIES['royal-footman'], roundRng),
-    playerStats,
-    weapons: run.weapons.map((def) => ({ def, stats: resolveWeaponStats(def, playerStats) })),
+    playerStats: loadout.playerStats,
+    weapons: loadout.weapons,
     adaptation: run.adaptation,
+    limits,
   });
 }
 
@@ -115,6 +107,14 @@ export function finishRound(run: RunState, world: World): RoundResult {
   };
   run.history.push(result);
   run.adaptation = { ...world.player.adaptation };
+
+  if (survived) {
+    // Growth effects count rounds completed with the item equipped (GDD 7.17, 7.18).
+    for (const weapon of run.weapons) {
+      weapon.rounds++;
+      for (const component of installedComponents(weapon)) component.rounds++;
+    }
+  }
 
   if (!survived) {
     run.status = 'dead';

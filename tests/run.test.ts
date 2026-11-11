@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { CHARACTERS } from '../src/data/characters';
-import { WEAPONS } from '../src/data/weapons';
+import { STARTING_WEAPONS, WEAPONS } from '../src/data/weapons';
+import type { WeaponDef } from '../src/data/weapons';
 import { PLAYABLE_ROUNDS, createRun, createWorldForRound, finishRound, runTotals } from '../src/sim/run';
 import type { RunState } from '../src/sim/run';
 import type { StepInput } from '../src/sim/world/types';
@@ -15,7 +16,7 @@ const MAX_ROUND_STEPS = 60 * 60 * 10;
  */
 function circleBot(world: World): StepInput {
   const player = world.player;
-  const range = world.weapons[0]?.stats.range ?? 0;
+  const range = world.weapons[0]?.resolved.range ?? 0;
   let nearestX = 0;
   let nearestY = 0;
   let nearest = Infinity;
@@ -51,8 +52,8 @@ function playRound(world: World): void {
   }
 }
 
-function playRun(seed: number, invincible: boolean): RunState {
-  const run = createRun(seed, CHARACTERS.inventor, WEAPONS.crossbow);
+function playRun(seed: number, invincible: boolean, weapon: WeaponDef = WEAPONS.crossbow): RunState {
+  const run = createRun(seed, CHARACTERS.inventor, weapon);
   while (run.status === 'active') {
     const world = createWorldForRound(run);
     world.invincible = invincible;
@@ -74,6 +75,17 @@ describe('headless run', () => {
         `Round ${result.round}: ${result.seconds.toFixed(1)} s, ${result.stats.kills} kills, ` +
         `${result.stats.shotsFired} shots, ${result.stats.hitsTaken} hits taken`,
     );
+    console.log(lines.join('\n'));
+  });
+
+  it('finishes three rounds with each starting weapon', () => {
+    const lines: string[] = [];
+    for (const weapon of STARTING_WEAPONS) {
+      const run = playRun(404, true, weapon);
+      expect(run.status).toBe('complete');
+      expect(run.history.map((result) => result.stats.kills)).toEqual([20, 30, 40]);
+      lines.push(`${weapon.name}: ${run.history.map((result) => `${result.seconds.toFixed(0)} s`).join(', ')}`);
+    }
     console.log(lines.join('\n'));
   });
 

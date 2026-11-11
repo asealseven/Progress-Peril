@@ -3,22 +3,22 @@ import { DAMAGE_TYPE_COLOURS, KINGDOM_COLOURS, PALETTE, hexToNumber } from '../d
 import type { DamageTypeName } from '../data/palette';
 import { SCREEN } from '../data/screen';
 import { STRINGS, formatTime } from '../data/strings';
-import { COMBAT } from '../data/tiers';
+import { COMBAT, PERFORMANCE_LIMITS } from '../data/tiers';
 import { Effects } from '../render/effects';
 import {
   PLAYER_KEY,
-  PLAYER_PROJECTILE_KEY,
   PLAYER_TEXTURE_SIZE,
-  PROJECTILE_TEXTURE_SIZE,
   enemyKey,
   enemyTextureSize,
   ensureEnemyTexture,
   ensurePlayerTexture,
-  ensureProjectileTexture,
 } from '../render/placeholders';
 import { formatSeed } from '../sim/rng';
 import { createWorldForRound, finishRound } from '../sim/run';
 import type { RunState } from '../sim/run';
+import { auraRadius, currentAttackSpeed, orbitHeadRadius, orbitRadius } from '../sim/world/attacks';
+import { spawnGroup } from '../sim/world/enemies';
+import { ENEMIES } from '../data/enemies';
 import type { World } from '../sim/world/world';
 import { STEP_SECONDS } from '../sim/world/world';
 import { Button } from '../ui/button';
@@ -41,8 +41,12 @@ const FLOOR = 0xddd2ba;
 const FLOOR_LINE = 0xcbbfa5;
 const PILLAR = 0x6b635a;
 
+const SMOKE = 0xbfb8a8;
+const CREATURE = hexToNumber(DAMAGE_TYPE_COLOURS.Toxic);
+
 const DEPTH = {
   floor: 0,
+  under: 3,
   telegraph: 5,
   enemy: 10,
   player: 20,
@@ -83,7 +87,9 @@ export class Combat extends Phaser.Scene {
 
   private playerSprite!: Phaser.GameObjects.Image;
   private enemySprites: Array<Phaser.GameObjects.Image | undefined> = [];
-  private projectileSprites: Array<Phaser.GameObjects.Image | undefined> = [];
+  /** Zones, auras and traps draw under enemies. Projectiles, constructs and beams draw over them. */
+  private under!: Phaser.GameObjects.Graphics;
+  private over!: Phaser.GameObjects.Graphics;
   private telegraphs!: Phaser.GameObjects.Graphics;
   private bars!: Phaser.GameObjects.Graphics;
   private hud!: Phaser.GameObjects.Graphics;
@@ -96,6 +102,8 @@ export class Combat extends Phaser.Scene {
   private pauseObjects: Phaser.GameObjects.GameObject[] = [];
   private pauseButtons: Button[] = [];
   private pauseZone?: Phaser.GameObjects.Zone;
+  private debugButtons: Button[] = [];
+  private focusPoint: { x: number; y: number } | undefined;
 
   private lastHealthLabel = '';
   private lastTimerLabel = '';
@@ -110,7 +118,7 @@ export class Combat extends Phaser.Scene {
   }
 
   create(): void {
-    this.sim = createWorldForRound(this.run);
+    this.sim = createWorldForRound(this.run, isTouchPrimary() ? PERFORMANCE_LIMITS.mobile : PERFORMANCE_LIMITS.pc);
     this.accumulator = 0;
     this.paused = false;
     this.ended = false;
@@ -119,8 +127,9 @@ export class Combat extends Phaser.Scene {
     this.lookY = 0;
     this.scale1 = uiScale();
     this.enemySprites = [];
-    this.projectileSprites = [];
     this.weaponLabels = [];
+    this.debugButtons = [];
+    this.focusPoint = undefined;
     this.pauseObjects = [];
     this.pauseButtons = [];
     this.pauseZone = undefined;
@@ -138,9 +147,10 @@ export class Combat extends Phaser.Scene {
     this.uiCamera = this.cameras.add(0, 0, SCREEN.width, SCREEN.height);
 
     ensurePlayerTexture(this);
-    ensureProjectileTexture(this);
 
     this.drawArena();
+    this.under = this.inWorld(this.add.graphics()).setDepth(DEPTH.under);
+    this.over = this.inWorld(this.add.graphics()).setDepth(DEPTH.projectile);
     this.telegraphs = this.inWorld(this.add.graphics()).setDepth(DEPTH.telegraph);
     this.playerSprite = this.inWorld(this.add.image(0, 0, PLAYER_KEY))
       .setDisplaySize(PLAYER_TEXTURE_SIZE, PLAYER_TEXTURE_SIZE)
@@ -157,6 +167,8 @@ export class Combat extends Phaser.Scene {
     keyboard?.on('keydown-ESC', this.togglePause, this);
     keyboard?.on('keydown-F3', this.toggleDebug, this);
     keyboard?.on('keydown-I', this.toggleInvincible, this);
+    keyboard?.on('keydown-L', this.openLoadout, this);
+    keyboard?.on('keydown-K', this.spawnTestEnemies, this);
     keyboard?.addCapture('TAB,F3');
     this.input.on('pointerdown', this.onPointerDown, this);
     this.game.events.on(Phaser.Core.Events.HIDDEN, this.pauseOnHide, this);
@@ -166,6 +178,8 @@ export class Combat extends Phaser.Scene {
       keyboard?.off('keydown-ESC', this.togglePause, this);
       keyboard?.off('keydown-F3', this.toggleDebug, this);
       keyboard?.off('keydown-I', this.toggleInvincible, this);
+      keyboard?.off('keydown-L', this.openLoadout, this);
+      keyboard?.off('keydown-K', this.spawnTestEnemies, this);
       this.input.off('pointerdown', this.onPointerDown, this);
       this.game.events.off(Phaser.Core.Events.HIDDEN, this.pauseOnHide, this);
     });
@@ -267,7 +281,7 @@ export class Combat extends Phaser.Scene {
           this,
           tile.x + slot * (tile.size + tile.gap) + tile.size / 2,
           tile.y + tile.size / 2,
-          weapon ? weapon.def.name : STRINGS.hud.emptySlot,
+          weapon ? weapon.resolved.def.name : STRINGS.hud.emptySlot,
           {
             size: 13 * s,
             weight: weapon ? '700' : '400',
@@ -296,12 +310,32 @@ export class Combat extends Phaser.Scene {
     this.bannerText.setStroke(PALETTE.parchment, 8);
 
     this.debugText = this.inHud(
-      addText(this, HUD_MARGIN, SCREEN.height - HUD_MARGIN, '', { size: 15 * s, weight: '500' }),
+      addText(this, HUD_MARGIN, SCREEN.height - HUD_MARGIN - 56 * s, '', { size: 15 * s, weight: '500' }),
     )
       .setOrigin(0, 1)
       .setDepth(DEPTH.hudText)
       .setVisible(false);
     this.debugText.setBackgroundColor(PALETTE.parchment);
+
+    // Debug tools (CLAUDE.md "Testing"): loadout, spawn and invincibility.
+    const tools: Array<[string, () => void]> = [
+      [STRINGS.debug.loadout, () => this.openLoadout()],
+      [STRINGS.debug.spawn, () => this.spawnTestEnemies()],
+      [STRINGS.debug.invincible, () => this.toggleInvincible()],
+    ];
+    const toolWidth = 150 * s;
+    tools.forEach(([label, onClick], index) => {
+      const button = new Button(this, HUD_MARGIN + toolWidth / 2 + index * (toolWidth + 8), SCREEN.height - HUD_MARGIN - 22 * s, {
+        label,
+        width: toolWidth,
+        height: 44 * s,
+        textSize: 17 * s,
+        onClick,
+      });
+      button.setDepth(DEPTH.hudText).setVisible(false);
+      for (const object of button.objects) this.inHud(object);
+      this.debugButtons.push(button);
+    });
 
     // Touch devices get a pause button in the top right corner (GDD 15.7).
     if (isTouchPrimary()) {
@@ -385,7 +419,7 @@ export class Combat extends Phaser.Scene {
     this.paused = paused;
     if (this.controls) {
       this.controls.enabled = !paused;
-      this.controls.releaseJoystick();
+      this.controls.releaseAll();
     }
     for (const object of this.pauseObjects) {
       (object as Phaser.GameObjects.GameObject & Phaser.GameObjects.Components.Visible).setVisible(paused);
@@ -405,10 +439,24 @@ export class Combat extends Phaser.Scene {
   private toggleDebug(): void {
     this.debugVisible = !this.debugVisible;
     this.debugText.setVisible(this.debugVisible);
+    for (const button of this.debugButtons) button.setVisible(this.debugVisible);
   }
 
   private toggleInvincible(): void {
     if (this.debugVisible) this.sim.invincible = !this.sim.invincible;
+  }
+
+  /** Debug tool: spawns a group of test enemies outside the camera view. */
+  private spawnTestEnemies(): void {
+    if (this.debugVisible && !this.ended) spawnGroup(this.sim, ENEMIES['royal-footman'], 10);
+  }
+
+  /** Debug tool: opens the loadout menu over the paused round. */
+  private openLoadout(): void {
+    if (!this.debugVisible || this.ended) return;
+    this.controls.releaseAll();
+    this.scene.launch('DebugMenu', { run: this.run });
+    this.scene.pause();
   }
 
   /** A three-finger tap opens the debug overlay on a phone. */
@@ -429,7 +477,10 @@ export class Combat extends Phaser.Scene {
     if (!this.paused) {
       // Fixed time step: accumulate frame time and run whole steps (CLAUDE.md rule 2).
       this.accumulator += frame;
-      const input = this.controls.readMove();
+      const move = this.controls.readMove();
+      const player = this.sim.player;
+      this.focusPoint = this.ended ? undefined : this.controls.readFocus(this.cameras.main, player.x, player.y);
+      const input = { ...move, focusX: this.focusPoint?.x, focusY: this.focusPoint?.y };
       while (this.accumulator >= STEP_SECONDS) {
         this.sim.step(input);
         this.accumulator -= STEP_SECONDS;
@@ -446,7 +497,8 @@ export class Combat extends Phaser.Scene {
   private endRound(): void {
     this.ended = true;
     this.controls.enabled = false;
-    this.controls.releaseJoystick();
+    this.controls.releaseAll();
+    this.focusPoint = undefined;
     const cleared = this.sim.phase === 'cleared';
     this.bannerText.setText(cleared ? STRINGS.hud.roundCleared : STRINGS.hud.defeated);
     this.bannerText.setColor(cleared ? PALETTE.ink : PALETTE.danger);
@@ -481,6 +533,30 @@ export class Combat extends Phaser.Scene {
         case 'playerHit':
           this.cameras.main.shake(110, 0.004);
           break;
+        case 'sweep':
+        case 'cone':
+          this.effects.arc(event.x, event.y, event.radius, event.angle, event.arc, hexToNumber(DAMAGE_TYPE_COLOURS[event.damageType]));
+          break;
+        case 'slam':
+          this.effects.ring(event.x, event.y, event.radius, hexToNumber(DAMAGE_TYPE_COLOURS[event.damageType]));
+          break;
+        case 'thrust':
+          this.effects.line(
+            [event.x1, event.y1, event.x2, event.y2],
+            Math.max(4, event.halfWidth),
+            hexToNumber(DAMAGE_TYPE_COLOURS[event.damageType]),
+          );
+          break;
+        case 'explosion':
+          this.effects.ring(event.x, event.y, event.radius, hexToNumber(DAMAGE_TYPE_COLOURS[event.damageType]));
+          this.effects.burst(event.x, event.y, hexToNumber(DAMAGE_TYPE_COLOURS[event.damageType]), 8, 220, 3, 0.35);
+          break;
+        case 'chain':
+          this.effects.lightning(event.points, hexToNumber(DAMAGE_TYPE_COLOURS[event.damageType]));
+          break;
+        case 'trapSnap':
+          this.effects.ring(event.x, event.y, event.radius, GOLD, 0.2);
+          break;
         default:
           break;
       }
@@ -494,7 +570,8 @@ export class Combat extends Phaser.Scene {
     this.drawCamera(frame);
     this.drawPlayer();
     this.drawEnemies();
-    this.drawProjectiles();
+    this.drawUnder();
+    this.drawOver();
     this.effects.update(frame);
     this.drawHud();
     if (this.debugVisible) this.drawDebug();
@@ -582,22 +659,163 @@ export class Combat extends Phaser.Scene {
     }
   }
 
-  private drawProjectiles(): void {
-    const projectiles = this.sim.projectiles.items;
-    for (let slot = 0; slot < projectiles.length; slot++) {
-      const projectile = projectiles[slot];
-      let sprite = this.projectileSprites[slot];
-      if (!projectile || !projectile.active) {
-        sprite?.setVisible(false);
-        continue;
+  /** Area effects, auras and traps: drawn under enemies. */
+  private drawUnder(): void {
+    const g = this.under;
+    const sim = this.sim;
+    const player = sim.player;
+    g.clear();
+
+    for (const zone of sim.zones.items) {
+      if (!zone.active) continue;
+      const fade = Math.min(1, zone.timeLeft / 0.5);
+      if (zone.kind === 'burning') {
+        const fire = hexToNumber(DAMAGE_TYPE_COLOURS.Fire);
+        g.fillStyle(fire, 0.28 * fade);
+        g.fillCircle(zone.x, zone.y, zone.radius);
+        g.lineStyle(2, fire, 0.8 * fade);
+        g.strokeCircle(zone.x, zone.y, zone.radius);
+      } else if (zone.kind === 'rubble') {
+        g.fillStyle(PILLAR, 0.4 * fade);
+        g.fillCircle(zone.x, zone.y, zone.radius);
+        g.lineStyle(2, INK, 0.45 * fade);
+        g.strokeCircle(zone.x, zone.y, zone.radius * 0.6);
+        g.strokeCircle(zone.x, zone.y, zone.radius);
+      } else {
+        g.fillStyle(SMOKE, 0.6 * fade);
+        g.fillCircle(zone.x, zone.y, zone.radius);
+        g.lineStyle(2, INK, 0.25 * fade);
+        g.strokeCircle(zone.x, zone.y, zone.radius);
       }
-      if (!sprite) {
-        sprite = this.inWorld(this.add.image(0, 0, PLAYER_PROJECTILE_KEY))
-          .setDisplaySize(PROJECTILE_TEXTURE_SIZE, PROJECTILE_TEXTURE_SIZE)
-          .setDepth(DEPTH.projectile);
-        this.projectileSprites[slot] = sprite;
+    }
+
+    for (const weapon of sim.weapons) {
+      const resolved = weapon.resolved;
+      if (resolved.delivery === 'aura') {
+        const colour = hexToNumber(DAMAGE_TYPE_COLOURS[resolved.damageParts[0]?.type ?? 'Biological']);
+        const radius = auraRadius(resolved);
+        g.fillStyle(colour, 0.1 + 0.04 * Math.sin(this.clock * 5));
+        g.fillCircle(player.x, player.y, radius);
+        g.lineStyle(2, colour, 0.6);
+        g.strokeCircle(player.x, player.y, radius);
+      } else if (resolved.delivery === 'orbit') {
+        g.lineStyle(1, GOLD, 0.25);
+        g.strokeCircle(player.x, player.y, orbitRadius(resolved));
       }
-      sprite.setPosition(projectile.x, projectile.y).setVisible(true);
+    }
+
+    for (const trap of sim.traps.items) {
+      if (!trap.active) continue;
+      const armed = trap.arming <= 0;
+      g.fillStyle(GOLD, armed ? 0.9 : 0.35);
+      g.fillTriangle(trap.x - 9, trap.y, trap.x, trap.y - 9, trap.x + 9, trap.y);
+      g.fillTriangle(trap.x - 9, trap.y, trap.x, trap.y + 9, trap.x + 9, trap.y);
+      g.lineStyle(2, INK, armed ? 1 : 0.4);
+      g.strokeCircle(trap.x, trap.y, 11);
+    }
+  }
+
+  /** Projectiles, constructs, orbit heads, beams and the focus reticle: drawn over enemies. */
+  private drawOver(): void {
+    const g = this.over;
+    const sim = this.sim;
+    const player = sim.player;
+    g.clear();
+
+    for (const construct of sim.constructs.items) {
+      if (!construct.active) continue;
+      const fill = construct.kind === 'creature' ? CREATURE : construct.kind === 'hound' ? BRASS : GOLD;
+      if (construct.kind === 'turret') {
+        g.fillStyle(PILLAR, 1);
+        g.fillCircle(construct.x, construct.y, construct.radius + 3);
+        g.lineStyle(5, INK, 1);
+        g.lineBetween(
+          construct.x,
+          construct.y,
+          construct.x + construct.faceX * (construct.radius + 9),
+          construct.y + construct.faceY * (construct.radius + 9),
+        );
+      } else {
+        // A snout shows where the companion is heading.
+        g.fillStyle(INK, 1);
+        g.fillCircle(construct.x + construct.faceX * construct.radius, construct.y + construct.faceY * construct.radius, 5);
+      }
+      g.fillStyle(fill, 1);
+      g.fillCircle(construct.x, construct.y, construct.radius);
+      g.lineStyle(3, INK, 1);
+      g.strokeCircle(construct.x, construct.y, construct.radius);
+      if (construct.health < construct.maxHealth) {
+        const width = construct.radius * 2 + 4;
+        g.fillStyle(INK, 1);
+        g.fillRect(construct.x - width / 2 - 1, construct.y - construct.radius - 11, width + 2, 6);
+        g.fillStyle(GOLD, 1);
+        g.fillRect(construct.x - width / 2, construct.y - construct.radius - 10, width * (construct.health / construct.maxHealth), 4);
+      }
+    }
+
+    for (const weapon of sim.weapons) {
+      const resolved = weapon.resolved;
+      if (resolved.delivery === 'orbit') {
+        const radius = orbitRadius(resolved);
+        const head = orbitHeadRadius(resolved);
+        for (let index = 0; index < resolved.projectiles; index++) {
+          const angle = weapon.orbitAngle + (index / resolved.projectiles) * Math.PI * 2;
+          const x = player.x + Math.cos(angle) * radius;
+          const y = player.y + Math.sin(angle) * radius;
+          g.lineStyle(2, INK, 0.5);
+          g.lineBetween(player.x, player.y, x, y);
+          g.fillStyle(GOLD, 1);
+          g.fillCircle(x, y, head);
+          g.lineStyle(3, INK, 1);
+          g.strokeCircle(x, y, head);
+        }
+      } else if (resolved.delivery === 'beam' && weapon.beamActive) {
+        const colour = hexToNumber(DAMAGE_TYPE_COLOURS[resolved.damageParts[0]?.type ?? 'Fire']);
+        // The beam thickens as the damage rises on one target.
+        const width = 4 + Math.min(6, weapon.beamTicks * 0.6);
+        g.lineStyle(width, colour, 0.85);
+        g.lineBetween(player.x, player.y, weapon.beamX, weapon.beamY);
+        g.lineStyle(Math.max(1.5, width * 0.3), PARCHMENT, 0.95);
+        g.lineBetween(player.x, player.y, weapon.beamX, weapon.beamY);
+      }
+    }
+
+    // Player projectiles lean warm gold (GDD 15.1).
+    for (const projectile of sim.projectiles.items) {
+      if (!projectile.active) continue;
+      const radius = Math.max(3, projectile.radius);
+      if (projectile.kind === 'arcing') {
+        const progress = Math.min(1, projectile.elapsed / projectile.flight);
+        const span = Math.hypot(projectile.targetX - projectile.startX, projectile.targetY - projectile.startY);
+        const height = Math.sin(progress * Math.PI) * Math.min(140, 30 + span * 0.3);
+        g.fillStyle(INK, 0.2);
+        g.fillEllipse(projectile.x, projectile.y, radius * 2.4, radius * 1.4);
+        g.fillStyle(GOLD, 1);
+        g.fillCircle(projectile.x, projectile.y - height, radius + 1);
+        g.lineStyle(2, INK, 1);
+        g.strokeCircle(projectile.x, projectile.y - height, radius + 1);
+        // A faint mark shows where the shot lands.
+        g.lineStyle(1.5, GOLD, 0.5);
+        g.strokeCircle(projectile.targetX, projectile.targetY, Math.max(8, projectile.blastRadius));
+      } else {
+        g.lineStyle(Math.max(2, radius * 0.8), GOLD, 0.45);
+        g.lineBetween(projectile.x - projectile.dx * 14, projectile.y - projectile.dy * 14, projectile.x, projectile.y);
+        g.fillStyle(GOLD, 1);
+        g.fillCircle(projectile.x, projectile.y, radius);
+        g.lineStyle(1.5, INK, 1);
+        g.strokeCircle(projectile.x, projectile.y, radius);
+      }
+    }
+
+    // The focus point shows as a small brass reticle (GDD 15.7).
+    const focus = this.focusPoint;
+    if (focus) {
+      g.lineStyle(3, BRASS, 1);
+      g.strokeCircle(focus.x, focus.y, 12);
+      g.lineBetween(focus.x - 20, focus.y, focus.x - 6, focus.y);
+      g.lineBetween(focus.x + 6, focus.y, focus.x + 20, focus.y);
+      g.lineBetween(focus.x, focus.y - 20, focus.x, focus.y - 6);
+      g.lineBetween(focus.x, focus.y + 6, focus.x, focus.y + 20);
     }
   }
 
@@ -661,9 +879,15 @@ export class Combat extends Phaser.Scene {
       hud.fillStyle(PARCHMENT, weapon ? 0.92 : 0.5);
       hud.fillRect(x, tile.y, tile.size, tile.size);
       if (weapon) {
-        const wait = Math.min(1, weapon.cooldown * weapon.stats.attacksPerSecond);
-        hud.fillStyle(BRASS, 0.35);
-        hud.fillRect(x, tile.y + tile.size * (1 - wait), tile.size, tile.size * wait);
+        if (weapon.jamTimer > 0) {
+          // A jammed weapon shows the danger colour until the jam clears.
+          hud.fillStyle(DANGER, 0.4);
+          hud.fillRect(x, tile.y, tile.size, tile.size);
+        } else {
+          const wait = Math.min(1, weapon.cooldown * currentAttackSpeed(sim, weapon));
+          hud.fillStyle(BRASS, 0.35);
+          hud.fillRect(x, tile.y + tile.size * (1 - wait), tile.size, tile.size * wait);
+        }
       }
       hud.lineStyle(weapon ? 3 : 2, weapon ? INK : BRASS, weapon ? 1 : 0.7);
       hud.strokeRect(x, tile.y, tile.size, tile.size);
@@ -709,7 +933,8 @@ export class Combat extends Phaser.Scene {
     const lines = [
       `${Math.round(this.game.loop.actualFps)} fps`,
       `Seed ${formatSeed(this.run.seed)}  Round ${sim.round}  Step ${sim.steps}`,
-      `Enemies ${sim.enemies.activeCount}  Projectiles ${sim.projectiles.activeCount}`,
+      `Enemies ${sim.enemies.activeCount}  Projectiles ${sim.projectiles.activeCount}  Constructs ${sim.constructs.activeCount}`,
+      `Traps ${sim.traps.activeCount}  Area effects ${sim.zones.activeCount}`,
       `Kills ${sim.stats.kills}  Shots ${sim.stats.shotsFired}  Hits taken ${sim.stats.hitsTaken}`,
       sim.invincible ? STRINGS.debug.invincibleOn : STRINGS.debug.invincibleOff,
     ];

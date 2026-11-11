@@ -9,8 +9,8 @@ export const STRINGS = {
   boot: {
     startKeyboard: 'Press any key to begin',
     startTouch: 'Tap to begin',
-    controlsKeyboard: 'Move with WASD or the arrow keys. Weapons fire on their own. Esc pauses.',
-    controlsTouch: 'Drag on the left half of the screen to move. Weapons fire on their own.',
+    controlsKeyboard: 'Move with WASD or the arrow keys. Weapons fire on their own. Hold a mouse button to focus fire. Esc pauses.',
+    controlsTouch: 'Drag on the left half to move. Weapons fire on their own. Hold the right half to focus fire.',
   },
 
   hud: {
@@ -53,9 +53,33 @@ export const STRINGS = {
     seed: (seed: string) => `Seed ${seed}`,
   },
 
+  select: {
+    heading: 'Choose a starting weapon',
+    character: (name: string) => `${name} sets out with one weapon.`,
+    hintKeyboard: 'Press 1 to 6, or use the arrow keys and Enter',
+    hintTouch: 'Tap a weapon to begin',
+    stats: (damage: string, speed: string, range: string, area: string) =>
+      `Damage ${damage}  ·  Speed ${speed}  ·  Range ${range}  ·  Area ${area}`,
+  },
+
   debug: {
-    invincibleOn: 'Invincible: on (I)',
-    invincibleOff: 'Invincible: off (I)',
+    invincibleOn: 'Invincible: on',
+    invincibleOff: 'Invincible: off',
+    loadout: 'Loadout (L)',
+    spawn: 'Spawn 10 (K)',
+    invincible: 'Invincible (I)',
+    menuTitle: 'Workbench (debug)',
+    menuNote: 'Equip any weapon and component. Applying restarts the current round.',
+    slot: (index: number) => `Weapon ${index}`,
+    noWeapon: 'No weapon',
+    empty: 'Empty',
+    closed: 'Closed',
+    gradeLow: 'Grade I: Auxiliary closed',
+    gradeHigh: 'Grade III: Auxiliary open',
+    apply: 'Apply and restart round',
+    cancel: 'Cancel',
+    waiting: (component: string, milestone: number) => `${component}: active from Milestone ${milestone}`,
+    needWeapon: 'Equip at least one weapon.',
   },
 } as const;
 

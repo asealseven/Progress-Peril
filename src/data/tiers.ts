@@ -149,3 +149,137 @@ export const COMBAT = {
   /** Enemies in one group spawn inside this radius. */
   spawnGroupSpread: 70,
 } as const;
+
+/** Knockback push per hit, pixels, for "Knockback up" effects (GDD 7.14). Sources add. */
+export const KNOCKBACK_PIXELS: TierTable = row(5, 10, 20, 35, 60);
+
+/**
+ * Weapon and component numbers with no value in GDD.md (GDD 7.16 to 7.18).
+ * NOTES.md records each choice. Milestone 12 tunes them.
+ */
+export const WEAPON_RULES = {
+  // Shapes from the Range and Area stats.
+  /** Sweep arc in degrees: base plus one degree per Area pixel. */
+  sweepArcBase: 40,
+  sweepArcPerArea: 1,
+  /** Cone arc in degrees: base plus a share of Area. */
+  coneArcBase: 20,
+  coneArcPerArea: 0.6,
+  /** Thrust half-width in pixels: base plus half of Area. */
+  thrustHalfWidthBase: 10,
+  thrustHalfWidthPerArea: 0.5,
+  /** Single-target landings and bites reach this far from the impact point. */
+  singleTargetReach: 24,
+  /** Smallest radius the Clustered rule counts enemies in. */
+  clusterRadiusMin: 40,
+  /** Area widens non-blast projectiles: extra radius per Area pixel. */
+  projectileRadiusPerArea: 0.2,
+  /** Aura radius: half of Range plus Area. */
+  auraRangeShare: 0.5,
+  /** Orbit radius: a share of Range, with an upper limit. */
+  orbitRangeShare: 0.75,
+  orbitRadiusMax: 150,
+  orbitHeadBase: 10,
+  orbitHeadPerArea: 0.25,
+  /** Orbit turns per second: a share of Attack Speed, inside limits. */
+  orbitTurnsPerAttack: 0.5,
+  orbitTurnsMin: 0.5,
+  orbitTurnsMax: 2,
+  /** Fan angle added per extra projectile on a weapon with no fan, degrees. */
+  extraProjectileSpread: 8,
+  /** Extra Arcing projectiles land this far from the target point. */
+  arcingScatter: 36,
+  arcingSpeed: 420,
+  arcingMinFlight: 0.35,
+  /** Homing turn rates, radians per second. */
+  homingStrong: 5,
+  homingSlight: 1.6,
+  homingSeekRange: 320,
+  ricochetRange: 220,
+  /** Chain jumps (GDD 7.20): reach, damage kept per generation and depth limit. */
+  chainRange: 160,
+  chainFalloff: 0.75,
+  chainDepthLimit: 4,
+  /** Seconds an enemy ignores further chain generations after a chain hit. */
+  chainGuardSeconds: 0.25,
+  /** Beam damage rises by this share per tick on one target, up to the cap. */
+  beamRampPerTick: 0.1,
+  beamRampCap: 1,
+  burningPoolTicksPerSecond: 2,
+  burningPoolDamageShare: 0.25,
+  /** Speed multiplier for enemies on rubble. */
+  rubbleSlow: 0.6,
+  killExplosionAreaShare: 0.6,
+  killExplosionDamageShare: 0.6,
+  turretLimit: 2,
+  turretHealth: 40,
+  turretDeploySeconds: 4,
+  turretReplaceDistance: 450,
+  companionSpeed: 230,
+  companionHealth: 60,
+  companionLeashExtra: 60,
+  companionRadius: 10,
+  trapLimit: 6,
+  trapSpacing: 70,
+  trapTriggerRadius: 20,
+  trapArmSeconds: 0.4,
+  /** Living Arsenal adapts each round: one Minimal step of Damage, capped at High. */
+  adaptPerRound: 'Minimal',
+  adaptCap: 'High',
+
+  // Components.
+  explodeOnHitRadius: 30,
+  explodeOnHitDamageShare: 0.5,
+  explodeOnKillRadius: 30,
+  explodeOnKillDamageShare: 0.5,
+  arcOnHitDamageShare: 0.5,
+  pullRadius: 90,
+  pullDistance: 24,
+  /** "Small enemies" for Magnetite Slugs: radius up to the standard placeholder. */
+  smallEnemyRadius: 14,
+  slowFactor: 0.7,
+  slowSeconds: 1.5,
+  grappleDistance: 40,
+  healOnKill: 1,
+  /** Feedback Loop Gear: Attack Speed per kill, duration and cap. */
+  killStackSize: 'Minimal',
+  killStackSeconds: 3,
+  killStackCap: 'High',
+  /** Gear Train Accelerator: Attack Speed per attack, cap and reset pause. */
+  rampStepSize: 'Minimal',
+  rampCap: 'High',
+  rampResetSeconds: 1.5,
+  jamChance: 0.05,
+  jamSeconds: 1.5,
+  lightningSeconds: 4,
+  lightningDamage: 'Medium',
+  lightningRange: 220,
+  lightningJumps: 3,
+  smokeRadius: 90,
+  smokeSeconds: 3,
+  smokeCooldown: 8,
+  bayonetReach: 26,
+  bayonetDamage: 'Low',
+  bayonetSeconds: 1,
+  fragmentCount: 8,
+  fragmentDamageShare: 0.25,
+  fragmentRange: 160,
+  constructRepairPerSecond: 0.03,
+  spreadDownFactor: 0.5,
+  /** Size used where GDD 7.18 gives a direction with no tier, such as "Faster projectiles". */
+  unsizedTier: 'Medium',
+} as const;
+
+/** Performance limits (GDD 7.21). Milestone 12 sets final numbers from profiling. */
+export const PERFORMANCE_LIMITS = {
+  pc: { projectiles: 400, areaEffects: 30, constructs: 6, traps: 18, chainEventsPerStep: 12 },
+  mobile: { projectiles: 250, areaEffects: 16, constructs: 6, traps: 12, chainEventsPerStep: 6 },
+} as const;
+
+export type PerformanceLimits = { readonly [K in keyof (typeof PERFORMANCE_LIMITS)['pc']]: number };
+
+/** Player stat caps as tiers (GDD 3.6), for the stats Milestone 2 changes. */
+export const PLAYER_STAT_CAPS = {
+  armour: 'High',
+  evasion: 'Medium',
+} as const;
