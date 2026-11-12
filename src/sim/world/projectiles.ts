@@ -1,11 +1,13 @@
 // Travelling projectiles (GDD 7.16): Straight, Arcing, Piercing, Ricochet and Homing.
 
 import type { DamageType } from '../../data/damageTypes';
-import { COMBAT, SYNERGY_RULES, WEAPON_RULES } from '../../data/tiers';
+import { COMBAT, ENEMY_RULES, SYNERGY_RULES, WEAPON_RULES } from '../../data/tiers';
 import { hasSynergy } from '../loadout';
 import { explode, hitEnemy, nearestOther } from './damage';
+import { shieldBlocks, shieldFaces } from './enemies';
 import { sweepCircle } from './movement';
 import { statusFor, triggerStatus } from './status';
+import { hasTrait } from './traits';
 import type { Enemy, Projectile } from './types';
 import type { World } from './world';
 import { addZone } from './zones';
@@ -253,9 +255,36 @@ function landArcing(world: World, projectile: Projectile): void {
   world.projectiles.release(projectile);
 }
 
+/** Magnetised elites pull Metallic projectiles off course (GDD 9.12). */
+function bendToMagnet(world: World, projectile: Projectile, dt: number): void {
+  let magnet: Enemy | undefined;
+  let nearest: number = ENEMY_RULES.magnetRadius;
+  for (const candidate of world.magnets) {
+    if (!candidate.active) continue;
+    const distance = Math.hypot(candidate.x - projectile.x, candidate.y - projectile.y);
+    if (distance < nearest) {
+      magnet = candidate;
+      nearest = distance;
+    }
+  }
+  if (!magnet) return;
+  const desired = Math.atan2(magnet.y - projectile.y, magnet.x - projectile.x);
+  const current = Math.atan2(projectile.dy, projectile.dx);
+  let difference = desired - current;
+  while (difference > Math.PI) difference -= Math.PI * 2;
+  while (difference < -Math.PI) difference += Math.PI * 2;
+  const limit = ENEMY_RULES.magnetTurnRate * dt;
+  const turn = Math.max(-limit, Math.min(limit, difference));
+  projectile.dx = Math.cos(current + turn);
+  projectile.dy = Math.sin(current + turn);
+}
+
 function updateStraight(world: World, projectile: Projectile, dt: number): void {
   const arena = world.arena;
   if (projectile.homing > 0) steer(world, projectile, dt);
+  if (world.magnets.length > 0 && !projectile.parasite) {
+    if (world.weapons[projectile.weaponIndex]?.resolved.tags.includes('Metallic')) bendToMagnet(world, projectile, dt);
+  }
   const travel = Math.min(projectile.speed * dt, projectile.distanceLeft);
 
   // Arena obstacles block Straight projectiles (GDD 7.16).
@@ -323,6 +352,19 @@ function updateStraight(world: World, projectile: Projectile, dt: number): void 
       return;
     }
 
+    // Shielded elites block frontal projectiles. Electric shots pass the shield (GDD 9.12).
+    if (shieldBlocks(hit, projectile.dx, projectile.dy)) {
+      const parts = world.weapons[projectile.weaponIndex]?.resolved.damageParts ?? [];
+      const electric = projectile.forcedType === 'Electric' || parts.some((part) => part.type === 'Electric');
+      if (!electric) {
+        world.emit({ type: 'projectileBlocked', x: projectile.x, y: projectile.y });
+        world.projectiles.release(projectile);
+        return;
+      }
+    }
+    // A Royal Bastion's tower shield stops frontal projectiles, for allies behind (GDD 9.11).
+    const stopped = hasTrait(hit, 'tower-shield') && shieldFaces(hit, projectile.dx, projectile.dy);
+
     const hitX = hit.x;
     const hitY = hit.y;
     projectile.hitIds.push(hit.id);
@@ -335,6 +377,10 @@ function updateStraight(world: World, projectile: Projectile, dt: number): void 
       dirY: projectile.dy,
     });
 
+    if (stopped) {
+      world.projectiles.release(projectile);
+      return;
+    }
     // Ricochet: bounce to a new enemy within a short distance.
     if (projectile.bouncesLeft > 0) {
       const next = nearestOther(world, hitX, hitY, WEAPON_RULES.ricochetRange, projectile.hitIds);

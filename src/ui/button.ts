@@ -43,6 +43,11 @@ export class Button {
     this.objects = [this.panel, this.text];
   }
 
+  setLabel(label: string): this {
+    this.text.setText(label);
+    return this;
+  }
+
   setDepth(depth: number): this {
     this.panel.setDepth(depth);
     this.text.setDepth(depth + 1);

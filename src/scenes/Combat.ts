@@ -3,7 +3,7 @@ import { DAMAGE_TYPE_COLOURS, KINGDOM_COLOURS, PALETTE, hexToNumber } from '../d
 import type { DamageTypeName } from '../data/palette';
 import { SCREEN } from '../data/screen';
 import { STRINGS, formatTime } from '../data/strings';
-import { COMBAT, PERFORMANCE_LIMITS } from '../data/tiers';
+import { ENEMY_RULES, PERFORMANCE_LIMITS } from '../data/tiers';
 import { Effects } from '../render/effects';
 import {
   PLAYER_KEY,
@@ -14,14 +14,18 @@ import {
   ensurePlayerTexture,
 } from '../render/placeholders';
 import { formatSeed } from '../sim/rng';
-import { createWorldForRound, finishRound } from '../sim/run';
+import { createWorldForRound, finishRound, kingdomForRound } from '../sim/run';
 import type { RunState } from '../sim/run';
 import { auraRadius, currentAttackSpeed, orbitHeadRadius, orbitRadius } from '../sim/world/attacks';
-import { spawnGroup } from '../sim/world/enemies';
-import { ENEMIES } from '../data/enemies';
+import { hasShield, shieldBlocks, spawnGroup } from '../sim/world/enemies';
+import { CHAMPION_TRAITS } from '../data/champions';
+import { ELITE_MODIFIERS } from '../data/eliteModifiers';
+import { ENEMY_LIST } from '../data/enemies';
+import { territoryIndex } from '../data/rounds';
 import { REACTION_DEFS, STATUS_DEFS, STATUS_EFFECTS } from '../data/statusEffects';
 import { SYNERGIES } from '../data/synergies';
 import { meterSize, trailStatuses } from '../sim/world/status';
+import type { Enemy, EnemyRank, Hazard } from '../sim/world/types';
 import type { World } from '../sim/world/world';
 import { STEP_SECONDS } from '../sim/world/world';
 import { Button } from '../ui/button';
@@ -45,6 +49,10 @@ const FLOOR_LINE = 0xcbbfa5;
 const PILLAR = 0x6b635a;
 
 const SMOKE = 0xbfb8a8;
+const STEEL = hexToNumber(DAMAGE_TYPE_COLOURS.Piercing);
+const DEBUG_RANKS: readonly EnemyRank[] = ['normal', 'elite', 'champion'];
+const WARNING_SECONDS = 1.5;
+const MAX_CHAMPION_LABELS = 4;
 const CREATURE = hexToNumber(DAMAGE_TYPE_COLOURS.Toxic);
 
 const DEPTH = {
@@ -116,6 +124,15 @@ export class Combat extends Phaser.Scene {
   private lastHealthLabel = '';
   private lastTimerLabel = '';
   private debugVisible = false;
+  /** Debug spawn tool: the enemy and rank picked. */
+  private debugEnemy = 0;
+  private debugRank = 0;
+  private enemyButton?: Button;
+  private rankButton?: Button;
+  /** Markers where large groups enter soon (GDD 4.11). */
+  private warnings: Array<{ x: number; y: number; life: number }> = [];
+  private championLabels: Phaser.GameObjects.Text[] = [];
+  private suppressedText!: Phaser.GameObjects.Text;
 
   constructor() {
     super('Combat');
@@ -145,6 +162,10 @@ export class Combat extends Phaser.Scene {
     this.lastHealthLabel = '';
     this.lastTimerLabel = '';
     this.debugVisible = false;
+    this.warnings = [];
+    this.championLabels = [];
+    this.enemyButton = undefined;
+    this.rankButton = undefined;
 
     const arena = this.sim.arena;
     const main = this.cameras.main;
@@ -178,6 +199,8 @@ export class Combat extends Phaser.Scene {
     keyboard?.on('keydown-I', this.toggleInvincible, this);
     keyboard?.on('keydown-L', this.openLoadout, this);
     keyboard?.on('keydown-K', this.spawnTestEnemies, this);
+    keyboard?.on('keydown-N', this.nextDebugEnemy, this);
+    keyboard?.on('keydown-R', this.nextDebugRank, this);
     keyboard?.addCapture('TAB,F3');
     this.input.on('pointerdown', this.onPointerDown, this);
     this.game.events.on(Phaser.Core.Events.HIDDEN, this.pauseOnHide, this);
@@ -189,6 +212,8 @@ export class Combat extends Phaser.Scene {
       keyboard?.off('keydown-I', this.toggleInvincible, this);
       keyboard?.off('keydown-L', this.openLoadout, this);
       keyboard?.off('keydown-K', this.spawnTestEnemies, this);
+      keyboard?.off('keydown-N', this.nextDebugEnemy, this);
+      keyboard?.off('keydown-R', this.nextDebugRank, this);
       this.input.off('pointerdown', this.onPointerDown, this);
       this.game.events.off(Phaser.Core.Events.HIDDEN, this.pauseOnHide, this);
     });
@@ -253,7 +278,7 @@ export class Combat extends Phaser.Scene {
   private createHud(): void {
     const s = this.scale1;
     const centreX = SCREEN.width / 2;
-    const arena = this.sim.arena;
+    const territory = territoryIndex(this.sim.round) + 1;
 
     this.hud = this.inHud(this.add.graphics()).setDepth(DEPTH.hud);
 
@@ -272,7 +297,7 @@ export class Combat extends Phaser.Scene {
       .setOrigin(0.5, 0)
       .setDepth(DEPTH.hudText);
     const territoryText = this.inHud(
-      addText(this, centreX, 12 + 68 * s, STRINGS.hud.territory(arena.kingdom, arena.name), {
+      addText(this, centreX, 12 + 68 * s, STRINGS.hud.territory(territory, kingdomForRound(this.run)), {
         size: 15 * s,
         colour: PALETTE.brass,
         weight: '500',
@@ -318,8 +343,18 @@ export class Combat extends Phaser.Scene {
       .setVisible(false);
     this.bannerText.setStroke(PALETTE.parchment, 8);
 
+    // The Unstable switches Auxiliary components off (GDD 9.11).
+    const tiles = this.tileLayout();
+    this.suppressedText = this.inHud(
+      addText(this, centreX, tiles.y - 10, STRINGS.hud.suppressed, { size: 16 * s, weight: '700', colour: PALETTE.danger }),
+    )
+      .setOrigin(0.5, 1)
+      .setDepth(DEPTH.hudText)
+      .setVisible(false);
+    this.suppressedText.setStroke(PALETTE.parchment, 5);
+
     this.debugText = this.inHud(
-      addText(this, HUD_MARGIN, SCREEN.height - HUD_MARGIN - 56 * s, '', { size: 15 * s, weight: '500' }),
+      addText(this, HUD_MARGIN, SCREEN.height - HUD_MARGIN - 104 * s, '', { size: 14 * s, weight: '500' }),
     )
       .setOrigin(0, 1)
       .setDepth(DEPTH.hudText)
@@ -333,18 +368,23 @@ export class Combat extends Phaser.Scene {
       [STRINGS.debug.invincible, () => this.toggleInvincible()],
     ];
     const toolWidth = 150 * s;
-    tools.forEach(([label, onClick], index) => {
-      const button = new Button(this, HUD_MARGIN + toolWidth / 2 + index * (toolWidth + 8), SCREEN.height - HUD_MARGIN - 22 * s, {
-        label,
-        width: toolWidth,
-        height: 44 * s,
-        textSize: 17 * s,
-        onClick,
-      });
+    const addTool = (label: string, x: number, y: number, width: number, onClick: () => void): Button => {
+      const button = new Button(this, x, y, { label, width, height: 44 * s, textSize: 17 * s, onClick });
       button.setDepth(DEPTH.hudText).setVisible(false);
       for (const object of button.objects) this.inHud(object);
       this.debugButtons.push(button);
+      return button;
+    };
+    const toolY = SCREEN.height - HUD_MARGIN - 22 * s;
+    tools.forEach(([label, onClick], index) => {
+      addTool(label, HUD_MARGIN + toolWidth / 2 + index * (toolWidth + 8), toolY, toolWidth, onClick);
     });
+    // Spawn tool: pick any enemy and rank (N and R on a keyboard).
+    const upperY = toolY - 50 * s;
+    const enemyWidth = toolWidth * 2 + 8;
+    this.enemyButton = addTool('', HUD_MARGIN + enemyWidth / 2, upperY, enemyWidth, () => this.nextDebugEnemy());
+    this.rankButton = addTool('', HUD_MARGIN + enemyWidth + 8 + toolWidth / 2, upperY, toolWidth, () => this.nextDebugRank());
+    this.refreshDebugTools();
 
     // Touch devices get a pause button in the top right corner (GDD 15.7).
     if (isTouchPrimary()) {
@@ -464,9 +504,29 @@ export class Combat extends Phaser.Scene {
     if (this.debugVisible) this.sim.invincible = !this.sim.invincible;
   }
 
-  /** Debug tool: spawns a group of test enemies outside the camera view. */
+  /** Debug tool: spawns a group of the picked enemy and rank outside the camera view. */
   private spawnTestEnemies(): void {
-    if (this.debugVisible && !this.ended) spawnGroup(this.sim, ENEMIES['royal-footman'], 10);
+    if (!this.debugVisible || this.ended) return;
+    const def = ENEMY_LIST[this.debugEnemy];
+    const rank = DEBUG_RANKS[this.debugRank] ?? 'normal';
+    if (def) spawnGroup(this.sim, def, rank === 'normal' ? 5 : 1, rank);
+  }
+
+  private nextDebugEnemy(): void {
+    if (!this.debugVisible) return;
+    this.debugEnemy = (this.debugEnemy + 1) % ENEMY_LIST.length;
+    this.refreshDebugTools();
+  }
+
+  private nextDebugRank(): void {
+    if (!this.debugVisible) return;
+    this.debugRank = (this.debugRank + 1) % DEBUG_RANKS.length;
+    this.refreshDebugTools();
+  }
+
+  private refreshDebugTools(): void {
+    this.enemyButton?.setLabel(STRINGS.debug.spawnEnemy(ENEMY_LIST[this.debugEnemy]?.name ?? ''));
+    this.rankButton?.setLabel(STRINGS.debug.spawnRank(DEBUG_RANKS[this.debugRank] ?? 'normal'));
   }
 
   /** Debug tool: opens the loadout menu over the paused round. */
@@ -579,7 +639,37 @@ export class Combat extends Phaser.Scene {
           this.effects.burst(event.x, event.y, hexToNumber(STATUS_DEFS[event.status].colour), 6, 110, 3, 0.4);
           break;
         case 'reaction':
-          this.showReaction(event.reaction, event.x, event.y);
+          this.effects.ring(event.x, event.y, 34, hexToNumber(REACTION_DEFS[event.reaction].colour), 0.35);
+          this.showFloater(event.reaction, event.x, event.y);
+          break;
+        case 'spawnWarning':
+          this.warnings.push({ x: event.x, y: event.y, life: WARNING_SECONDS });
+          break;
+        case 'enemyBlast':
+          // Enemy blasts keep the crimson danger ring, with sparks in the damage colour (GDD 15.1).
+          this.effects.ring(event.x, event.y, event.radius, DANGER, 0.3);
+          this.effects.burst(event.x, event.y, hexToNumber(DAMAGE_TYPE_COLOURS[event.damageType]), 10, 240, 3, 0.4);
+          break;
+        case 'teleport':
+          this.effects.line([event.x1, event.y1, event.x2, event.y2], 3, hexToNumber(DAMAGE_TYPE_COLOURS.Electric));
+          this.effects.ring(event.x2, event.y2, 26, DANGER, 0.3);
+          break;
+        case 'repair':
+          this.effects.line([event.x1, event.y1, event.x2, event.y2], 3, BRASS);
+          this.effects.ring(event.x2, event.y2, 24, BRASS, 0.3);
+          break;
+        case 'goldStolen':
+          this.showFloater(STRINGS.hud.goldStolen(event.amount), event.x, event.y);
+          break;
+        case 'goldReturned':
+          this.showFloater(STRINGS.hud.goldReturned(event.amount), event.x, event.y);
+          break;
+        case 'constructDestroyed':
+          this.effects.burst(event.x, event.y, GOLD, 12, 200, 3.5, 0.5);
+          break;
+        case 'mutated':
+          this.showFloater(ELITE_MODIFIERS[event.modifier].name, event.x, event.y);
+          this.effects.ring(event.x, event.y, 30, hexToNumber(ELITE_MODIFIERS[event.modifier].colour), 0.4);
           break;
         default:
           break;
@@ -588,10 +678,8 @@ export class Combat extends Phaser.Scene {
     this.sim.events.length = 0;
   }
 
-  /** Names a status reaction above the enemy, so the player learns each one (GDD 15.4). */
-  private showReaction(reaction: keyof typeof REACTION_DEFS, x: number, y: number): void {
-    const colour = hexToNumber(REACTION_DEFS[reaction].colour);
-    this.effects.ring(x, y, 34, colour, 0.35);
+  /** A short label rising from a point: reaction names, mutations and stolen gold (GDD 15.4). */
+  private showFloater(label: string, x: number, y: number): void {
     let floater = this.floaters.find((entry) => entry.life <= 0);
     if (!floater) {
       if (this.floaters.length >= MAX_FLOATERS) return;
@@ -603,7 +691,7 @@ export class Combat extends Phaser.Scene {
       this.floaters.push(floater);
     }
     floater.life = FLOATER_SECONDS;
-    floater.text.setText(reaction).setPosition(x, y - 30).setAlpha(1).setVisible(true);
+    floater.text.setText(label).setPosition(x, y - 30).setAlpha(1).setVisible(true);
   }
 
   private drawFloaters(frame: number): void {
@@ -628,6 +716,7 @@ export class Combat extends Phaser.Scene {
     this.drawUnder();
     this.drawOver();
     this.drawFloaters(frame);
+    this.drawWarnings(frame);
     this.effects.update(frame);
     this.drawHud();
     if (this.debugVisible) this.drawDebug();
@@ -658,6 +747,7 @@ export class Combat extends Phaser.Scene {
     telegraphs.clear();
     bars.clear();
 
+    let labels = 0;
     const enemies = this.sim.enemies.items;
     for (let slot = 0; slot < enemies.length; slot++) {
       const enemy = enemies[slot];
@@ -676,23 +766,24 @@ export class Combat extends Phaser.Scene {
         ensureEnemyTexture(this, enemy.def);
         sprite.setTexture(key);
       }
-      const size = enemyTextureSize(enemy.def);
+      // Split copies draw smaller than their definition.
+      const size = enemyTextureSize(enemy.def) * (enemy.radius / enemy.def.radius);
       sprite.setDisplaySize(size, size);
 
       // Wind-up pull-back, then a quick lunge (GDD 15.3).
       let offset = 0;
-      if (enemy.action === 'windup') {
-        const progress = 1 - enemy.actionTimer / COMBAT.enemyMeleeWindup;
+      if (enemy.action === 'windup' || enemy.action === 'cast') {
+        const progress = Math.min(1, Math.max(0, 1 - enemy.actionTimer / enemy.actionDuration));
         offset = -6 * progress;
-        // Every enemy attack telegraph uses one crimson outline (GDD 15.1).
-        telegraphs.lineStyle(3, DANGER, 0.55 + 0.45 * progress);
-        telegraphs.strokeCircle(enemy.x, enemy.y, enemy.radius + 3 + enemy.range * progress);
+        this.drawTelegraph(enemy, progress);
       } else if (enemy.action === 'recover') {
-        const sinceStrike = COMBAT.enemyMeleeRecover - enemy.actionTimer;
+        const sinceStrike = enemy.actionDuration - enemy.actionTimer;
         offset = 9 * Math.max(0, 1 - sinceStrike / 0.15);
       }
       sprite.setPosition(enemy.x + enemy.faceX * offset, enemy.y + enemy.faceY * offset);
       sprite.setVisible(true);
+      // A sleeping Guardian and a stalled Lancer fade.
+      sprite.setAlpha(enemy.action === 'dormant' ? 0.55 : enemy.action === 'stall' ? 0.7 : 1);
 
       // White flash on hit (GDD 15.3).
       if (enemy.hitFlash > 0) {
@@ -702,6 +793,8 @@ export class Combat extends Phaser.Scene {
         sprite.setTint(0xffffff);
         sprite.setTintMode(Phaser.TintModes.MULTIPLY);
       }
+
+      this.drawRank(enemy);
 
       if (enemy.health < enemy.maxHealth) {
         const width = enemy.radius * 2 + 4;
@@ -740,7 +833,262 @@ export class Combat extends Phaser.Scene {
           outlines++;
         }
       }
+
+      // A champion shows its trait by name (GDD 9.13).
+      if (enemy.rank === 'champion' && enemy.championTrait && labels < MAX_CHAMPION_LABELS) {
+        let label = this.championLabels[labels];
+        if (!label) {
+          label = this.inWorld(addText(this, 0, 0, '', { role: 'hand', size: 20 }))
+            .setOrigin(0.5, 1)
+            .setDepth(DEPTH.bars + 1);
+          label.setStroke(PALETTE.parchment, 5);
+          this.championLabels[labels] = label;
+        }
+        const text = STRINGS.hud.champion(CHAMPION_TRAITS[enemy.championTrait].name, enemy.def.name);
+        if (label.text !== text) label.setText(text);
+        label.setPosition(enemy.x, enemy.y - enemy.radius - 34).setVisible(true);
+        labels++;
+      }
     }
+    for (let index = labels; index < this.championLabels.length; index++) this.championLabels[index]?.setVisible(false);
+  }
+
+  /** Every enemy attack telegraph uses one crimson outline (GDD 15.1). The shape follows the attack. */
+  private drawTelegraph(enemy: Enemy, progress: number): void {
+    const g = this.telegraphs;
+    const alpha = 0.55 + 0.45 * progress;
+    g.lineStyle(3, DANGER, alpha);
+
+    if (enemy.action === 'cast') {
+      switch (enemy.ability) {
+        case 'mine':
+          g.strokeCircle(enemy.aimX, enemy.aimY, ENEMY_RULES.mineBlastRadius * progress);
+          g.lineBetween(enemy.x, enemy.y, enemy.aimX, enemy.aimY);
+          break;
+        case 'spores':
+          g.strokeCircle(enemy.aimX, enemy.aimY, 14 + 10 * progress);
+          g.lineBetween(enemy.x, enemy.y, enemy.aimX, enemy.aimY);
+          break;
+        case 'teleport':
+          g.strokeCircle(enemy.aimX, enemy.aimY, enemy.radius + 10 * (1 - progress));
+          break;
+        default:
+          g.lineStyle(3, BRASS, alpha);
+          g.strokeCircle(enemy.x, enemy.y, enemy.radius + 6 + 8 * progress);
+          break;
+      }
+      return;
+    }
+
+    const player = this.sim.player;
+    switch (enemy.def.attack) {
+      case 'ranged': {
+        // A sight line toward the target.
+        const dx = player.x - enemy.x;
+        const dy = player.y - enemy.y;
+        const length = Math.hypot(dx, dy) || 1;
+        const reach = Math.min(length, enemy.range + 160);
+        g.lineStyle(2 + 2 * progress, DANGER, alpha * 0.8);
+        g.lineBetween(enemy.x, enemy.y, enemy.x + (dx / length) * reach, enemy.y + (dy / length) * reach);
+        break;
+      }
+      case 'slam':
+        g.fillStyle(DANGER, 0.12 + 0.18 * progress);
+        g.fillCircle(enemy.aimX, enemy.aimY, ENEMY_RULES.slamRadius);
+        g.strokeCircle(enemy.aimX, enemy.aimY, ENEMY_RULES.slamRadius);
+        break;
+      case 'detonate':
+        g.fillStyle(DANGER, 0.12 + 0.2 * progress);
+        g.fillCircle(enemy.x, enemy.y, ENEMY_RULES.detonateRadius);
+        g.strokeCircle(enemy.x, enemy.y, ENEMY_RULES.detonateRadius);
+        break;
+      case 'charge': {
+        // The lane of the dash.
+        const dx = enemy.aimX - enemy.x;
+        const dy = enemy.aimY - enemy.y;
+        const length = Math.hypot(dx, dy) || 1;
+        const nx = (-dy / length) * enemy.radius;
+        const ny = (dx / length) * enemy.radius;
+        g.fillStyle(DANGER, 0.1 + 0.15 * progress);
+        g.fillPoints(
+          [
+            new Phaser.Math.Vector2(enemy.x + nx, enemy.y + ny),
+            new Phaser.Math.Vector2(enemy.aimX + nx, enemy.aimY + ny),
+            new Phaser.Math.Vector2(enemy.aimX - nx, enemy.aimY - ny),
+            new Phaser.Math.Vector2(enemy.x - nx, enemy.y - ny),
+          ],
+          true,
+        );
+        g.lineBetween(enemy.x + nx, enemy.y + ny, enemy.aimX + nx, enemy.aimY + ny);
+        g.lineBetween(enemy.x - nx, enemy.y - ny, enemy.aimX - nx, enemy.aimY - ny);
+        break;
+      }
+      case 'shockwave':
+        g.lineStyle(4 + 4 * progress, DANGER, alpha);
+        g.strokeCircle(enemy.x, enemy.y, enemy.radius + 10 + 50 * progress);
+        break;
+      default:
+        g.strokeCircle(enemy.x, enemy.y, enemy.radius + 3 + enemy.range * progress);
+        break;
+    }
+  }
+
+  /** Rank rings, modifier markers, shields and resistance marks (GDD 9.12, 9.13). */
+  private drawRank(enemy: Enemy): void {
+    const bars = this.bars;
+    const { x, y, radius } = enemy;
+
+    if (enemy.rank === 'elite') {
+      bars.lineStyle(2, BRASS, 1);
+      bars.strokeCircle(x, y, radius + 5);
+    } else if (enemy.rank === 'champion') {
+      bars.lineStyle(3, GOLD, 1);
+      bars.strokeCircle(x, y, radius + 5);
+      bars.lineStyle(2, GOLD, 0.7);
+      bars.strokeCircle(x, y, radius + 10);
+    }
+
+    // One marker per elite modifier, under the enemy.
+    const count = enemy.modifiers.length;
+    for (let index = 0; index < count; index++) {
+      const modifier = enemy.modifiers[index];
+      if (!modifier) continue;
+      const markX = x + (index - (count - 1) / 2) * 11;
+      const markY = y + radius + 11;
+      bars.fillStyle(INK, 1);
+      bars.fillTriangle(markX - 6, markY - 5, markX + 6, markY - 5, markX, markY + 7);
+      bars.fillStyle(hexToNumber(ELITE_MODIFIERS[modifier].colour), 1);
+      bars.fillTriangle(markX - 4, markY - 4, markX + 4, markY - 4, markX, markY + 4.5);
+    }
+
+    // Tower shields and Shielded elites show the guarded arc.
+    if (hasShield(enemy) && enemy.action !== 'dormant') {
+      const facing = Math.atan2(enemy.faceY, enemy.faceX);
+      const up = enemy.modifiers.includes('shielded') ? shieldBlocks(enemy, -enemy.faceX, -enemy.faceY) : true;
+      bars.lineStyle(5, INK, up ? 1 : 0.3);
+      bars.beginPath();
+      bars.arc(x, y, radius + 7, facing - Math.PI / 3, facing + Math.PI / 3);
+      bars.strokePath();
+      bars.lineStyle(3, STEEL, up ? 1 : 0.3);
+      bars.beginPath();
+      bars.arc(x, y, radius + 7, facing - Math.PI / 3, facing + Math.PI / 3);
+      bars.strokePath();
+    }
+
+    // The damage type resisted now: Anomalies, Resistant elites and Reactive Plating.
+    const resisted = enemy.plateType ?? enemy.resistType;
+    if (resisted) {
+      bars.fillStyle(INK, 1);
+      bars.fillCircle(x + radius, y - radius, 6);
+      bars.fillStyle(hexToNumber(DAMAGE_TYPE_COLOURS[resisted]), 1);
+      bars.fillCircle(x + radius, y - radius, 4);
+    }
+
+    if (enemy.carriedGold > 0) {
+      bars.fillStyle(INK, 1);
+      bars.fillCircle(x - radius, y - radius, 6);
+      bars.fillStyle(GOLD, 1);
+      bars.fillCircle(x - radius, y - radius, 4);
+    }
+  }
+
+  /** Enemy area effects, drawn under enemies. Danger outlines mark them as hostile (GDD 15.1). */
+  private drawHazard(g: Phaser.GameObjects.Graphics, hazard: Hazard): void {
+    const fade = Math.min(1, hazard.timeLeft / 0.5);
+    switch (hazard.kind) {
+      case 'acid':
+      case 'toxic':
+      case 'burning': {
+        const colour = hexToNumber(
+          DAMAGE_TYPE_COLOURS[hazard.kind === 'acid' ? 'Corrosive' : hazard.kind === 'toxic' ? 'Toxic' : 'Fire'],
+        );
+        g.fillStyle(colour, 0.34 * fade);
+        g.fillCircle(hazard.x, hazard.y, hazard.radius);
+        g.lineStyle(2, DANGER, 0.75 * fade);
+        g.strokeCircle(hazard.x, hazard.y, hazard.radius);
+        break;
+      }
+      case 'spores': {
+        const colour = hexToNumber(DAMAGE_TYPE_COLOURS.Biological);
+        g.fillStyle(colour, (0.2 + 0.05 * Math.sin(this.clock * 4)) * fade);
+        g.fillCircle(hazard.x, hazard.y, hazard.radius);
+        g.lineStyle(2, DANGER, 0.6 * fade);
+        g.strokeCircle(hazard.x, hazard.y, hazard.radius);
+        break;
+      }
+      case 'pod': {
+        const progress = 1 - hazard.timeLeft / hazard.duration;
+        g.lineStyle(2, DANGER, 0.35 + 0.5 * progress);
+        g.strokeCircle(hazard.x, hazard.y, ENEMY_RULES.sporeCloudRadius * progress);
+        g.fillStyle(hexToNumber(DAMAGE_TYPE_COLOURS.Biological), 1);
+        g.fillCircle(hazard.x, hazard.y, hazard.radius * (0.8 + 0.25 * progress));
+        g.lineStyle(2, INK, 1);
+        g.strokeCircle(hazard.x, hazard.y, hazard.radius * (0.8 + 0.25 * progress));
+        break;
+      }
+      case 'mine': {
+        const armed = hazard.arming <= 0;
+        const blink = armed ? 0.5 + 0.5 * Math.sin(this.clock * 12) : 0.25;
+        g.lineStyle(2, DANGER, armed ? 0.7 : 0.35);
+        g.strokeCircle(hazard.x, hazard.y, ENEMY_RULES.mineTriggerRadius);
+        g.fillStyle(INK, 1);
+        g.fillCircle(hazard.x, hazard.y, hazard.radius);
+        g.fillStyle(DANGER, blink);
+        g.fillCircle(hazard.x, hazard.y, hazard.radius * 0.45);
+        break;
+      }
+      case 'seed': {
+        const progress = 1 - hazard.timeLeft / hazard.duration;
+        g.fillStyle(hexToNumber(DAMAGE_TYPE_COLOURS.Toxic), 1);
+        g.fillCircle(hazard.x, hazard.y, hazard.radius);
+        g.lineStyle(2, INK, 1);
+        g.strokeCircle(hazard.x, hazard.y, hazard.radius);
+        g.lineStyle(2, DANGER, 0.8);
+        g.beginPath();
+        g.arc(hazard.x, hazard.y, hazard.radius + 5, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * progress);
+        g.strokePath();
+        break;
+      }
+      case 'shockwave':
+        g.lineStyle(10, DANGER, 0.25 * fade + 0.2);
+        g.strokeCircle(hazard.x, hazard.y, hazard.radius);
+        g.lineStyle(3, DANGER, 0.9);
+        g.strokeCircle(hazard.x, hazard.y, hazard.radius);
+        break;
+    }
+  }
+
+  /** Warning markers where large groups enter, with an arrow at the screen edge (GDD 4.11). */
+  private drawWarnings(frame: number): void {
+    if (this.warnings.length === 0) return;
+    const g = this.telegraphs;
+    const view = this.cameras.main.worldView;
+    for (const warning of this.warnings) {
+      warning.life -= frame;
+      if (warning.life <= 0) continue;
+      const pulse = 0.5 + 0.5 * Math.sin(this.clock * 14);
+      g.lineStyle(4, DANGER, 0.5 + 0.5 * pulse);
+      g.strokeCircle(warning.x, warning.y, 46 + 8 * pulse);
+      g.lineBetween(warning.x, warning.y - 22, warning.x, warning.y + 6);
+      g.fillStyle(DANGER, 1);
+      g.fillCircle(warning.x, warning.y + 18, 4);
+      // Off screen: an arrow on the edge of the view points at the entry.
+      if (!view.contains(warning.x, warning.y)) {
+        const edgeX = Math.min(view.right - 30, Math.max(view.x + 30, warning.x));
+        const edgeY = Math.min(view.bottom - 30, Math.max(view.y + 30, warning.y));
+        const angle = Math.atan2(warning.y - edgeY, warning.x - edgeX);
+        g.fillStyle(DANGER, 0.6 + 0.4 * pulse);
+        g.fillTriangle(
+          edgeX + Math.cos(angle) * 18,
+          edgeY + Math.sin(angle) * 18,
+          edgeX + Math.cos(angle + 2.5) * 14,
+          edgeY + Math.sin(angle + 2.5) * 14,
+          edgeX + Math.cos(angle - 2.5) * 14,
+          edgeY + Math.sin(angle - 2.5) * 14,
+        );
+      }
+    }
+    this.warnings = this.warnings.filter((warning) => warning.life > 0);
   }
 
   /** Area effects, auras and traps: drawn under enemies. */
@@ -782,6 +1130,16 @@ export class Combat extends Phaser.Scene {
         g.lineStyle(2, INK, 0.25 * fade);
         g.strokeCircle(zone.x, zone.y, zone.radius);
       }
+    }
+
+    for (const hazard of sim.hazards.items) {
+      if (hazard.active) this.drawHazard(g, hazard);
+    }
+
+    // A slowed player shows a cold ring: latched crawlers and spore clouds (GDD 9.11).
+    if (player.slowTimer > 0 && player.health > 0) {
+      g.lineStyle(3, hexToNumber(DAMAGE_TYPE_COLOURS.Cold), 0.9);
+      g.strokeCircle(player.x, player.y, player.radius + 12);
     }
 
     for (const weapon of sim.weapons) {
@@ -904,6 +1262,17 @@ export class Combat extends Phaser.Scene {
       }
     }
 
+    // Enemy projectiles lean dark ink, with a crimson edge (GDD 15.1).
+    for (const shot of sim.enemyShots.items) {
+      if (!shot.active) continue;
+      g.lineStyle(3, INK, 0.45);
+      g.lineBetween(shot.x - shot.dx * 12, shot.y - shot.dy * 12, shot.x, shot.y);
+      g.fillStyle(INK, 1);
+      g.fillCircle(shot.x, shot.y, shot.radius);
+      g.lineStyle(1.5, DANGER, 1);
+      g.strokeCircle(shot.x, shot.y, shot.radius + 1);
+    }
+
     // The focus point shows as a small brass reticle (GDD 15.7).
     const focus = this.focusPoint;
     if (focus) {
@@ -988,6 +1357,11 @@ export class Combat extends Phaser.Scene {
       }
       hud.lineStyle(weapon ? 3 : 2, weapon ? INK : BRASS, weapon ? 1 : 0.7);
       hud.strokeRect(x, tile.y, tile.size, tile.size);
+      // The Unstable switched this weapon's Auxiliary component off (GDD 9.11).
+      if (weapon && sim.auxiliarySuppressed && weapon.full !== weapon.suppressed) {
+        hud.lineStyle(4, DANGER, 0.9);
+        hud.strokeRect(x + 3, tile.y + 3, tile.size - 6, tile.size - 6);
+      }
       // Weapon tiles glow when a synergy is active (GDD 15.7).
       if (weapon && weapon.resolved.synergies.length > 0) {
         const pulse = 0.55 + 0.4 * (0.5 + 0.5 * Math.sin(this.clock * 4 + slot));
@@ -997,6 +1371,10 @@ export class Combat extends Phaser.Scene {
         hud.strokeRect(x - 10, tile.y - 10, tile.size + 20, tile.size + 20);
       }
     }
+
+    this.suppressedText.setVisible(
+      sim.auxiliarySuppressed && sim.weapons.some((weapon) => weapon.full !== weapon.suppressed),
+    );
 
     // Pause button on touch devices.
     if (this.pauseZone) {
@@ -1038,8 +1416,9 @@ export class Combat extends Phaser.Scene {
     const lines = [
       `${Math.round(this.game.loop.actualFps)} fps`,
       `Seed ${formatSeed(this.run.seed)}  Round ${sim.round}  Step ${sim.steps}`,
-      `Enemies ${sim.enemies.activeCount}  Projectiles ${sim.projectiles.activeCount}  Constructs ${sim.constructs.activeCount}`,
-      `Traps ${sim.traps.activeCount}  Area effects ${sim.zones.activeCount}`,
+      `Enemies ${sim.enemies.activeCount} of ${sim.activeLimit}  Squads ${sim.squads.size}  Tokens ${sim.tokensHeld} of ${sim.tokenLimit}  Spawns left ${sim.spawnsLeft}`,
+      `Projectiles ${sim.projectiles.activeCount}  Constructs ${sim.constructs.activeCount}  Traps ${sim.traps.activeCount}  Area effects ${sim.zones.activeCount}`,
+      `Enemy shots ${sim.enemyShots.activeCount}  Hazards ${sim.hazards.activeCount}  Gold ${sim.gold}  Roster ${kingdomForRound(this.run)}`,
       `Kills ${sim.stats.kills}  Shots ${sim.stats.shotsFired}  Hits taken ${sim.stats.hitsTaken}`,
       sim.invincible ? STRINGS.debug.invincibleOn : STRINGS.debug.invincibleOff,
     ];

@@ -13,6 +13,7 @@ import {
 import type { Reaction, StatusEffect } from '../../data/statusEffects';
 import {
   DAMAGE_STEP,
+  ENEMY_RULES,
   REACTION_RULES,
   STATUS_RULES,
   SYNERGY_RULES,
@@ -22,6 +23,8 @@ import {
 import { hasSynergy } from '../loadout';
 import { computeDamage, effectiveArmour } from '../modifiers';
 import { killEnemy, nearestOther } from './damage';
+import { noteDamage } from './enemies';
+import { hasTrait, isJuggernaut } from './traits';
 import type { Enemy } from './types';
 import type { World } from './world';
 import { addZone } from './zones';
@@ -60,6 +63,20 @@ export function resetStatuses(enemy: Enemy): void {
   enemy.marked = false;
 }
 
+/**
+ * Clears every status effect and empties every meter, keeping the meter size.
+ * Purifier champions do this every few seconds (GDD 9.13).
+ */
+export function clearStatuses(enemy: Enemy): void {
+  for (let index = 0; index < STATUS_COUNT; index++) {
+    enemy.statusMeter[index] = 0;
+    enemy.statusActive[index] = 0;
+    enemy.statusTick[index] = 0;
+  }
+  enemy.marked = false;
+  enemy.reactionFlags = 0;
+}
+
 export function hasStatus(enemy: Enemy, status: StatusEffect): boolean {
   return (enemy.statusActive[I[status]] ?? 0) > 0;
 }
@@ -90,6 +107,9 @@ export function typeMultiplier(enemy: Enemy, type: DamageType): number {
   let multiplier = 1;
   if (def.weakTo.includes(type)) multiplier *= DAMAGE_STEP.weak;
   if (def.resists.includes(type)) multiplier *= DAMAGE_STEP.resist;
+  // Resistant elites, the Anomaly's shifting resistance and Reactive Plating (GDD 9.11 to 9.13).
+  if (enemy.resistType === type) multiplier *= DAMAGE_STEP.resist;
+  if (enemy.plateType === type) multiplier *= DAMAGE_STEP.resist;
   if ((type === 'Electric' || type === 'Cold') && hasStatus(enemy, 'Overheated')) {
     multiplier *= 1 + tierValue('modifierSize', STATUS_RULES.overheated.extraDamage);
   }
@@ -128,18 +148,22 @@ export function statusHit(
   world.stats.damageDealt += applied;
   const weapon = world.weapons[weaponIndex];
   if (weapon) weapon.damageDealt += applied;
+  noteDamage(world, enemy, dealt, type);
   world.emit({ type: 'enemyHit', x: enemy.x, y: enemy.y, amount: dealt, critical: false, damageType: type });
   if (enemy.health <= 0) {
+    world.lastHitType = type;
     killEnemy(world, enemy, weaponIndex, 0);
     return true;
   }
   return false;
 }
 
-function durationFor(world: World, weaponIndex: number, status: StatusEffect, base: number): number {
+function durationFor(world: World, enemy: Enemy, weaponIndex: number, status: StatusEffect, base: number): number {
   const resolved = world.weapons[weaponIndex]?.resolved;
   const weaponFactor = resolved ? resolved.statusDuration * (resolved.statusDurationFor[status] ?? 1) : 1;
-  return base * weaponFactor * world.player.stats.statusPotency;
+  // The Unstable resists through shorter status durations (GDD 9.11).
+  const enemyFactor = hasTrait(enemy, 'short-statuses') ? ENEMY_RULES.shortStatusFactor : 1;
+  return base * weaponFactor * world.player.stats.statusPotency * enemyFactor;
 }
 
 const BASE_SECONDS: Readonly<Record<StatusEffect, number>> = {
@@ -168,9 +192,15 @@ const DAMAGE_SHARE: Readonly<Partial<Record<StatusEffect, number>>> = {
 export function statusFor(enemy: Enemy, status: StatusEffect): StatusEffect | undefined {
   const sourceType = STATUS_DEFS[status].sourceType;
   if (sourceType && enemy.def.immune?.includes(sourceType)) return undefined;
-  if (!isArtificial(enemy)) return status;
-  if (ARTIFICIAL_IMMUNE.includes(status)) return undefined;
-  return ARTIFICIAL_REPLACEMENT[status] ?? status;
+  let actual: StatusEffect = status;
+  if (isArtificial(enemy)) {
+    if (ARTIFICIAL_IMMUNE.includes(status)) return undefined;
+    actual = ARTIFICIAL_REPLACEMENT[status] ?? status;
+  }
+  // Hardened elites ignore one status. Juggernauts ignore Stun (GDD 9.12, 9.13).
+  if (enemy.hardened === status || enemy.hardened === actual) return undefined;
+  if (isJuggernaut(enemy) && (actual === 'Stunned' || actual === 'Short-circuited')) return undefined;
+  return actual;
 }
 
 function announce(world: World, reaction: Reaction, enemy: Enemy): void {
@@ -201,7 +231,7 @@ export function triggerStatus(
 ): void {
   const index = I[status];
   const base = BASE_SECONDS[status];
-  enemy.statusActive[index] = durationFor(world, weaponIndex, status, base);
+  enemy.statusActive[index] = durationFor(world, enemy, weaponIndex, status, base);
   enemy.statusSource[index] = weaponIndex;
   enemy.statusGeneration[index] = generation;
 
@@ -244,7 +274,7 @@ export function buildStatus(
   const index = I[actual];
 
   // Each Cold hit slows, before the meter fills (GDD 9.14).
-  if (actual === 'Frozen') {
+  if (actual === 'Frozen' && !isJuggernaut(enemy)) {
     enemy.slowTimer = Math.max(enemy.slowTimer, STATUS_RULES.frozen.hitSlowSeconds);
     enemy.slowFactor = Math.min(enemy.slowFactor, STATUS_RULES.frozen.hitSlowFactor);
   }

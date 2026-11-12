@@ -379,7 +379,8 @@ describe('status effects (GDD 9.14)', () => {
     const normal = strikes(false);
     const slowed = strikes(true);
     expect(slowed).toBeLessThan(normal);
-    expect(slowed).toBeCloseTo(normal / 1.5, 0);
+    // Whole strikes inside 30 seconds: one strike of rounding either way.
+    expect(Math.abs(slowed - normal / 1.5)).toBeLessThanOrEqual(1);
   });
 });
 

@@ -1,7 +1,10 @@
 import Phaser from 'phaser';
 import { COMPONENT_LIST, SLOT_TYPES, componentFitsFamily } from '../data/components';
 import type { ComponentDef, SlotType } from '../data/components';
+import { KINGDOM_NAMES } from '../data/kingdoms';
 import { PALETTE, hexToNumber } from '../data/palette';
+import type { KingdomName } from '../data/palette';
+import { CAMPAIGN_ROUNDS, territoryIndex } from '../data/rounds';
 import { SCREEN } from '../data/screen';
 import { STRINGS } from '../data/strings';
 import { RESEARCH_SYNERGY_IDS, SYNERGIES } from '../data/synergies';
@@ -16,7 +19,7 @@ import {
   resolveLoadout,
 } from '../sim/loadout';
 import type { ResolvedWeapon, WeaponInstance } from '../sim/loadout';
-import { resolvePlayerStats } from '../sim/run';
+import { kingdomForRound, resolvePlayerStats } from '../sim/run';
 import type { RunState } from '../sim/run';
 import { Button } from '../ui/button';
 import { drawPageFrame } from '../ui/frame';
@@ -28,6 +31,10 @@ export interface DebugMenuData {
   draft?: Array<WeaponInstance | undefined>;
   /** Research synergies switched on for testing. Absent on first open. */
   researchOpen?: boolean;
+  /** Round to jump to. Absent on first open. */
+  round?: number;
+  /** Kingdom roster for the round's territory. Absent on first open. */
+  kingdom?: KingdomName;
 }
 
 const COLUMN_WIDTH = 396;
@@ -37,7 +44,8 @@ const ROW = 46;
 const ARROW = 44;
 
 /**
- * Debug menu: equips any weapon and component (CLAUDE.md Milestone 2).
+ * Debug menu: equips any weapon and component (CLAUDE.md Milestone 2), jumps
+ * to any round and picks the kingdom roster (CLAUDE.md "Testing").
  * Opens over the paused Combat scene from the debug overlay. Applying
  * restarts the current round, since stats and tags only change in preparation.
  */
@@ -45,6 +53,8 @@ export class DebugMenu extends Phaser.Scene {
   private run!: RunState;
   private draft: Array<WeaponInstance | undefined> = [];
   private researchOpen = false;
+  private round = 1;
+  private kingdom: KingdomName = 'Keldrath';
 
   constructor() {
     super('DebugMenu');
@@ -53,6 +63,8 @@ export class DebugMenu extends Phaser.Scene {
   init(data: DebugMenuData): void {
     this.run = data.run;
     this.researchOpen = data.researchOpen ?? data.run.researchSynergies.length > 0;
+    this.round = data.round ?? data.run.round;
+    this.kingdom = data.kingdom ?? kingdomForRound(data.run, this.round);
     this.draft =
       data.draft ??
       Array.from({ length: WEAPON_SLOTS }, (_, index) => {
@@ -67,7 +79,7 @@ export class DebugMenu extends Phaser.Scene {
     this.add.rectangle(centreX, height / 2, width, height, hexToNumber(PALETTE.parchment), 1).setInteractive();
     drawPageFrame(this.add.graphics(), width, height, 14);
 
-    addText(this, centreX, 40, STRINGS.debug.menuTitle, { role: 'heading', size: 38 }).setOrigin(0.5);
+    addText(this, centreX - 40, 40, STRINGS.debug.menuTitle, { role: 'heading', size: 32 }).setOrigin(0.5);
     addText(this, centreX, 76, STRINGS.debug.menuNote, { size: 15, colour: PALETTE.brass, weight: '500' }).setOrigin(0.5);
 
     const equipped = this.draft.filter((weapon): weapon is WeaponInstance => weapon !== undefined);
@@ -85,6 +97,17 @@ export class DebugMenu extends Phaser.Scene {
         this.researchOpen = !this.researchOpen;
         this.refresh();
       },
+    });
+
+    // Jump to any round, with any kingdom roster for its territory.
+    this.addStepper(width - 480, 44, 180, STRINGS.debug.round(this.round), (direction) => {
+      this.round = ((this.round - 1 + direction + CAMPAIGN_ROUNDS) % CAMPAIGN_ROUNDS) + 1;
+      this.kingdom = kingdomForRound(this.run, this.round);
+      this.refresh();
+    });
+    this.addStepper(width - 290, 44, 260, STRINGS.debug.roster(this.kingdom), (direction) => {
+      this.kingdom = this.cycle(KINGDOM_NAMES, this.kingdom, direction);
+      this.refresh();
     });
 
     // The build panel lists active synergies and flags near misses (GDD 7.19).
@@ -131,6 +154,21 @@ export class DebugMenu extends Phaser.Scene {
     const onEscape = (): void => this.cancel();
     keyboard?.on('keydown-ESC', onEscape);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => keyboard?.off('keydown-ESC', onEscape));
+  }
+
+  /** A compact label with left and right arrows, for the header. */
+  private addStepper(x: number, y: number, width: number, label: string, onStep: (direction: 1 | -1) => void): void {
+    const arrow = 40;
+    addText(this, x + width / 2, y, label, { size: 17, weight: '700' }).setOrigin(0.5);
+    for (const direction of [-1, 1] as const) {
+      new Button(this, direction < 0 ? x + arrow / 2 : x + width - arrow / 2, y, {
+        label: direction < 0 ? '<' : '>',
+        width: arrow,
+        height: 34,
+        textSize: 20,
+        onClick: () => onStep(direction),
+      });
+    }
   }
 
   /** A row with left and right arrows cycling through options. */
@@ -265,12 +303,22 @@ export class DebugMenu extends Phaser.Scene {
   }
 
   private refresh(): void {
-    this.scene.restart({ run: this.run, draft: this.draft, researchOpen: this.researchOpen });
+    this.scene.restart({
+      run: this.run,
+      draft: this.draft,
+      researchOpen: this.researchOpen,
+      round: this.round,
+      kingdom: this.kingdom,
+    });
   }
 
   private apply(): void {
     this.run.weapons = this.draft.filter((weapon): weapon is WeaponInstance => weapon !== undefined);
     this.run.researchSynergies = this.researchOpen ? [...RESEARCH_SYNERGY_IDS] : [];
+    // Adaptation lasts for a territory (GDD 3.7).
+    if (territoryIndex(this.round) !== territoryIndex(this.run.round)) this.run.adaptation = {};
+    this.run.round = this.round;
+    this.run.kingdoms[territoryIndex(this.round)] = this.kingdom;
     this.scene.stop('Combat');
     this.scene.start('Combat', { run: this.run });
   }

@@ -55,6 +55,21 @@
 - Screens: status pips and outlines on enemies, reaction names, gold glow on weapon tiles with an active synergy, synergy list on the pause screen and in the debug menu.
 - 267 tests. New: 40 for statuses, reactions and chain limits, 33 for synergies.
 
+### Milestone 4: Enemies and the encounter director
+
+- All 23 enemies from GDD 9.8 and 9.16 with tier stats, properties, weaknesses, resistances and one signature behaviour each.
+- Six attack shapes behind crimson telegraphs: strike, shot, charge, slam, detonation and shockwave.
+- Enemy area effects: acid, toxic pools, burning ground, spore pods and clouds, mines, seeds and shockwave rings.
+- Utility AI in `src/sim/ai.ts`: six scored actions, seven personalities, squads with leaders and orders, flank slots and attack tokens.
+- Update frequency by distance. Separation and obstacle avoidance.
+- All 12 elite modifiers and all 7 champion traits, with markers and champion name labels.
+- Encounter director: faction mix by kingdom, threat gating, trickle, groups and assault, elites from Round 5, champions from Round 15, formations, warning markers, the active enemy limit and held spending.
+- Territory scaling for enemy Health and Damage.
+- A run lasts 21 rounds with the Keldrath, Orthelyn and Nymora rosters. Boss rounds spend their budget with no boss.
+- Constructs take damage from area hits. Siege Breaker champions hunt constructs and traps.
+- Debug tools: jump to any round, pick any kingdom roster, spawn any enemy at any rank.
+- 365 tests. New: 58 for enemies, modifiers and traits, 25 for AI and population limits, 20 for round tables and the director, and a headless 21-round campaign on PC and mobile limits.
+
 ### Asset folders
 
 - ART_PROMPTS.md sits in the repo root.
@@ -64,19 +79,23 @@
 
 - Phone checks ran in an emulated phone viewport with touch events. No test on a physical phone yet.
 - Controller input has no automated test.
-- Rounds run long. A test bot clears Rounds 1 to 3 in 42 to 188 seconds by starting weapon, against targets of 30 to 35 seconds. War Hammer: 42, 52, 60. Pike: 45, 54, 66. Crossbow: 68, 101, 130. Longbow: 78, 110, 147. Knife Bandolier: 84, 113, 141. Forged Longsword: 102, 154, 188. A run still holds one weapon of three, with no shop yet.
-- Royal Footmen resist Slashing, so the Forged Longsword and Knife Bandolier now run 40 to 65 per cent slower than in Milestone 2. Milestone 4 adds enemies weak to Slashing.
-- Only Royal Footmen exist. Artificial enemy rules, Overheated, Short-circuited and Short Circuit run in tests only until Milestone 4.
+- No shop exists until Milestone 5. A run holds one weapon, so a player without debug tools falls near Round 5 or 6. Use F3, then L, to equip three weapons and jump to a round.
+- Rounds run long. The test bot clears Rounds 1 to 3 in 37 to 177 seconds by starting weapon, against targets of 30 to 35 seconds. With three weapons and the Damage stand-in, Territory 3 rounds take 72 to 298 seconds against targets of 50 to 75. Milestone 12 tunes this.
+- Kill counts differ from GDD 14.3: about 200, 650 and 720 per territory against 255, 410 and 539. Orthelyn and Nymora field many Minimal enemies. Milestone 12 tunes this.
+- Every territory plays in the Great Foundry placeholder until Milestone 7. Vat Chimera and Gear Lancer appear only through the debug roster picker or the spawn tool.
+- Rounds 4, 7, 11, 14, 18 and 21 hold no mini-boss or boss until Milestone 8.
+- Gold stays at 0 until Milestone 5, so a Highwayman steals nothing in a normal run. Champion drops wait for Milestones 5 and 6.
+- Guards in a Protect squad hold next to their ward. A player with one short weapon has to walk in to finish the round.
 - No Cold weapon exists in GDD 7.17. Frozen comes from Frost Salts alone.
-- Enemies ignore constructs and traps until Milestone 4.
 - A standing player gains nothing from the Spring Trap Layer.
 - Weapons fire at targets behind pillars, and the pillar blocks Straight shots.
 - The HUD covers the player in the top left arena corner.
-- Status pips are small on a phone screen. Milestone 11 replaces them with icon shapes.
+- Status pips and modifier markers are small on a phone screen. Milestone 11 replaces them with icon shapes.
 - The debug menu uses small arrow buttons on a phone.
+- Headless Chromium draws about 30 frames per second with software rendering. The simulation step takes about 0.08 milliseconds. Frame rate on real hardware waits for Milestone 12.
 - The asset manifest lists keys and paths. File loading with fallback arrives in Milestone 11. The app icon is the exception.
 - No sound yet. ZzFX arrives in Milestone 11.
 
 ## Next step
 
-Milestone 4: Enemies and the encounter director. Read GDD 4.4 to 4.12 and 9.1 to 9.16.
+Milestone 5: Preparation, shop and economy. Read GDD 3.3, 6.1 to 6.6, 7.8 to 7.10, 7.22, 7.23, 14.1 to 14.3 and 15.8.

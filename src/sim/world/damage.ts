@@ -5,6 +5,8 @@ import type { DamageType } from '../../data/damageTypes';
 import { STATUS_INDEX } from '../../data/statusEffects';
 import {
   COMBAT,
+  DAMAGE_STEP,
+  ENEMY_RULES,
   REACTION_RULES,
   SYNERGY_RULES,
   WEAPON_RULES,
@@ -14,6 +16,8 @@ import type { DamagePart } from '../loadout';
 import { hasSynergy } from '../loadout';
 import { computeDamage, resolvePlayerHit } from '../modifiers';
 import type { PercentBonus } from '../modifiers';
+import { enemyDied, noteDamage, splitEnemy } from './enemies';
+import { burnSeeds } from './hazards';
 import { clampToArena, pushOutOfObstacles } from './movement';
 import { spawnFragments, spawnParasite } from './projectiles';
 import {
@@ -28,6 +32,7 @@ import {
   triggerStatus,
   typeMultiplier,
 } from './status';
+import { hasModifier, hasTrait, isJuggernaut } from './traits';
 import type { Enemy, WeaponState } from './types';
 import type { World } from './world';
 import { addZone } from './zones';
@@ -58,6 +63,8 @@ export interface HitOptions {
 
 /** Moves an enemy by a push, respecting walls and obstacles. Returns the distance moved. */
 function push(world: World, enemy: Enemy, dx: number, dy: number): number {
+  // Juggernaut champions ignore knockback (GDD 9.13).
+  if (isJuggernaut(enemy)) return 0;
   const startX = enemy.x;
   const startY = enemy.y;
   enemy.x += dx;
@@ -78,6 +85,39 @@ function touchesEnemy(world: World, enemy: Enemy): boolean {
     if (dx * dx + dy * dy < reach * reach) return true;
   }
   return false;
+}
+
+/**
+ * Extra weakness and resistance decided per hit (GDD 9.11): the Ironback
+ * Beetle's shell by hit direction and the Iron Sentinel's weakness to Magnetic effects.
+ */
+function hitMultiplier(
+  world: World,
+  enemy: Enemy,
+  type: DamageType,
+  magnetic: boolean,
+  dirX: number | undefined,
+  dirY: number | undefined,
+): number {
+  let multiplier = 1;
+  if (magnetic && hasTrait(enemy, 'magnetic-weak') && !enemy.def.weakTo.includes(type)) multiplier *= DAMAGE_STEP.weak;
+  if (hasTrait(enemy, 'shell')) {
+    // The hit direction defaults to the line from the player to the enemy.
+    let hx = dirX;
+    let hy = dirY;
+    if (hx === undefined || hy === undefined) {
+      const dx = enemy.x - world.player.x;
+      const dy = enemy.y - world.player.y;
+      const length = Math.hypot(dx, dy) || 1;
+      hx = dx / length;
+      hy = dy / length;
+    }
+    // A hit travelling against the facing strikes the front. One travelling with the facing strikes the rear.
+    const along = hx * enemy.faceX + hy * enemy.faceY;
+    if (along <= -ENEMY_RULES.frontCos && type === 'Piercing') multiplier *= DAMAGE_STEP.resist;
+    else if (along >= ENEMY_RULES.frontCos) multiplier *= DAMAGE_STEP.weak;
+  }
+  return multiplier;
 }
 
 /**
@@ -132,12 +172,16 @@ export function hitEnemy(world: World, enemy: Enemy, weaponIndex: number, option
 
   let amount = 0;
   let electric = 0;
+  const magnetic = resolved.tags.includes('Magnetic');
+  const directional = magnetic || hasTrait(enemy, 'shell');
   for (const part of parts) {
     const dealt = computeDamage({
       base: part.amount * scale * componentFactor,
       percentBonuses: synergyBonuses,
       criticalMultiplier,
-      typeMultiplier: typeMultiplier(enemy, part.type),
+      typeMultiplier:
+        typeMultiplier(enemy, part.type) *
+        (directional ? hitMultiplier(world, enemy, part.type, magnetic, options.dirX, options.dirY) : 1),
       armour: enemyArmour(enemy, part.type),
       reactionBonus: reactions.bonus + (part.type === 'Electric' ? reactions.electricBonus : 0),
     });
@@ -153,6 +197,8 @@ export function hitEnemy(world: World, enemy: Enemy, weaponIndex: number, option
   world.stats.damageDealt += dealt;
   weapon.damageDealt += dealt;
   if (critical) world.stats.criticalHits++;
+  noteDamage(world, enemy, amount, mainType);
+  world.lastHitType = mainType;
   world.emit({ type: 'enemyHit', x, y, amount, critical, damageType: mainType });
 
   // Kill Zone and Combined Arms read these marks.
@@ -231,7 +277,7 @@ function runHitEffects(
     }
   }
 
-  if (triggers.slowOnHit) {
+  if (triggers.slowOnHit && !isJuggernaut(enemy)) {
     enemy.slowTimer = Math.max(enemy.slowTimer, WEAPON_RULES.slowSeconds);
     enemy.slowFactor = Math.min(enemy.slowFactor, WEAPON_RULES.slowFactor);
   }
@@ -404,6 +450,12 @@ export function explode(
     });
   }
 
+  // Fire burns Thornling seeds (GDD 9.11).
+  if (world.seedCount > 0) {
+    const fire = options.explosive || (parts ?? resolved.damageParts).some((part) => part.type === 'Fire');
+    if (fire) burnSeeds(world, x, y, radius);
+  }
+
   if (primary) {
     if (resolved.triggers.fragmentsOnExplosion) spawnFragments(world, x, y, weaponIndex);
     // Recursive Artillery: each explosion triggers one smaller copy.
@@ -437,9 +489,17 @@ export function killEnemy(world: World, enemy: Enemy, weaponIndex = -1, generati
   const burning = hasStatus(enemy, 'Burning');
   const burnSource = enemy.statusSource[burningIndex] ?? -1;
 
+  // Signature traits and elite modifiers leave their mark before the slot returns to the pool.
+  const def = enemy.def;
+  const squadId = enemy.squad;
+  const maxHealth = enemy.maxHealth;
+  const splits = hasModifier(enemy, 'splitting') && !enemy.noLegacy;
+  enemyDied(world, enemy, burning || world.lastHitType === 'Fire');
+
   world.stats.kills++;
   world.emit({ type: 'enemyKilled', x, y, enemyId: enemy.def.id });
   world.enemies.release(enemy);
+  if (splits) splitEnemy(world, def, x, y, maxHealth, squadId);
 
   // Infected spreads to a nearby enemy on death (GDD 9.14). Overgrowth spreads to two.
   if (infected) {

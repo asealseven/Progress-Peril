@@ -141,7 +141,7 @@ export function weaponTags(weapon: WeaponInstance): Tag[] {
 // --- Resolution --------------------------------------------------------------
 
 /** The milestone the build has reached. Effects marked for a later milestone stay inactive. */
-export const CURRENT_MILESTONE = 3;
+export const CURRENT_MILESTONE = 4;
 
 export function isActive(effect: Effect): boolean {
   return (effect.activeFrom ?? 0) <= CURRENT_MILESTONE;

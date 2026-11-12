@@ -2,7 +2,7 @@ import { ARENAS } from '../src/data/arenas';
 import type { ArenaDef } from '../src/data/arenas';
 import { CHARACTERS } from '../src/data/characters';
 import { componentByName } from '../src/data/components';
-import { ENEMIES } from '../src/data/enemies';
+import { ENEMIES, enemyByName } from '../src/data/enemies';
 import type { EnemyDef } from '../src/data/enemies';
 import { RESEARCH_SYNERGY_IDS } from '../src/data/synergies';
 import { weaponByName } from '../src/data/weapons';
@@ -10,6 +10,7 @@ import { createWeapon, installComponent, resolveLoadout } from '../src/sim/loado
 import type { ResolvedWeapon, WeaponInstance } from '../src/sim/loadout';
 import { resolvePlayerStats } from '../src/sim/run';
 import { spawnEnemy } from '../src/sim/world/enemies';
+import type { SpawnOptions } from '../src/sim/world/enemies';
 import type { Enemy, PlayerStats, SpawnEntry, StepInput } from '../src/sim/world/types';
 import { World } from '../src/sim/world/world';
 
@@ -65,6 +66,10 @@ export interface TestWorldOptions {
   alwaysCritical?: boolean;
   /** Research synergies opened, by id. 'all' opens every one. */
   research?: readonly string[] | 'all';
+  /** Campaign round. Sets the territory. Default 1. */
+  round?: number;
+  gold?: number;
+  activeLimit?: number;
 }
 
 export function makeWorld(options: TestWorldOptions = {}): World {
@@ -78,7 +83,9 @@ export function makeWorld(options: TestWorldOptions = {}): World {
   return new World({
     arena: options.arena ?? OPEN_ARENA,
     seed: options.seed ?? 12345,
-    round: 1,
+    round: options.round ?? 1,
+    gold: options.gold,
+    activeLimit: options.activeLimit,
     duration: options.duration ?? 30,
     spawns: options.spawns ?? HOLD_OPEN,
     playerStats: loadout.playerStats,
@@ -142,4 +149,24 @@ export function holdFire(world: World): void {
     weapon.deployTimer = 1e9;
     weapon.lightningTimer = 1e9;
   }
+}
+
+/** An enemy definition by its GDD name. */
+export function enemyDef(name: string): EnemyDef {
+  const def = enemyByName(name);
+  if (!def) throw new Error(`Unknown enemy: ${name}`);
+  return def;
+}
+
+/** Spawns an enemy by GDD name at an offset from the player. The enemy moves and acts on its own. */
+export function enemyAt(world: World, name: string | EnemyDef, dx: number, dy: number, options: SpawnOptions = {}): Enemy {
+  const def = typeof name === 'string' ? enemyDef(name) : name;
+  const enemy = spawnEnemy(world, def, world.player.x + dx, world.player.y + dy, options);
+  if (!enemy) throw new Error('Enemy pool full');
+  world.grid.insert(enemy.slot, enemy.x, enemy.y);
+  return enemy;
+}
+
+export function distanceToPlayer(world: World, enemy: Enemy): number {
+  return Math.hypot(enemy.x - world.player.x, enemy.y - world.player.y);
 }

@@ -3,6 +3,8 @@
 // and the group sets the folder inside public/assets/.
 // Milestone 11 loads the files. Until then every key draws its placeholder.
 
+import { ENEMY_LIST } from './enemies';
+
 /** Folder inside public/assets/ for each key group (ART_PROMPTS.md). */
 export const ASSET_FOLDERS = {
   player: 'sprites/player',
@@ -51,13 +53,18 @@ function entry(group: AssetGroup, name: string, placeholder: string): AssetEntry
   return { key: assetKey(group, name), path: assetPath(group, name), placeholder };
 }
 
-export const ASSETS = {
+const ENEMY_ASSETS: Record<string, AssetEntry> = Object.fromEntries(
+  ENEMY_LIST.map((enemy) => [
+    assetKey('enemy', enemy.name),
+    entry('enemy', enemy.name, `${enemy.faction} circle, ink outline, letter ${enemy.name.charAt(0)}, radius ${enemy.radius}`),
+  ]),
+);
+
+export const ASSETS: Readonly<Record<string, AssetEntry>> = {
   'player.the-inventor': entry('player', 'The Inventor', 'Parchment circle, ink outline, dashed gold ring'),
-  'enemy.royal-footman': entry('enemy', 'Royal Footman', 'Kingdom Armies circle, ink outline, letter R, radius 14'),
+  ...ENEMY_ASSETS,
   'arena.keldrath': entry('arena', 'Keldrath', 'Muted floor, central crucible and iron pillars in the Keldrath colour'),
   'app.app-icon': entry('app', 'app-icon', 'Brass gear ring around "P&P" on parchment'),
   // ART_PROMPTS.md lists no projectile images. Projectiles are shapes drawn in code (GDD 15.3).
   'projectile.player': { key: 'projectile.player', placeholder: 'Gold circle, ink outline' },
-} as const satisfies Record<string, AssetEntry>;
-
-export type AssetKey = keyof typeof ASSETS;
+};

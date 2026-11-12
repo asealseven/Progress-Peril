@@ -369,13 +369,270 @@ export const SYNERGY_RULES = {
   parasiteTurn: 6,
 } as const;
 
-/** Performance limits (GDD 7.21). Milestone 12 sets final numbers from profiling. */
+/**
+ * Performance limits (GDD 7.21, 15.11). Milestone 12 sets final numbers from profiling.
+ * activeEnemies holds the limit for Rounds 1 to 6, 7 to 14 and 15 to 21 (GDD 4.11):
+ * Medium, High, Extreme on PC and Low, Medium, High on mobile.
+ */
+export interface PerformanceLimits {
+  readonly projectiles: number;
+  readonly areaEffects: number;
+  readonly constructs: number;
+  readonly traps: number;
+  readonly chainEventsPerStep: number;
+  /** Enemy pools, clouds, mines and seeds. */
+  readonly hazards: number;
+  readonly enemyShots: number;
+  readonly activeEnemies: readonly [number, number, number];
+}
+
 export const PERFORMANCE_LIMITS = {
-  pc: { projectiles: 400, areaEffects: 30, constructs: 6, traps: 18, chainEventsPerStep: 12 },
-  mobile: { projectiles: 250, areaEffects: 16, constructs: 6, traps: 12, chainEventsPerStep: 6 },
+  pc: {
+    projectiles: 400,
+    areaEffects: 30,
+    constructs: 6,
+    traps: 18,
+    chainEventsPerStep: 12,
+    hazards: 160,
+    enemyShots: 200,
+    activeEnemies: [120, 200, 300],
+  },
+  mobile: {
+    projectiles: 250,
+    areaEffects: 16,
+    constructs: 6,
+    traps: 12,
+    chainEventsPerStep: 6,
+    hazards: 80,
+    enemyShots: 100,
+    activeEnemies: [40, 60, 100],
+  },
+} as const satisfies Record<string, PerformanceLimits>;
+
+/** Active enemy limit for a campaign round (GDD 4.11). Round 7 already uses the second band. */
+export function activeEnemyLimit(limits: PerformanceLimits, round: number): number {
+  const band = round <= 6 ? 0 : round <= 14 ? 1 : 2;
+  return limits.activeEnemies[band];
+}
+
+/**
+ * Enemy behaviour numbers with no value in GDD.md (GDD 9.10 to 9.16).
+ * NOTES.md records each choice. Milestone 12 tunes them.
+ */
+export const ENEMY_RULES = {
+  /** Speed steps past Extreme add this share each, so Swift hounds stay readable. */
+  speedStepAboveExtreme: 0.2,
+  /** One attack speed step divides wind-up and recovery by this factor. */
+  attackSpeedStep: 1.3,
+  /** Seconds between two attacks of one enemy, on top of the recovery. */
+  attackCooldown: 0.4,
+
+  rangedWindup: 0.6,
+  rangedRecover: 1.5,
+  shotSpeed: 360,
+  shotRadius: 5,
+  /** Ranged enemies with the kite trait back away inside this share of their Range. */
+  kiteShare: 0.45,
+  /** Ranged enemies hold at this share of their Range. */
+  holdShare: 0.8,
+
+  slamWindup: 0.7,
+  slamRecover: 1.1,
+  slamRadius: 70,
+  slamReach: 34,
+  burningGroundSeconds: 2.5,
+
+  detonateGap: 34,
+  detonateWindup: 0.6,
+  detonateRadius: 90,
+  /** Enemy blasts deal this multiple of their damage to other enemies. */
+  allyBlastFactor: 3,
+
+  chargeRecover: 0.9,
+  /** Gear Lancer: seconds stalled after hitting a wall. */
+  stallSeconds: 2,
+
+  shockwaveWindup: 1.2,
+  shockwaveRecover: 3,
+  shockwaveSpeed: 420,
+  shockwaveRadius: 900,
+  /** The ring hits bodies this close to its front, pixels. */
+  shockwaveWidth: 24,
+  /** The Ancient Guardian wakes when the player comes this close, or on damage. */
+  wakeRadius: 260,
+
+  /** Seconds between damage ticks of enemy pools. */
+  hazardTick: 0.5,
+  /** Pools deal this share of the owner's damage per tick. */
+  hazardDamageShare: 0.5,
+  acidRadius: 16,
+  acidSeconds: 2,
+  acidSpacing: 60,
+  toxicPoolRadius: 55,
+  toxicPoolSeconds: 4,
+
+  /** Clockwork Crawler latch: speed multiplier per stack, lowest multiplier and seconds. */
+  latchSlow: 0.85,
+  latchSlowMin: 0.55,
+  latchSeconds: 1.5,
+
+  sporeCooldown: 5,
+  sporeCast: 0.6,
+  sporePodSeconds: 2.5,
+  sporePodRange: 260,
+  sporeCloudRadius: 90,
+  sporeCloudSeconds: 5,
+  sporeSlow: 0.6,
+
+  mineCooldown: 6,
+  mineCast: 0.6,
+  mineThrowRange: 340,
+  mineArmSeconds: 1,
+  mineTriggerRadius: 42,
+  mineBlastRadius: 80,
+  mineSeconds: 12,
+
+  repairCooldown: 4,
+  repairCast: 0.6,
+  repairRange: 280,
+  repairShare: 0.2,
+  deployCooldown: 8,
+  deployCast: 0.8,
+  deployCount: 2,
+  /** Crawlers one Mechanist deploys in a round. */
+  deployCap: 6,
+
+  /** Regenerator: seconds without damage before healing, and share of Health per second. */
+  regenDelay: 3,
+  regenPerSecond: 0.06,
+  /** Regenerating elites heal this share of Health per second. */
+  eliteRegenPerSecond: 0.02,
+
+  /** Cosine of the half-angle of a frontal shield or shell: 60 degrees each side. */
+  frontCos: 0.5,
+  /** Shield carriers turn this fast, radians per second, so flanking works. */
+  shieldTurnRate: 2.2,
+
+  /** Gold a Highwayman takes per hit. */
+  stealGold: 5,
+  commandRadius: 220,
+  commandBonus: 'Low',
+
+  teleportCooldown: 4,
+  teleportCast: 0.5,
+  teleportMin: 150,
+  teleportMax: 260,
+  /** Anomaly: seconds each resistance lasts. */
+  shiftSeconds: 4,
+
+  suppressRadius: 300,
+  /** The Unstable: status durations multiply by this factor. */
+  shortStatusFactor: 0.5,
+  mutateHealthShare: 0.5,
+
+  deathBurstRadius: 60,
+  seedSeconds: 4,
+  seedRadius: 8,
+
+  /** Seconds between two volleys called by a squad leader. */
+  volleySeconds: 3.5,
+  /** Hunting Hound: seconds of retreat after a strike. */
+  retreatSeconds: 1.6,
+
+  // Elite modifiers (GDD 9.12).
+  armouredSteps: 2,
+  volatileRadius: 80,
+  volatileDamageFactor: 1.5,
+  splitCopies: 2,
+  splitHealthShare: 0.4,
+  splitRadiusShare: 0.75,
+  magnetRadius: 160,
+  magnetTurnRate: 4,
+  vampiricHealShare: 0.1,
+
+  // Champion traits (GDD 9.13).
+  warlordThresholds: [0.66, 0.33],
+  warlordEscorts: 4,
+  purifySeconds: 6,
+  /** Phase-Shifter: share of Health lost inside the window, the window and the jump. */
+  phaseBurstShare: 0.15,
+  phaseWindow: 1,
+  phaseDistance: 320,
+  /** Reactive Plating: seconds between checks. The resistance lasts until the next check. */
+  platingSeconds: 5,
+  overclockedSteps: 2,
+  overclockedHealthShare: 0.5,
+  /** Siege Breaker: gap at which the champion strikes a construct or trap. */
+  siegeReach: 30,
 } as const;
 
-export type PerformanceLimits = { readonly [K in keyof (typeof PERFORMANCE_LIMITS)['pc']]: number };
+/** AI numbers with no value in GDD.md (GDD 9.15). */
+export const AI_RULES = {
+  /** Each enemy scores its actions this many times per second. */
+  decisionsPerSecond: 4,
+  /** Update frequency by distance: every step, every few steps, a few times per second. */
+  nearDistance: 700,
+  midDistance: 1100,
+  midSteps: 4,
+  farSteps: 15,
+  /** Attack tokens by territory: enemies allowed to attack the player at once. */
+  attackTokens: [6, 8, 10],
+  flankSlots: 8,
+  flankRadius: 230,
+  /** Enemies without a token circle at this gap to the player. */
+  waitGap: 90,
+  /** Squad members further than this from the squad centre want to regroup. */
+  regroupDistance: 420,
+  /** Territorial enemies defend this radius around their home point. */
+  homeRadius: 420,
+  /** Predatory enemies press a player below this share of Health. */
+  weakTargetShare: 0.5,
+  /** Enemies below this share of Health consider a retreat. */
+  retreatHealthShare: 0.35,
+  /** A guard holds this far in front of its ward. */
+  guardDistance: 60,
+  /** Enemies look for wards and squad mates inside this radius. */
+  allyRadius: 520,
+  /** Enemies steer around obstacles inside this margin, pixels. */
+  avoidMargin: 26,
+  /** Personality weights by tier (GDD 9.15). */
+  weights: { Minimal: 0.2, Low: 0.6, Medium: 1, High: 1.5, Extreme: 2 },
+  /** Squad orders multiply the matching action. */
+  orderBonus: 1.6,
+  /** A squad with a dead leader leans toward regrouping. */
+  leaderlessRegroup: 1.5,
+} as const;
+
+/** Encounter director numbers with no value in GDD.md (GDD 4.11, 4.12, 9.12, 9.13). */
+export const DIRECTOR_RULES = {
+  /** Share of the round duration: trickle end, groups window and the closing assault. */
+  trickleEnd: 0.8,
+  groupsStart: 0.15,
+  groupsEnd: 0.7,
+  assaultTime: 0.85,
+  firstSpawnSeconds: 1,
+  groupSizeMin: 3,
+  groupSizeMax: 5,
+  /** Threat units one group spends, as a share of the Round 1 budget. */
+  groupBudgetShare: 0.3,
+  /** Enemies of a threat tier appear from this campaign round. */
+  tierFirstRound: { Minimal: 1, Low: 1, Medium: 2, High: 5, Extreme: 8 },
+  /** Elites appear from Round 5 (GDD 4.12). Odds per enemy, as Critical Chance tiers, by territory. */
+  eliteFirstRound: 5,
+  eliteOdds: ['Low', 'Medium', 'Medium'],
+  /** Champion odds per group from Round 15. One champion per round at most. */
+  championOdds: 'Low',
+  eliteCostFactor: 3,
+  championCostFactor: 6,
+  /** Groups of this size or larger show a warning marker before they enter. */
+  warningSize: 5,
+  warningSeconds: 1.5,
+  /** Formations start at Round 5, flanking at Round 12, three-way assaults at Round 15 (GDD 4.11). */
+  formationFirstRound: 5,
+  flankFirstRound: 12,
+  coordinatedFirstRound: 15,
+  defensiveFirstRound: 19,
+} as const;
 
 /** Player stat caps as tiers (GDD 3.6), for the stats Milestone 2 changes. */
 export const PLAYER_STAT_CAPS = {
