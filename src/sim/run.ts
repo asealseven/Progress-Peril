@@ -5,15 +5,20 @@
 import { ARENAS } from '../data/arenas';
 import type { ArenaDef } from '../data/arenas';
 import type { CharacterDef } from '../data/characters';
+import { emptyMaterials } from '../data/economy';
+import type { MaterialStock } from '../data/economy';
 import { DEFAULT_KINGDOM_ORDER } from '../data/kingdoms';
 import type { KingdomName } from '../data/palette';
 import { CAMPAIGN_ROUNDS, roundDuration, territoryIndex } from '../data/rounds';
 import { ADAPTATION, PERFORMANCE_LIMITS, tierValue } from '../data/tiers';
 import type { PerformanceLimits } from '../data/tiers';
 import type { WeaponDef } from '../data/weapons';
+import type { ShopId } from '../data/shop';
 import { planRound } from './director';
-import { WEAPON_SLOTS, cloneWeapon, createWeapon, installedComponents, resolveLoadout } from './loadout';
-import type { WeaponInstance } from './loadout';
+import { beginPreparation, createShops, recordRound } from './economy';
+import type { RoundLedger, ShopState } from './economy';
+import { WEAPON_SLOTS, cloneWeapon, createComponent, createWeapon, installedComponents, resolveLoadout } from './loadout';
+import type { ComponentInstance, WeaponInstance } from './loadout';
 import { Rng } from './rng';
 import type { AdaptationMap, PlayerStats, RoundStats } from './world/types';
 import { World } from './world/world';
@@ -32,6 +37,10 @@ export interface RoundResult {
   /** Seconds of combat. */
   readonly seconds: number;
   readonly stats: Readonly<RoundStats>;
+  /** Gold, materials and components collected in the round. */
+  readonly gold: number;
+  readonly materials: Readonly<MaterialStock>;
+  readonly components: readonly string[];
 }
 
 export interface RunState {
@@ -45,8 +54,22 @@ export interface RunState {
    * selection and arenas. Until then every territory plays in the same arena.
    */
   kingdoms: KingdomName[];
-  /** Gold carried. Income arrives in Milestone 5. Highwaymen steal from this (GDD 9.11). */
+  /** Gold carried (GDD 14.1). Highwaymen steal from this (GDD 9.11). */
   gold: number;
+  /** Materials by type (GDD 14.2). */
+  materials: MaterialStock;
+  /** The component tray: every owned component not installed (GDD 15.8). */
+  inventory: ComponentInstance[];
+  /** Weapons owned beyond the three slots. */
+  reserve: WeaponInstance[];
+  /** Three shops with separate stock (GDD 6.5). */
+  shops: Record<ShopId, ShopState>;
+  /** A free milestone visit waits for a shop of the player's choice (GDD 6.1). */
+  freeVisit: boolean;
+  /** Free rerolls per visit from the Grand Archive (GDD 6.5). Milestone 9 fills this. */
+  freeRerolls: number;
+  /** Economy per round, for the debug logger. */
+  ledger: RoundLedger[];
   /** The round about to start or in progress, from 1. */
   round: number;
   status: RunStatus;
@@ -65,6 +88,13 @@ export function createRun(seed: number, character: CharacterDef, startingWeapon:
     arena: ARENAS['great-foundry'],
     kingdoms: [...DEFAULT_KINGDOM_ORDER],
     gold: 0,
+    materials: emptyMaterials(),
+    inventory: [],
+    reserve: [],
+    shops: createShops(),
+    freeVisit: false,
+    freeRerolls: 0,
+    ledger: [],
     round: 1,
     status: 'active',
     adaptation: {},
@@ -138,14 +168,26 @@ export function createWorldForRound(run: RunState, limits: PerformanceLimits = P
 /** Records a finished round and moves the run on. The player heals in full before the next round (GDD 3.7). */
 export function finishRound(run: RunState, world: World): RoundResult {
   const survived = world.phase === 'cleared';
+  const loot = world.loot;
   const result: RoundResult = {
     round: run.round,
     survived,
     seconds: world.elapsed,
     stats: { ...world.stats },
+    gold: loot.gold,
+    materials: { ...loot.materials },
+    components: loot.components.map((component) => component.name),
   };
   run.history.push(result);
+  // Loot collected before a defeat still counts for the campaign statistics.
   run.gold = world.gold;
+  let materialsEarned = 0;
+  for (const material of Object.keys(loot.materials) as Array<keyof MaterialStock>) {
+    run.materials[material] += loot.materials[material];
+    materialsEarned += loot.materials[material];
+  }
+  for (const component of loot.components) run.inventory.push(createComponent(component));
+  recordRound(run, run.round, world.stats.kills, loot.gold, materialsEarned, loot.components.length);
   // Adaptation lasts for a territory (GDD 3.7).
   const sameTerritory = territoryIndex(run.round + 1) === territoryIndex(run.round);
   run.adaptation = sameTerritory ? { ...world.player.adaptation } : {};
@@ -163,6 +205,8 @@ export function finishRound(run: RunState, world: World): RoundResult {
   } else if (run.round >= PLAYABLE_ROUNDS) {
     run.status = 'complete';
   } else {
+    // Preparation follows every round. Mini-boss and boss rounds grant a free shop visit (GDD 6.1).
+    beginPreparation(run, run.round);
     run.round++;
   }
   return result;

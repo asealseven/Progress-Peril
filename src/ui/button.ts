@@ -8,6 +8,10 @@ export interface ButtonOptions {
   width?: number;
   height?: number;
   textSize?: number;
+  /** A disabled button draws faded and ignores input. Default true. */
+  enabled?: boolean;
+  /** A selected button draws a gold border, for tabs. */
+  selected?: boolean;
 }
 
 const HOVER_FILL = 0xe6d9bd;
@@ -41,6 +45,13 @@ export class Button {
     }).setOrigin(0.5);
 
     this.objects = [this.panel, this.text];
+
+    if (options.selected) this.panel.setStrokeStyle(5, hexToNumber(PALETTE.playerEffects), 1);
+    if (options.enabled === false) {
+      this.panel.disableInteractive();
+      this.panel.setAlpha(0.45);
+      this.text.setAlpha(0.45);
+    }
   }
 
   setLabel(label: string): this {

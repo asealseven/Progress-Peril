@@ -18,6 +18,7 @@ import { computeDamage, resolvePlayerHit } from '../modifiers';
 import type { PercentBonus } from '../modifiers';
 import { enemyDied, noteDamage, splitEnemy } from './enemies';
 import { burnSeeds } from './hazards';
+import { dropLoot } from './loot';
 import { clampToArena, pushOutOfObstacles } from './movement';
 import { spawnFragments, spawnParasite } from './projectiles';
 import {
@@ -495,6 +496,7 @@ export function killEnemy(world: World, enemy: Enemy, weaponIndex = -1, generati
   const maxHealth = enemy.maxHealth;
   const splits = hasModifier(enemy, 'splitting') && !enemy.noLegacy;
   enemyDied(world, enemy, burning || world.lastHitType === 'Fire');
+  dropLoot(world, enemy, weaponIndex);
 
   world.stats.kills++;
   world.emit({ type: 'enemyKilled', x, y, enemyId: enemy.def.id });

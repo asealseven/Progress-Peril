@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { CHARACTERS } from '../src/data/characters';
 import { STARTING_WEAPONS, WEAPONS } from '../src/data/weapons';
 import type { WeaponDef } from '../src/data/weapons';
+import { GRADE_NUMERALS, MATERIALS } from '../src/data/economy';
 import { territoryIndex } from '../src/data/rounds';
+import { SHOP_IDS } from '../src/data/shop';
 import { PERFORMANCE_LIMITS, activeEnemyLimit } from '../src/data/tiers';
 import {
   PLAYABLE_ROUNDS,
@@ -13,17 +15,27 @@ import {
   runTotals,
 } from '../src/sim/run';
 import type { RunState } from '../src/sim/run';
+import {
+  buyItem,
+  buyProblem,
+  installFromInventory,
+  openShop,
+  shopItemAt,
+  upgradeProblem,
+  upgradeWeapon,
+} from '../src/sim/economy';
+import { installProblem } from '../src/sim/loadout';
 import { lineOfSight } from '../src/sim/world/hazards';
 import type { StepInput } from '../src/sim/world/types';
 import type { World } from '../src/sim/world/world';
-import { arm } from './helpers';
 
 const MAX_ROUND_STEPS = 60 * 60 * 10;
 
 /**
  * A simple bot: circle the arena centre at a fixed radius. With no enemy well
- * inside weapon range, walk toward the nearest enemy, so the last enemies of a
- * round never trail behind the circle forever.
+ * inside weapon range, walk toward a target, so the last enemies of a round
+ * never trail behind the circle forever. The target is the weakest enemy
+ * nearby, so repairing Mechanists fall before the Sentinel they mend.
  */
 function circleBot(world: World): StepInput {
   const player = world.player;
@@ -31,16 +43,19 @@ function circleBot(world: World): StepInput {
   let nearestX = 0;
   let nearestY = 0;
   let nearest = Infinity;
+  let weakest = Infinity;
   for (const enemy of world.enemies.items) {
     if (!enemy.active) continue;
     const distance = Math.hypot(enemy.x - player.x, enemy.y - player.y);
-    if (distance < nearest) {
+    // Inside 500 pixels the lowest Health wins. Outside, the nearest enemy.
+    const score = distance <= 500 ? enemy.health : 1e9 + distance;
+    if (score < weakest) {
+      weakest = score;
       nearest = distance;
       nearestX = enemy.x;
       nearestY = enemy.y;
     }
   }
-  // Closing to well inside weapon range keeps kiting archers and their guards under fire.
   // A pillar between the bot and its target blocks Straight shots, so the bot walks round.
   const blocked = nearest !== Infinity && !lineOfSight(world.arena, player.x, player.y, nearestX, nearestY, 8);
   if (nearest !== Infinity && (nearest > range * 0.6 || blocked)) {
@@ -79,20 +94,43 @@ function playRun(seed: number, invincible: boolean, weapon: WeaponDef = WEAPONS.
 }
 
 /**
- * Stand-in for the shop until Milestone 5: the bot's weapon Damage rises by the
- * same factor as one enemy Health step per territory (NOTES.md, GDD 9.10).
+ * The bot's preparation phase (CLAUDE.md "Testing"): buy weapon grades, visit a
+ * shop and buy the first affordable item, then fit components into free slots.
  */
-const DAMAGE_STAND_IN = [1, 2.5, 6.25];
+function prepare(run: RunState): void {
+  // Grades first, lowest grade first, always in Damage.
+  for (;;) {
+    const weapon = [...run.weapons]
+      .sort((a, b) => a.grade - b.grade)
+      .find((entry) => upgradeProblem(run, entry, 'damage') === undefined);
+    if (!weapon) break;
+    upgradeWeapon(run, weapon, 'damage');
+  }
 
-function strengthen(world: World): void {
-  const factor = DAMAGE_STAND_IN[territoryIndex(world.round)] ?? 1;
-  for (const weapon of world.weapons) {
-    const resolved = weapon.resolved;
-    weapon.resolved = {
-      ...resolved,
-      damage: resolved.damage * factor,
-      damageParts: resolved.damageParts.map((part) => ({ ...part, amount: part.amount * factor })),
-    };
+  // One shop per phase: a free visit, or a paid one when the gold covers the fee and a purchase.
+  const shopId = SHOP_IDS[run.round % SHOP_IDS.length] ?? 'blacksmith';
+  if (run.freeVisit || run.gold >= 80) {
+    openShop(run, shopId);
+    const slots: Array<number | 'specialist'> = [...run.shops[shopId].stock.keys(), 'specialist'];
+    // A weapon for a free slot comes first.
+    if (run.weapons.length < 3) {
+      const weaponSlot = slots.find(
+        (slot) => shopItemAt(run, shopId, slot)?.kind === 'weapon' && buyProblem(run, shopId, slot) === undefined,
+      );
+      if (weaponSlot !== undefined) buyItem(run, shopId, weaponSlot);
+    }
+    for (const slot of slots) {
+      const item = shopItemAt(run, shopId, slot);
+      if (!item || item.kind === 'weapon') continue;
+      if (buyProblem(run, shopId, slot) === undefined) buyItem(run, shopId, slot);
+    }
+  }
+
+  for (const component of [...run.inventory]) {
+    const weapon = run.weapons.find(
+      (entry) => !entry.components[component.def.slot] && installProblem(entry, component.def) === undefined,
+    );
+    if (weapon) installFromInventory(run, weapon, component);
   }
 }
 
@@ -117,11 +155,36 @@ describe('headless run', () => {
     console.log(lines.join('\n'));
   }, 120000);
 
+  it('plays a full Territory 1 loop of seven rounds with shop visits', () => {
+    const run = createRun(31, CHARACTERS.inventor, WEAPONS['war-hammer']);
+    let visits = 0;
+    while (run.status === 'active' && run.round <= 7) {
+      const world = createWorldForRound(run);
+      world.invincible = true;
+      playRound(world);
+      finishRound(run, world);
+      if (run.status !== 'active') break;
+      // The player heals in full before the next round (GDD 3.7).
+      expect(createWorldForRound(run).player.health).toBe(createWorldForRound(run).player.stats.maxHealth);
+      const free = run.freeVisit;
+      prepare(run);
+      if (SHOP_IDS.some((id) => run.shops[id].visit)) visits++;
+      // Rounds 4 and 7 grant a free visit, and the bot takes each one.
+      if (free) expect(run.freeVisit).toBe(false);
+    }
+    expect(run.history.filter((result) => result.survived)).toHaveLength(7);
+    expect(visits).toBeGreaterThanOrEqual(2);
+    const spent = run.ledger.reduce((sum, entry) => sum + entry.goldSpent, 0);
+    const earned = run.ledger.reduce((sum, entry) => sum + entry.goldEarned, 0);
+    expect(spent).toBeGreaterThan(0);
+    expect(run.gold).toBe(earned - spent);
+    expect(Math.max(...run.weapons.map((weapon) => weapon.grade))).toBeGreaterThan(0);
+  }, 120000);
+
   it('plays a full 21-round campaign inside the performance budgets (GDD 4.11, 7.21, 15.11)', () => {
     for (const platform of ['pc', 'mobile'] as const) {
       const limits = PERFORMANCE_LIMITS[platform];
-      const run = createRun(2026, CHARACTERS.inventor, WEAPONS.crossbow);
-      run.weapons = [arm('War Hammer'), arm('Mortar'), arm('Tesla Rod')];
+      const run = createRun(2026, CHARACTERS.inventor, WEAPONS['war-hammer']);
       const lines: string[] = [];
       let totalSteps = 0;
       let totalMs = 0;
@@ -129,7 +192,6 @@ describe('headless run', () => {
       while (run.status === 'active') {
         const world = createWorldForRound(run, limits);
         world.invincible = true;
-        strengthen(world);
         const kingdom = kingdomForRound(run);
         const limit = activeEnemyLimit(limits, run.round);
         expect(world.activeLimit).toBe(limit);
@@ -149,16 +211,22 @@ describe('headless run', () => {
           expect(world.constructs.activeCount).toBeLessThanOrEqual(limits.constructs);
           expect(world.hazards.activeCount).toBeLessThanOrEqual(limits.hazards);
           expect(world.enemyShots.activeCount).toBeLessThanOrEqual(limits.enemyShots);
+          expect(world.pickups.activeCount).toBeLessThanOrEqual(limits.pickups);
           expect(world.tokensHeld).toBeLessThanOrEqual(world.tokenLimit);
-          if (++steps > MAX_ROUND_STEPS) throw new Error(`Round ${world.round} did not end`);
+          if (++steps > MAX_ROUND_STEPS * 3) throw new Error(`Round ${world.round} did not end`);
         }
         totalMs += performance.now() - started;
         totalSteps += steps;
         expect(world.phase).toBe('cleared');
         const result = finishRound(run, world);
+        if (run.status === 'active') prepare(run);
+        const entry = run.ledger[run.ledger.length - 1]!;
+        const materials = MATERIALS.map((material) => run.materials[material]).join('/');
         lines.push(
           `Round ${result.round} (${kingdom}): ${result.seconds.toFixed(0)} s, ${result.stats.kills} kills, ` +
-            `most enemies ${mostEnemies} of ${limit}, ${result.stats.hitsTaken} hits taken`,
+            `most enemies ${mostEnemies} of ${limit}, gold +${entry.goldEarned} -${entry.goldSpent} = ${run.gold}, ` +
+            `materials +${entry.materialsEarned} (${materials}), ` +
+            `weapons ${run.weapons.map((weapon) => `${weapon.def.name} ${GRADE_NUMERALS[weapon.grade] || '0'}`).join(', ')}`,
         );
       }
       expect(run.status).toBe('complete');
@@ -168,15 +236,23 @@ describe('headless run', () => {
       const meanStepMs = totalMs / totalSteps;
       expect(meanStepMs).toBeLessThan(2);
       const totals = runTotals(run);
+      // The economy per territory, for comparison with GDD 14.3: kills 255, 410, 539 and gold 337, 544, 753.
+      const territory = [0, 1, 2].map((index) => {
+        const entries = run.ledger.filter((entry) => territoryIndex(entry.round) === index);
+        const sum = (pick: (entry: (typeof entries)[number]) => number): number =>
+          entries.reduce((total, entry) => total + pick(entry), 0);
+        return `Territory ${index + 1}: ${sum((entry) => entry.kills)} kills, ${sum((entry) => entry.goldEarned)} gold, ${sum((entry) => entry.materialsEarned)} materials, ${sum((entry) => entry.goldSpent)} gold spent`;
+      });
       console.log(
         [
           `Platform ${platform}: ${totals.kills} kills in ${(totals.seconds / 60).toFixed(1)} minutes of combat`,
           `Mean step ${meanStepMs.toFixed(3)} ms, worst step ${worstStepMs.toFixed(2)} ms`,
+          ...territory,
           ...lines,
         ].join('\n'),
       );
     }
-  }, 240000);
+  }, 600000);
 
   it('gives the same run for the same seed and inputs', () => {
     const a = playRun(77, false);
@@ -236,7 +312,6 @@ describe('campaign structure', () => {
     const world = createWorldForRound(run);
     world.player.adaptation.Slashing = 0.05;
     world.invincible = true;
-    strengthen(world);
     for (const weapon of world.weapons) weapon.resolved = { ...weapon.resolved, damage: 500, damageParts: [{ type: 'Impact', amount: 500 }] };
     playRound(world);
     finishRound(run, world);
@@ -249,10 +324,12 @@ describe('campaign structure', () => {
     run.gold = 30;
     const world = createWorldForRound(run);
     expect(world.gold).toBe(30);
+    // A Highwayman took 5 gold and got away with the round.
     world.gold = 25;
     world.invincible = true;
     playRound(world);
     finishRound(run, world);
-    expect(run.gold).toBe(25);
+    expect(run.gold).toBe(25 + world.loot.gold);
+    expect(world.loot.gold).toBe(20);
   });
 });

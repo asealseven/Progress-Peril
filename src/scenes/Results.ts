@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { MATERIALS } from '../data/economy';
 import { PALETTE, hexToNumber } from '../data/palette';
 import { SCREEN } from '../data/screen';
 import { STRINGS, formatTime } from '../data/strings';
@@ -16,6 +17,13 @@ export interface ResultsData {
 }
 
 const GAMEPAD_CONFIRM = 0;
+
+function materialsLabel(result: RoundResult): string {
+  const parts = MATERIALS.filter((material) => result.materials[material] > 0).map(
+    (material) => `${result.materials[material]} ${material}`,
+  );
+  return parts.length > 0 ? parts.join(', ') : STRINGS.results.none;
+}
 
 /** Short summary after each round, and campaign statistics after a death (GDD 3.8, 15.9). */
 export class Results extends Phaser.Scene {
@@ -52,7 +60,7 @@ export class Results extends Phaser.Scene {
 
     if (run.status === 'active') {
       heading = STRINGS.results.roundComplete(result.round);
-      note = STRINGS.results.healed;
+      note = run.freeVisit ? STRINGS.results.freeVisit : STRINGS.results.healed;
       rowsHeading = STRINGS.results.roundHeading;
       rows = [
         [STRINGS.results.kills, `${result.stats.kills}`],
@@ -60,9 +68,13 @@ export class Results extends Phaser.Scene {
         [STRINGS.results.criticalHits, `${result.stats.criticalHits}`],
         [STRINGS.results.damageTaken, `${Math.round(result.stats.damageTaken)}`],
         [STRINGS.results.time, formatTime(result.seconds)],
+        [STRINGS.results.gold, `${result.gold}`],
+        [STRINGS.results.materials, materialsLabel(result)],
+        [STRINGS.results.components, result.components.length > 0 ? result.components.join(', ') : STRINGS.results.none],
       ];
       buttonLabel = STRINGS.results.nextRound;
-      this.confirm = () => this.scene.start('Combat', { run });
+      // Preparation follows every round (GDD 3.3).
+      this.confirm = () => this.scene.start('Preparation', { run });
     } else {
       const totals = runTotals(run);
       const dead = run.status === 'dead';
@@ -87,8 +99,8 @@ export class Results extends Phaser.Scene {
     }).setOrigin(0.5);
     addText(this, centreX, 146, note, { size: 20 * s, align: 'center', wrapWidth: 820 }).setOrigin(0.5, 0);
 
-    const tableTop = 240 + 28 * s;
-    const rowHeight = 30 * s;
+    const tableTop = 220 + 24 * s;
+    const rowHeight = (rows.length > 5 ? 24 : 30) * s;
     const tableWidth = 440 * s;
     addText(this, centreX, tableTop - 20, rowsHeading, { role: 'hand', size: 28 * s, colour: PALETTE.brass }).setOrigin(
       0.5,
@@ -98,8 +110,9 @@ export class Results extends Phaser.Scene {
     lines.lineStyle(1, hexToNumber(PALETTE.ink), 0.35);
     rows.forEach(([label, value], index) => {
       const y = tableTop + index * rowHeight;
-      addText(this, centreX - tableWidth / 2, y, label, { size: 19 * s }).setOrigin(0, 0);
-      addText(this, centreX + tableWidth / 2, y, value, { size: 19 * s, weight: '700' }).setOrigin(1, 0);
+      const size = (rows.length > 5 ? 16 : 19) * s;
+      addText(this, centreX - tableWidth / 2, y, label, { size }).setOrigin(0, 0);
+      addText(this, centreX + tableWidth / 2, y, value, { size, weight: '700' }).setOrigin(1, 0);
       lines.lineBetween(centreX - tableWidth / 2, y + rowHeight - 3, centreX + tableWidth / 2, y + rowHeight - 3);
     });
 

@@ -279,3 +279,63 @@ GDD 4.4 to 4.12 and 9.1 to 9.16.
 - **Budgets checked each step.** Active enemies, player projectiles, area effects, constructs, enemy hazards, enemy shots and attack tokens. Mean step time must stay under 2 milliseconds. The run measures about 0.08 milliseconds.
 - **New pools.** Enemy hazards: 160 on PC, 80 on mobile. Enemy shots: 200 and 100. At the hazard limit the oldest effect of the same kind goes.
 - **CLAUDE.md, folder layout.** New files: `src/data/eliteModifiers.ts`, `champions.ts` and `kingdoms.ts` from the layout, `src/sim/ai.ts` from the layout, and `src/sim/world/hazards.ts` and `traits.ts`.
+
+## Milestone 5
+
+GDD 3.3, 6.1 to 6.6, 7.8 to 7.10, 7.22, 7.23, 14.1 to 14.3 and 15.8. You asked for no questions on this milestone, so every entry below is a choice of mine. Each one is a small change to reverse.
+
+### Research gates before Milestone 6
+
+- **GDD 6.4, 6.6, 7.22, 7.23.** The research web arrives in Milestone 6. Until then every weapon, component and recipe is open, Extraordinary items appear in shops, and Grades III and IV need no research node. `lockedBy` in `src/sim/economy.ts` is the one gate. Shop cards and recipes already show "Needs <node>" when the gate names a node.
+- **Research Notebook.** Research Points arrive in Milestone 6, so the component stays inactive until then. Specimen Jar works now.
+
+### Preparation flow (GDD 3.3, 15.8)
+
+- **Order of screens.** Combat, round results, preparation, combat. The first round starts straight after the starting weapon choice.
+- **Tabs.** Workbench and Shop. The Shop tab stays visible between ordinary rounds, since a paid visit starts there. The Research tab arrives in Milestone 6.
+- **Install and remove.** Pick a component in the tray, then pick a highlighted socket. Pick a filled socket with nothing selected to move the part back to the tray. This works with a mouse and with touch. Dragging on PC waits for Milestone 11.
+- **GDD 7.9 and 7.12, removed components.** GDD 7.12 says a removed component becomes scrap. GDD 15.8 gives a tray holding every owned component. A removed or replaced component returns to the tray. Dismantling is a separate choice in the tray.
+- **Tray.** Three lists: components sorted by slot type, the weapon reserve and the recipes. Six entries per page.
+- **Controller.** Enter starts the round. Controller navigation of the preparation screen waits for Milestone 10.
+
+### Shops (GDD 6.1 to 6.6)
+
+- **Visits.** A paid visit costs 20 gold and opens one shop for the current preparation phase. Coming back to an open shop in the same phase costs nothing. A second shop costs another 20 gold. The stock rotates out when the phase ends.
+- **Free visits.** Rounds 4, 7, 11, 14 and 18 grant one free visit, with no boss yet. The free visit opens one shop of the player's choice, shows 6 items, uses the odds of the next territory and holds one Rare or better item. Other doors cost 20 gold.
+- **Specialist slot.** One Rare or better item from the next territory's odds. A reroll leaves the slot alone. A new item arrives at the first visit after a purchase.
+- **Stock by shop.** Weapons follow GDD 6.6 by family. Payload components go to the Alchemist and Auxiliary components to the Royal Inventor. Structure and Mechanism components go to the Alchemist with a Fire, Toxic, Corrosive, Volatile, Explosive, Spray, Biological, Organic, Fungal or Parasite tag, to the Royal Inventor with an Electric, Conductive, Magnetic, Cold, Thermal, Anomalous, Precise or Experimental tag, and to the Blacksmith otherwise. Each component has one shop.
+- **Slot contents.** A slot rolls a quality, then holds a component 65 per cent of the time and a weapon otherwise. A shop with nothing at the rolled quality steps down one quality. One visit avoids showing the same item twice.
+- **Component quality.** A component always appears at the quality GDD 7.18 lists.
+- **Caps.** The Experimental and Extraordinary caps count per shop visit and survive rerolls.
+- **Keeper lines.** GDD 15.8 asks for short lines with no text. `src/data/strings.ts` holds four lines per keeper: greeting, purchase, reroll and no coin.
+
+### Weapons (GDD 7.8, 7.10, 7.17, 7.22)
+
+- **Grades.** A weapon starts with no grade. Grades I to IV cost 25, 50, 90 and 140 gold with 2, 4, 6 and 8 Scrap, so three weapons cost 915 gold, as GDD 7.22 states.
+- **One stat step.** A grade moves the weapon's base tier one step in the chosen stat: Damage, Attack Speed, Critical Chance, Range, Area or Status Build-up. A Crossbow at Damage High deals 20, then 35. Past Extreme each step multiplies by the ratio of the last two tiers: 1.75 for Damage. Critical Chance moves to the next tier value, then adds 15 points per step. Status Build-up multiplies the meter fill by 1.6 per step and shows only for weapons building a status.
+- **Quality.** Each weapon appears at any quality. Common: nothing extra. Uncommon: one default component. Rare: one stat step and one default component. Experimental: one stat step and two default components. Extraordinary: two stat steps and two default components. Stat steps roll from Damage, Attack Speed and Range. Default components are Common parts fitting the family. They scrap for no materials and leave with the weapon.
+- **Merging.** 50 gold. The weapon whose Merge button you press survives with its components and grade. The other copy goes, and its non-default components return to the tray. Each merge adds Damage up, Low. The first merge opens the Auxiliary slot.
+- **Reserve.** A weapon bought with three slots full waits in the reserve. Any reserve weapon swaps into a slot.
+- **Weapon dismantling.** Returns the scrap value of the weapon's quality, 1 to 5, in the material of its first matching tag. The last equipped weapon stays.
+
+### Drops (GDD 14.1, 14.2)
+
+- **Pickups.** Gold, materials and components fall where an enemy dies. A pickup inside Pickup Radius flies to the player at 520 pixels per second. Gold within 26 pixels of another gold pickup joins the pile. Everything left flies to the player when the round ends.
+- **Limits.** 300 pickups on PC and 150 on mobile. At the limit a drop goes straight to the player.
+- **Material type.** Each material drop picks one of the faction's types at random.
+- **Component drops.** An elite's 5 per cent drop rolls its quality from the territory's stock odds. A champion's drop rolls Rare or Experimental. Extraordinary never drops, as GDD 7.23 states.
+- **No double drops.** Split copies and sprouted Thornlings drop nothing.
+- **Specimen Jar.** "Extra Specimens, Low" means a 10 per cent chance of one Specimen per kill with the weapon.
+- **Mini-boss and boss rewards.** Gold, materials and reward rolls for bosses wait for Milestone 8.
+- **HUD.** Gold shows top right in combat. Materials show in preparation only, as GDD 15.7 states.
+
+### Balance changes
+
+- **Regenerating elites.** 1 per cent of Health per second, down from 2. A Territory 3 elite beetle healed 50 Health per second and stalled a round.
+- **Mechanist repair.** 12 per cent of Health per repair, down from 20. Two Mechanists out-healed the test bot on one Iron Sentinel.
+
+### Tests
+
+- **Headless campaign.** The Milestone 4 Damage stand-in is gone. The bot buys grades in Damage, visits one shop per phase when a free visit waits or gold reaches 80, buys a weapon for a free slot, then every affordable component, and fits components into free sockets. The bot hunts the weakest enemy within 500 pixels, so Mechanists fall before the Sentinel they mend.
+- **Economy against GDD 14.3.** The run prints kills, gold and materials per territory. Seed 2026: 198, 662 and 883 kills against 255, 410 and 539. 204, 748 and 829 gold against 337, 544 and 753. 14, 83 and 109 materials against 40, 70 and 106. Territory 1 runs low with no mini-boss and no boss. Territories 2 and 3 run high on swarms of Minimal enemies. Milestone 12 tunes this.
+- **CLAUDE.md, folder layout.** New files from the layout: `src/data/economy.ts`, `src/data/shop.ts`, `src/sim/economy.ts` and the `Preparation` scene. One file outside the layout: `src/sim/world/loot.ts`.

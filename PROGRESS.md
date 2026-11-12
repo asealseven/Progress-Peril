@@ -70,6 +70,18 @@
 - Debug tools: jump to any round, pick any kingdom roster, spawn any enemy at any rank.
 - 365 tests. New: 58 for enemies, modifiers and traits, 25 for AI and population limits, 20 for round tables and the director, and a headless 21-round campaign on PC and mobile limits.
 
+### Milestone 5: Preparation, shop and economy
+
+- Preparation screen after every round: Workbench and Shop tabs, a resource bar and a Start button. Untimed.
+- Workbench: three weapon cards with four sockets each, the Auxiliary padlock, the component tray, the weapon reserve, the recipe list and the synergy panel with near misses.
+- Three shops with separate stock: Blacksmith, Alchemist and Royal Inventor. Paid visits at 20 gold with 5 items, free visits after Rounds 4, 7, 11, 14 and 18 with 6 items, rerolls from 5 gold, the specialist slot, the Experimental and Extraordinary caps, and prices rising 20 per cent per territory.
+- Weapon quality, weapon grades I to IV with a stat step chosen at purchase, merging, the reserve and weapon dismantling.
+- Recipes for every component below Extraordinary, and dismantling into four material types.
+- Drops: gold, materials and components as pickups, collected through Pickup Radius and at round end.
+- Gold in the combat HUD. Loot in the round results. An economy logger in the debug overlay.
+- Specimen Jar works. Research Notebook waits for Milestone 6.
+- 416 tests. New: 35 for prices, shops, grades, recipes and merging, 15 for drops and pickups, a seven-round Territory 1 loop with shop visits, and the 21-round campaign on the real economy.
+
 ### Asset folders
 
 - ART_PROMPTS.md sits in the repo root.
@@ -78,13 +90,16 @@
 ## Known issues
 
 - Phone checks ran in an emulated phone viewport with touch events. No test on a physical phone yet.
-- Controller input has no automated test.
-- No shop exists until Milestone 5. A run holds one weapon, so a player without debug tools falls near Round 5 or 6. Use F3, then L, to equip three weapons and jump to a round.
-- Rounds run long. The test bot clears Rounds 1 to 3 in 37 to 177 seconds by starting weapon, against targets of 30 to 35 seconds. With three weapons and the Damage stand-in, Territory 3 rounds take 72 to 298 seconds against targets of 50 to 75. Milestone 12 tunes this.
-- Kill counts differ from GDD 14.3: about 200, 650 and 720 per territory against 255, 410 and 539. Orthelyn and Nymora field many Minimal enemies. Milestone 12 tunes this.
+- Controller input has no automated test. The preparation screen has no controller navigation yet.
+- The research web arrives in Milestone 6. Until then every item is open in shops and recipes, and Grades III and IV need no research.
+- Scrap limits weapon grades. Orthelyn and Nymora drop Crystals and Specimens, so the test bot ends a run with about 75 Crystals and 100 Specimens unused and no weapon at Grade IV. Dismantling and Scrap recipes help a player. Milestone 12 tunes this.
+- Economy against GDD 14.3: Territory 1 earns about 200 gold against 337, with no mini-boss and no boss. Territories 2 and 3 earn about 750 and 830 against 544 and 753.
+- Rounds run long. The test bot plays the campaign in 25 minutes of combat. Territory 3 rounds take 80 to 148 seconds against targets of 50 to 75.
 - Every territory plays in the Great Foundry placeholder until Milestone 7. Vat Chimera and Gear Lancer appear only through the debug roster picker or the spawn tool.
-- Rounds 4, 7, 11, 14, 18 and 21 hold no mini-boss or boss until Milestone 8.
-- Gold stays at 0 until Milestone 5, so a Highwayman steals nothing in a normal run. Champion drops wait for Milestones 5 and 6.
+- Rounds 4, 7, 11, 14, 18 and 21 hold no mini-boss or boss until Milestone 8. The free shop visits after those rounds already work.
+- Champion drops give a component now. The Research Point choice waits for Milestone 6.
+- Preparation uses pick-then-place for components. Dragging on PC waits for Milestone 11.
+- Preparation text runs 13 to 19 pixels on a 1280 pixel screen. A phone shows this small. Milestone 11 revisits the layout.
 - Guards in a Protect squad hold next to their ward. A player with one short weapon has to walk in to finish the round.
 - No Cold weapon exists in GDD 7.17. Frozen comes from Frost Salts alone.
 - A standing player gains nothing from the Spring Trap Layer.
@@ -92,10 +107,10 @@
 - The HUD covers the player in the top left arena corner.
 - Status pips and modifier markers are small on a phone screen. Milestone 11 replaces them with icon shapes.
 - The debug menu uses small arrow buttons on a phone.
-- Headless Chromium draws about 30 frames per second with software rendering. The simulation step takes about 0.08 milliseconds. Frame rate on real hardware waits for Milestone 12.
+- Headless Chromium draws about 30 frames per second with software rendering. The simulation step takes about 0.14 milliseconds. Frame rate on real hardware waits for Milestone 12.
 - The asset manifest lists keys and paths. File loading with fallback arrives in Milestone 11. The app icon is the exception.
 - No sound yet. ZzFX arrives in Milestone 11.
 
 ## Next step
 
-Milestone 5: Preparation, shop and economy. Read GDD 3.3, 6.1 to 6.6, 7.8 to 7.10, 7.22, 7.23, 14.1 to 14.3 and 15.8.
+Milestone 6: Research. Read GDD 8.1 to 8.13 and 15.8.

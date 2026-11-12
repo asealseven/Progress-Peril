@@ -235,7 +235,7 @@ export class DebugMenu extends Phaser.Scene {
       height: 32,
       textSize: 17,
       onClick: () => {
-        weapon.grade = auxiliaryOpen(weapon) ? 1 : 3;
+        weapon.grade = auxiliaryOpen(weapon) ? 0 : 3;
         weapon.merges = 0;
         this.refresh();
       },

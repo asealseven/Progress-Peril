@@ -17,6 +17,8 @@ import { createEnemy, prepareWave, spawnFromWave, updateEnemies } from './enemie
 import type { Wave } from './enemies';
 import { SpatialGrid } from './grid';
 import { createEnemyShot, createHazard, enemyBlast, updateEnemyShots, updateHazards } from './hazards';
+import { collectAll, createPickup, emptyLoot, updatePickups } from './loot';
+import type { Loot } from './loot';
 import { clampToArena, pushOutOfObstacles } from './movement';
 import { Pool } from './pool';
 import { createProjectile, updateProjectiles } from './projectiles';
@@ -27,6 +29,7 @@ import type {
   Hazard,
   PendingBlast,
   PendingExplosion,
+  Pickup,
   Squad,
   PlayerState,
   Projectile,
@@ -102,6 +105,9 @@ export class World {
   readonly zones: Pool<Zone>;
   readonly enemyShots: Pool<EnemyShot>;
   readonly hazards: Pool<Hazard>;
+  readonly pickups: Pool<Pickup>;
+  /** Gold, materials and components collected this round (GDD 14.1, 14.2). */
+  readonly loot: Loot = emptyLoot();
   readonly grid: SpatialGrid;
   /** Territory index, 0 to 2. Sets enemy Health and Damage steps (GDD 9.10). */
   readonly territory: number;
@@ -199,6 +205,7 @@ export class World {
     this.zones = new Pool<Zone>(createZone, this.limits.areaEffects);
     this.enemyShots = new Pool<EnemyShot>(createEnemyShot, this.limits.enemyShots);
     this.hazards = new Pool<Hazard>(createHazard, this.limits.hazards);
+    this.pickups = new Pool<Pickup>(createPickup, this.limits.pickups);
     this.grid = new SpatialGrid(config.arena.width, config.arena.height, GRID_CELL);
   }
 
@@ -261,6 +268,7 @@ export class World {
     updateEnemyShots(this, dt);
     updateZones(this, dt);
     updateHazards(this, dt);
+    updatePickups(this, dt);
     this.tickPlayer(dt);
 
     this.steps++;
@@ -276,6 +284,8 @@ export class World {
       // A round ends when spawning has finished and every enemy is defeated,
       // not when the timer expires (GDD 4.9).
       this.phase = 'cleared';
+      // Uncollected gold flies to the player when the round ends (GDD 14.1).
+      collectAll(this);
     }
   }
 

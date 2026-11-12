@@ -444,7 +444,7 @@ export const COMPONENT_LIST: readonly ComponentDef[] = [
     'Kills with this weapon grant extra Research Points, Low',
     'All',
     'Common',
-    [{ kind: 'resourceOnKill', resource: 'Research Points', tier: 'Low', activeFrom: 5 }],
+    [{ kind: 'resourceOnKill', resource: 'Research Points', tier: 'Low', activeFrom: 6 }],
   ),
   component(
     'Auxiliary',

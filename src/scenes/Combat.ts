@@ -50,6 +50,13 @@ const PILLAR = 0x6b635a;
 
 const SMOKE = 0xbfb8a8;
 const STEEL = hexToNumber(DAMAGE_TYPE_COLOURS.Piercing);
+/** Placeholder colours for material pickups. */
+const MATERIAL_COLOURS = {
+  Scrap: 0x8a8f96,
+  Reagents: hexToNumber(DAMAGE_TYPE_COLOURS.Fire),
+  Crystals: hexToNumber(DAMAGE_TYPE_COLOURS.Cold),
+  Specimens: hexToNumber(DAMAGE_TYPE_COLOURS.Biological),
+} as const;
 const DEBUG_RANKS: readonly EnemyRank[] = ['normal', 'elite', 'champion'];
 const WARNING_SECONDS = 1.5;
 const MAX_CHAMPION_LABELS = 4;
@@ -133,6 +140,8 @@ export class Combat extends Phaser.Scene {
   private warnings: Array<{ x: number; y: number; life: number }> = [];
   private championLabels: Phaser.GameObjects.Text[] = [];
   private suppressedText!: Phaser.GameObjects.Text;
+  private goldText!: Phaser.GameObjects.Text;
+  private lastGold = -1;
 
   constructor() {
     super('Combat');
@@ -163,6 +172,7 @@ export class Combat extends Phaser.Scene {
     this.lastTimerLabel = '';
     this.debugVisible = false;
     this.warnings = [];
+    this.lastGold = -1;
     this.championLabels = [];
     this.enemyButton = undefined;
     this.rankButton = undefined;
@@ -330,8 +340,14 @@ export class Combat extends Phaser.Scene {
       this.weaponLabels.push(label);
     }
 
+    // Gold sits top right, left of the pause button on touch devices (GDD 15.7).
+    const goldRight = SCREEN.width - HUD_MARGIN - (isTouchPrimary() ? 64 * s + 16 : 0);
+    this.goldText = this.inHud(addText(this, goldRight, HUD_MARGIN - 4, '', { size: 22 * s, weight: '700' }))
+      .setOrigin(1, 0)
+      .setDepth(DEPTH.hudText);
+
     // A parchment outline keeps HUD text readable over the arena.
-    for (const text of [this.healthText, this.timerText, roundText, territoryText]) {
+    for (const text of [this.healthText, this.timerText, roundText, territoryText, this.goldText]) {
       text.setStroke(PALETTE.parchment, 5);
     }
 
@@ -663,6 +679,9 @@ export class Combat extends Phaser.Scene {
           break;
         case 'goldReturned':
           this.showFloater(STRINGS.hud.goldReturned(event.amount), event.x, event.y);
+          break;
+        case 'pickup':
+          this.effects.burst(event.x, event.y, event.kind === 'gold' ? GOLD : BRASS, event.kind === 'gold' ? 3 : 6, 90, 2, 0.25);
           break;
         case 'constructDestroyed':
           this.effects.burst(event.x, event.y, GOLD, 12, 200, 3.5, 0.5);
@@ -1136,6 +1155,31 @@ export class Combat extends Phaser.Scene {
       if (hazard.active) this.drawHazard(g, hazard);
     }
 
+    // Pickups: gold coins, material crates and component cogs (GDD 14.1, 14.2).
+    for (const pickup of sim.pickups.items) {
+      if (!pickup.active) continue;
+      if (pickup.kind === 'gold') {
+        const radius = Math.min(9, 4 + Math.sqrt(pickup.amount));
+        g.fillStyle(GOLD, 1);
+        g.fillCircle(pickup.x, pickup.y, radius);
+        g.lineStyle(1.5, INK, 1);
+        g.strokeCircle(pickup.x, pickup.y, radius);
+      } else if (pickup.kind === 'material') {
+        g.fillStyle(MATERIAL_COLOURS[pickup.material], 1);
+        g.fillRect(pickup.x - 6, pickup.y - 6, 12, 12);
+        g.lineStyle(1.5, INK, 1);
+        g.strokeRect(pickup.x - 6, pickup.y - 6, 12, 12);
+      } else {
+        const pulse = 0.6 + 0.4 * Math.sin(this.clock * 6);
+        g.lineStyle(3, GOLD, pulse);
+        g.strokeCircle(pickup.x, pickup.y, 14);
+        g.fillStyle(PARCHMENT, 1);
+        g.fillTriangle(pickup.x - 9, pickup.y + 7, pickup.x + 9, pickup.y + 7, pickup.x, pickup.y - 9);
+        g.lineStyle(2, INK, 1);
+        g.strokeTriangle(pickup.x - 9, pickup.y + 7, pickup.x + 9, pickup.y + 7, pickup.x, pickup.y - 9);
+      }
+    }
+
     // A slowed player shows a cold ring: latched crawlers and spore clouds (GDD 9.11).
     if (player.slowTimer > 0 && player.health > 0) {
       g.lineStyle(3, hexToNumber(DAMAGE_TYPE_COLOURS.Cold), 0.9);
@@ -1372,6 +1416,11 @@ export class Combat extends Phaser.Scene {
       }
     }
 
+    if (sim.gold !== this.lastGold) {
+      this.lastGold = sim.gold;
+      this.goldText.setText(STRINGS.prep.gold(sim.gold));
+    }
+
     this.suppressedText.setVisible(
       sim.auxiliarySuppressed && sim.weapons.some((weapon) => weapon.full !== weapon.suppressed),
     );
@@ -1418,9 +1467,17 @@ export class Combat extends Phaser.Scene {
       `Seed ${formatSeed(this.run.seed)}  Round ${sim.round}  Step ${sim.steps}`,
       `Enemies ${sim.enemies.activeCount} of ${sim.activeLimit}  Squads ${sim.squads.size}  Tokens ${sim.tokensHeld} of ${sim.tokenLimit}  Spawns left ${sim.spawnsLeft}`,
       `Projectiles ${sim.projectiles.activeCount}  Constructs ${sim.constructs.activeCount}  Traps ${sim.traps.activeCount}  Area effects ${sim.zones.activeCount}`,
-      `Enemy shots ${sim.enemyShots.activeCount}  Hazards ${sim.hazards.activeCount}  Gold ${sim.gold}  Roster ${kingdomForRound(this.run)}`,
+      `Enemy shots ${sim.enemyShots.activeCount}  Hazards ${sim.hazards.activeCount}  Pickups ${sim.pickups.activeCount}  Roster ${kingdomForRound(this.run)}`,
+      `Round loot: gold ${sim.loot.gold}, materials ${Object.values(sim.loot.materials).reduce((sum, value) => sum + value, 0)}, components ${sim.loot.components.length}`,
       `Kills ${sim.stats.kills}  Shots ${sim.stats.shotsFired}  Hits taken ${sim.stats.hitsTaken}`,
       sim.invincible ? STRINGS.debug.invincibleOn : STRINGS.debug.invincibleOff,
+      // Economy logger (CLAUDE.md "Testing"): the last finished rounds.
+      ...this.run.ledger
+        .slice(-2)
+        .map(
+          (entry) =>
+            `Round ${entry.round}: ${entry.kills} kills, gold +${entry.goldEarned} -${entry.goldSpent}, materials +${entry.materialsEarned} -${entry.materialsSpent}`,
+        ),
     ];
     this.debugText.setText(lines.join('\n'));
   }

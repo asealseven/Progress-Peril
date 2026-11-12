@@ -2,16 +2,22 @@
 // weapon with its components into the numbers the combat simulation uses.
 
 import { SCRAP_RETURN, componentFitsFamily } from '../data/components';
-import type { ComponentDef, SlotType } from '../data/components';
+import type { ComponentDef, Quality, SlotType } from '../data/components';
+import { ECONOMY_RULES } from '../data/economy';
+import type { UpgradeStat } from '../data/economy';
 import type { DamageType } from '../data/damageTypes';
 import { ELEMENTAL_TYPES } from '../data/damageTypes';
 import type { Effect, StatKey } from '../data/effects';
 import { STATUS_EFFECTS, STATUS_FOR_DAMAGE_TYPE } from '../data/statusEffects';
 import type { StatusEffect } from '../data/statusEffects';
 import type { Tag } from '../data/tags';
+import type { Tier } from '../data/tiers';
 import {
   COMBAT,
   KNOCKBACK_PIXELS,
+  TIERS,
+  stepTier,
+  tierIndex,
   PLAYER_STAT_CAPS,
   STATUS_RULES,
   SYNERGY_RULES,
@@ -34,12 +40,19 @@ export interface ComponentInstance {
   rounds: number;
 }
 
-export type WeaponGrade = 1 | 2 | 3 | 4;
+/** 0 means no grade bought yet. Grades I to IV follow (GDD 7.22). */
+export type WeaponGrade = 0 | 1 | 2 | 3 | 4;
 
 export interface WeaponInstance {
   readonly def: WeaponDef;
+  /** Each weapon appears at any quality. Quality changes stat steps and default components (GDD 7.17). */
+  quality: Quality;
   /** Upgrade Grade I to IV (GDD 7.8). */
   grade: WeaponGrade;
+  /** One stat step per grade bought, in a category chosen at purchase (GDD 7.22). */
+  upgrades: UpgradeStat[];
+  /** Stat steps from the weapon's quality, rolled when the weapon appears. */
+  qualitySteps: UpgradeStat[];
   merges: number;
   /** Rounds completed with the weapon equipped. */
   rounds: number;
@@ -50,7 +63,7 @@ export interface WeaponInstance {
 export const WEAPON_SLOTS = 3;
 
 export function createWeapon(def: WeaponDef): WeaponInstance {
-  return { def, grade: 1, merges: 0, rounds: 0, components: {} };
+  return { def, quality: 'Common', grade: 0, upgrades: [], qualitySteps: [], merges: 0, rounds: 0, components: {} };
 }
 
 export function createComponent(def: ComponentDef, isDefault = false): ComponentInstance {
@@ -63,7 +76,16 @@ export function cloneWeapon(weapon: WeaponInstance): WeaponInstance {
   for (const [slot, component] of Object.entries(weapon.components) as Array<[SlotType, ComponentInstance]>) {
     components[slot] = { ...component };
   }
-  return { def: weapon.def, grade: weapon.grade, merges: weapon.merges, rounds: weapon.rounds, components };
+  return {
+    def: weapon.def,
+    quality: weapon.quality,
+    grade: weapon.grade,
+    upgrades: [...weapon.upgrades],
+    qualitySteps: [...weapon.qualitySteps],
+    merges: weapon.merges,
+    rounds: weapon.rounds,
+    components,
+  };
 }
 
 // --- Slot rules (GDD 7.12) ---------------------------------------------------
@@ -141,7 +163,7 @@ export function weaponTags(weapon: WeaponInstance): Tag[] {
 // --- Resolution --------------------------------------------------------------
 
 /** The milestone the build has reached. Effects marked for a later milestone stay inactive. */
-export const CURRENT_MILESTONE = 4;
+export const CURRENT_MILESTONE = 5;
 
 export function isActive(effect: Effect): boolean {
   return (effect.activeFrom ?? 0) <= CURRENT_MILESTONE;
@@ -172,6 +194,8 @@ export interface WeaponTriggers {
   readonly bayonet: boolean;
   /** Parasite Larvae: Infected enemies release a parasite on death. */
   readonly parasite: boolean;
+  /** Specimen Jar: kills grant extra Specimens. */
+  readonly specimenOnKill: boolean;
 }
 
 /** Meter fill per hit for one status, as a share of a Normal enemy meter (GDD 9.14). */
@@ -327,6 +351,40 @@ export function synergyProfile(weapon: WeaponInstance): SynergyWeapon {
 
 type WeaponStat = StatKey;
 
+/** Stat steps a weapon holds from grades and quality (GDD 7.17, 7.22). */
+export function upgradeSteps(weapon: WeaponInstance, stat: UpgradeStat): number {
+  let steps = 0;
+  for (const entry of weapon.upgrades) if (entry === stat) steps++;
+  for (const entry of weapon.qualitySteps) if (entry === stat) steps++;
+  return steps;
+}
+
+/**
+ * A weapon tier value after whole steps. Past Extreme each step multiplies by
+ * the ratio of the last two tiers of the row (NOTES.md, GDD 7.22).
+ */
+export function steppedWeaponValue(
+  stat: 'weaponDamage' | 'weaponAttackSpeed' | 'weaponRange' | 'weaponArea' | 'criticalChance',
+  tier: Tier,
+  steps: number,
+): number {
+  const target = tierIndex(tier) + steps;
+  const top = TIERS.length - 1;
+  if (target <= top) return tierValue(stat, stepTier(tier, steps));
+  const extreme = tierValue(stat, 'Extreme');
+  return extreme * (extreme / tierValue(stat, 'High')) ** (target - top);
+}
+
+/** A Critical Chance after whole steps: the next tier value above the current chance, then 15 points per step. */
+function steppedCritical(chance: number, steps: number): number {
+  let value = chance;
+  for (let i = 0; i < steps; i++) {
+    const next = TIERS.map((tier) => tierValue('criticalChance', tier)).find((entry) => entry > value + 1e-9);
+    value = next ?? value + 0.15;
+  }
+  return value;
+}
+
 function tierSize(effect: Extract<Effect, { kind: 'stat' }>): number {
   return tierValue('modifierSize', effect.tier) * (effect.direction === 'up' ? 1 : -1);
 }
@@ -383,6 +441,7 @@ export function resolveWeapon(
     smoke: false,
     bayonet: false,
     parasite: false,
+    specimenOnKill: false,
   };
 
   for (const component of components) {
@@ -495,6 +554,9 @@ export function resolveWeapon(
         case 'parasiteOnDeath':
           triggers.parasite = true;
           break;
+        case 'resourceOnKill':
+          if (effect.resource === 'Specimens') triggers.specimenOnKill = true;
+          break;
         case 'bonusAgainstStatus':
           bonusAgainst = STATUS_EFFECTS.filter((name) => effect.statuses.includes(name));
           break;
@@ -516,6 +578,11 @@ export function resolveWeapon(
     stack.addPercent('damage', 'weapon', Math.min(cap, step * weapon.rounds));
   }
 
+  // Each merge improves base statistics (GDD 7.10).
+  if (weapon.merges > 0) {
+    stack.addPercent('damage', 'weapon', tierValue('modifierSize', ECONOMY_RULES.mergeDamage) * weapon.merges);
+  }
+
   // Synergies with fixed effects on the weapon's numbers (GDD 7.19).
   const active = (id: string): boolean => synergies.includes(id);
   if (active('rail-shot')) penetration += 2;
@@ -534,7 +601,8 @@ export function resolveWeapon(
   }
 
   // Damage (GDD 7.14 steps 1 to 3). Two damage types split the damage evenly.
-  const baseDamage = tierValue('weaponDamage', def.damage);
+  // Grades and quality move the base tier by whole steps (GDD 7.22).
+  const baseDamage = steppedWeaponValue('weaponDamage', def.damage, upgradeSteps(weapon, 'damage'));
   const share = 1 / def.damageTypes.length;
   const damageParts: DamagePart[] = def.damageTypes.map((type) => ({
     type,
@@ -547,7 +615,12 @@ export function resolveWeapon(
   }
   const damage = damageParts.reduce((sum, part) => sum + part.amount, 0);
 
-  const baseAttacksPerSecond = tierValue('weaponAttackSpeed', def.attackSpeed);
+  const baseAttacksPerSecond = steppedWeaponValue(
+    'weaponAttackSpeed',
+    def.attackSpeed,
+    upgradeSteps(weapon, 'attackSpeed'),
+  );
+  const buildFactor = ECONOMY_RULES.statusStepFactor ** upgradeSteps(weapon, 'statusBuildUp');
   const attackSpeedBonus = stack.percentFor('attackSpeed', 'components');
 
   // Conversions change which numbers matter.
@@ -584,11 +657,17 @@ export function resolveWeapon(
     attackSpeedBonus,
     attacksPerSecond: stack.resolve('attackSpeed', baseAttacksPerSecond),
     lowHealthAttackSpeed,
-    range: stack.resolve('range', tierValue('weaponRange', def.range)),
-    area: stack.resolve('area', tierValue('weaponArea', def.area)),
+    range: stack.resolve('range', steppedWeaponValue('weaponRange', def.range, upgradeSteps(weapon, 'range'))),
+    area: stack.resolve('area', steppedWeaponValue('weaponArea', def.area, upgradeSteps(weapon, 'area'))),
     criticalChance: Math.min(
       1,
-      Math.max(0, (def.criticalChance ? tierValue('criticalChance', def.criticalChance) : player.criticalChance) + criticalChanceBonus),
+      Math.max(
+        0,
+        steppedCritical(
+          def.criticalChance ? tierValue('criticalChance', def.criticalChance) : player.criticalChance,
+          upgradeSteps(weapon, 'criticalChance'),
+        ) + criticalChanceBonus,
+      ),
     ),
     criticalDamage: Math.max(1, player.criticalDamage + criticalDamageBonus),
     knockback: Math.max(0, knockback),
@@ -609,7 +688,10 @@ export function resolveWeapon(
     constructRepair,
     triggers,
     inactive,
-    statusBuilds: weaponStatusBuilds(weapon).builds,
+    statusBuilds: weaponStatusBuilds(weapon).builds.map((build) => ({
+      status: build.status,
+      share: Math.min(1, build.share * buildFactor),
+    })),
     statusDuration: stack.factor('statusDuration'),
     statusDurationFor,
     componentDamageBonus: stack.percentFor('damage', 'components'),

@@ -256,7 +256,7 @@ describe('weapon resolution', () => {
 
   it('lists components waiting for a later milestone', () => {
     expect(resolved('Crossbow', 'Incendiary Oil').inactive).toEqual([]);
-    expect(resolved('Crossbow', 'Research Notebook').inactive).toEqual([{ component: 'Research Notebook', activeFrom: 5 }]);
+    expect(resolved('Crossbow', 'Research Notebook').inactive).toEqual([{ component: 'Research Notebook', activeFrom: 6 }]);
     expect(resolved('Crossbow', 'Tempered Steel Frame').inactive).toEqual([]);
   });
 

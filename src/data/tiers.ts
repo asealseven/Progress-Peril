@@ -383,6 +383,8 @@ export interface PerformanceLimits {
   /** Enemy pools, clouds, mines and seeds. */
   readonly hazards: number;
   readonly enemyShots: number;
+  /** Gold, material and component pickups on the ground. */
+  readonly pickups: number;
   readonly activeEnemies: readonly [number, number, number];
 }
 
@@ -395,6 +397,7 @@ export const PERFORMANCE_LIMITS = {
     chainEventsPerStep: 12,
     hazards: 160,
     enemyShots: 200,
+    pickups: 300,
     activeEnemies: [120, 200, 300],
   },
   mobile: {
@@ -405,6 +408,7 @@ export const PERFORMANCE_LIMITS = {
     chainEventsPerStep: 6,
     hazards: 80,
     enemyShots: 100,
+    pickups: 150,
     activeEnemies: [40, 60, 100],
   },
 } as const satisfies Record<string, PerformanceLimits>;
@@ -495,7 +499,7 @@ export const ENEMY_RULES = {
   repairCooldown: 4,
   repairCast: 0.6,
   repairRange: 280,
-  repairShare: 0.2,
+  repairShare: 0.12,
   deployCooldown: 8,
   deployCast: 0.8,
   deployCount: 2,
@@ -506,7 +510,7 @@ export const ENEMY_RULES = {
   regenDelay: 3,
   regenPerSecond: 0.06,
   /** Regenerating elites heal this share of Health per second. */
-  eliteRegenPerSecond: 0.02,
+  eliteRegenPerSecond: 0.01,
 
   /** Cosine of the half-angle of a frontal shield or shell: 60 degrees each side. */
   frontCos: 0.5,

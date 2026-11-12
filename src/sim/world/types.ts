@@ -2,6 +2,8 @@
 
 import type { ArenaDef } from '../../data/arenas';
 import type { ChampionTraitId } from '../../data/champions';
+import type { ComponentDef } from '../../data/components';
+import type { Material } from '../../data/economy';
 import type { DamageType } from '../../data/damageTypes';
 import type { EliteModifierId } from '../../data/eliteModifiers';
 import type { EnemyDef } from '../../data/enemies';
@@ -406,6 +408,18 @@ export interface Hazard extends Poolable {
   born: number;
 }
 
+/** Gold, materials and components on the ground (GDD 14.1, 14.2). */
+export interface Pickup extends Poolable {
+  kind: 'gold' | 'material' | 'component';
+  x: number;
+  y: number;
+  amount: number;
+  material: Material;
+  component: ComponentDef | undefined;
+  /** Inside Pickup Radius once: the pickup flies to the player. */
+  attracted: boolean;
+}
+
 /** An enemy blast waiting for its step, so death bursts never recurse (GDD 7.20). */
 export interface PendingBlast {
   readonly x: number;
@@ -556,7 +570,14 @@ export type WorldEvent =
   | { readonly type: 'constructDestroyed'; readonly x: number; readonly y: number }
   /** The Unstable switched Auxiliary components off or on (GDD 9.11). */
   | { readonly type: 'suppressed'; readonly active: boolean }
-  | { readonly type: 'mutated'; readonly x: number; readonly y: number; readonly modifier: EliteModifierId };
+  | { readonly type: 'mutated'; readonly x: number; readonly y: number; readonly modifier: EliteModifierId }
+  | {
+      readonly type: 'pickup';
+      readonly kind: 'gold' | 'material' | 'component';
+      readonly amount: number;
+      readonly x: number;
+      readonly y: number;
+    };
 
 export interface WorldConfig {
   readonly arena: ArenaDef;
