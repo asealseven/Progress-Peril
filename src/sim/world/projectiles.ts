@@ -289,7 +289,10 @@ function updateStraight(world: World, projectile: Projectile, dt: number): void 
 
   // Arena obstacles block Straight projectiles (GDD 7.16).
   let blockedAt = -1;
+  let blocker: (typeof arena.obstacles)[number] | undefined;
   for (const obstacle of arena.obstacles) {
+    // Low cover lets projectiles pass (GDD 5.9).
+    if (obstacle.low) continue;
     const contact = sweepCircle(
       projectile.x,
       projectile.y,
@@ -300,7 +303,10 @@ function updateStraight(world: World, projectile: Projectile, dt: number): void 
       obstacle.y,
       obstacle.radius + projectile.radius,
     );
-    if (contact >= 0 && (blockedAt < 0 || contact < blockedAt)) blockedAt = contact;
+    if (contact >= 0 && (blockedAt < 0 || contact < blockedAt)) {
+      blockedAt = contact;
+      blocker = obstacle;
+    }
   }
 
   // Earliest contact with an enemy not hit before. Ties go to the lower slot.
@@ -407,6 +413,8 @@ function updateStraight(world: World, projectile: Projectile, dt: number): void 
   if (blockedAt >= 0) {
     const x = projectile.x + projectile.dx * blockedAt;
     const y = projectile.y + projectile.dy * blockedAt;
+    // A volatile vat explodes when hit by any attack (GDD 5.10).
+    if (blocker) world.environment.breakVat(world, blocker);
     if (projectile.blastRadius > 0) {
       explode(world, x, y, projectile.blastRadius, projectile.weaponIndex, {
         scale: projectile.damageScale,

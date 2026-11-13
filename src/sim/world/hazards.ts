@@ -49,6 +49,7 @@ export function lineOfSight(arena: ArenaDef, x1: number, y1: number, x2: number,
   const length = Math.hypot(dx, dy);
   if (length < 1e-6) return true;
   for (const obstacle of arena.obstacles) {
+    if (obstacle.low) continue;
     if (sweepCircle(x1, y1, dx / length, dy / length, length, obstacle.x, obstacle.y, obstacle.radius + margin) >= 0) {
       return false;
     }
@@ -89,9 +90,14 @@ export function updateEnemyShots(world: World, dt: number): void {
     const travel = Math.min(shot.speed * dt, shot.distanceLeft);
 
     let blockedAt = -1;
+    let blocker: (typeof world.arena.obstacles)[number] | undefined;
     for (const obstacle of world.arena.obstacles) {
+      if (obstacle.low) continue;
       const contact = sweepCircle(shot.x, shot.y, shot.dx, shot.dy, travel, obstacle.x, obstacle.y, obstacle.radius + shot.radius);
-      if (contact >= 0 && (blockedAt < 0 || contact < blockedAt)) blockedAt = contact;
+      if (contact >= 0 && (blockedAt < 0 || contact < blockedAt)) {
+        blockedAt = contact;
+        blocker = obstacle;
+      }
     }
     const hitAt =
       player.health > 0
@@ -104,6 +110,8 @@ export function updateEnemyShots(world: World, dt: number): void {
       continue;
     }
     if (blockedAt >= 0) {
+      // Enemy shots break volatile vats too (GDD 5.9).
+      if (blocker) world.environment.breakVat(world, blocker);
       world.emit({ type: 'projectileBlocked', x: shot.x + shot.dx * blockedAt, y: shot.y + shot.dy * blockedAt });
       world.enemyShots.release(shot);
       continue;
@@ -168,6 +176,8 @@ export function harmEnemy(world: World, enemy: Enemy, amount: number, damageType
 export function enemyBlast(world: World, blast: PendingBlast): void {
   const { x, y, radius } = blast;
   world.emit({ type: 'enemyBlast', x, y, radius, damageType: blast.damageType });
+  world.environment.breakVatsIn(world, x, y, radius);
+  if (blast.damageType === 'Fire') world.environment.burnFungus(x, y, radius);
 
   const player = world.player;
   const reach = radius + player.radius;

@@ -26,6 +26,8 @@ export const STRINGS = {
     defeated: 'Defeated',
     emptySlot: 'Empty',
     research: (points: number) => `Research ${points}`,
+    event: (name: string) => `Territory event: ${name}`,
+    invader: (faction: string) => `Another kingdom sends reinforcements: ${faction} join the fight. Gold pays 25 per cent extra.`,
   },
 
   pause: {
@@ -44,6 +46,8 @@ export const STRINGS = {
     buildCompleteNote: 'All 21 rounds cleared. Later milestones add kingdoms, bosses and the Grand Archive.',
     research: 'Research Points earned',
     discoveries: 'Hidden research found',
+    event: 'Territory event',
+    eventLine: (name: string, gold: number) => `${name}, +${gold} gold`,
     capture: 'Captured research waits on the Research tab.',
     defeat: (character: string) => `${character} has fallen`,
     defeatRound: (round: number) => `Defeated in Round ${round}`,
@@ -179,6 +183,17 @@ export const STRINGS = {
     },
   },
 
+  transition: {
+    openingTitle: 'The Grand Archive',
+    continue: 'Continue',
+    mapTitle: 'The Five Kingdoms',
+    territory: (territory: number) => `Territory ${territory} of 3`,
+    specialisation: (text: string) => `Specialisation: ${text}`,
+    begin: (round: number) => `Begin Round ${round}`,
+    hintKeyboard: 'Enter, Space or Esc continues',
+    hintTouch: 'Tap the button to continue',
+  },
+
   research: {
     states: {
       undiscovered: 'Unknown',
@@ -250,6 +265,8 @@ export const STRINGS = {
     spawnRank: (rank: string) => `Rank: ${rank}`,
     round: (round: number) => `Round ${round}`,
     roster: (kingdom: string) => `Roster: ${kingdom}`,
+    event: (name: string) => `Event: ${name}`,
+    noEvent: 'none',
     invincible: 'Invincible (I)',
     menuTitle: 'Workbench (debug)',
     menuNote: 'Equip any weapon and component. Pick a round and a roster. Applying restarts the round.',

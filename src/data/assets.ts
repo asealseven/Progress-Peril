@@ -3,6 +3,7 @@
 // and the group sets the folder inside public/assets/.
 // Milestone 11 loads the files. Until then every key draws its placeholder.
 
+import { KINGDOM_NAMES } from './kingdoms';
 import { ENEMY_LIST } from './enemies';
 
 /** Folder inside public/assets/ for each key group (ART_PROMPTS.md). */
@@ -64,6 +65,18 @@ export const ASSETS: Readonly<Record<string, AssetEntry>> = {
   'player.the-inventor': entry('player', 'The Inventor', 'Parchment circle, ink outline, dashed gold ring'),
   ...ENEMY_ASSETS,
   'arena.keldrath': entry('arena', 'Keldrath', 'Muted floor, central crucible and iron pillars in the Keldrath colour'),
+  'arena.myrathis': entry('arena', 'Myrathis', 'Muted floor, a ring of glass vats and workbenches in the Myrathis colour'),
+  'arena.merovant': entry('arena', 'Merovant', 'Muted floor, two conveyor belts and press tiles along the walls in the Merovant colour'),
+  'arena.orthelyn': entry('arena', 'Orthelyn', 'Muted floor, the central orrery and six lightning rods in the Orthelyn colour'),
+  'arena.nymora': entry('arena', 'Nymora', 'Muted floor, fountains and hedges in the Nymora colour'),
+  // Story cards (GDD 2.4). Text on parchment until the images exist.
+  'card.opening': entry('card', 'opening', 'Opening text on a parchment page'),
+  ...Object.fromEntries(
+    KINGDOM_NAMES.flatMap((kingdom) => [
+      [assetKey('card', `reveal-${kingdom}`), entry('card', `reveal-${kingdom}`, `${kingdom} reveal text on a parchment card with a kingdom colour band`)],
+      [assetKey('card', `ending-${kingdom}`), entry('card', `ending-${kingdom}`, `${kingdom} ending text on a parchment page`)],
+    ]),
+  ),
   'app.app-icon': entry('app', 'app-icon', 'Brass gear ring around "P&P" on parchment'),
   // ART_PROMPTS.md lists no projectile images. Projectiles are shapes drawn in code (GDD 15.3).
   'projectile.player': { key: 'projectile.player', placeholder: 'Gold circle, ink outline' },

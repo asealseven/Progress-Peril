@@ -1,10 +1,13 @@
 import Phaser from 'phaser';
-import { DAMAGE_TYPE_COLOURS, KINGDOM_COLOURS, PALETTE, hexToNumber } from '../data/palette';
+import { DAMAGE_TYPE_COLOURS, PALETTE, hexToNumber } from '../data/palette';
 import type { DamageTypeName } from '../data/palette';
 import { SCREEN } from '../data/screen';
 import { STRINGS, formatTime } from '../data/strings';
 import { ENEMY_RULES, PERFORMANCE_LIMITS } from '../data/tiers';
 import { Effects } from '../render/effects';
+import { drawArenaFloor, drawEnvironment } from '../render/environment';
+import { EVENTS } from '../data/events';
+import { HAZARDS } from '../data/hazards';
 import {
   PLAYER_KEY,
   PLAYER_TEXTURE_SIZE,
@@ -14,7 +17,7 @@ import {
   ensurePlayerTexture,
 } from '../render/placeholders';
 import { formatSeed } from '../sim/rng';
-import { createWorldForRound, finishRound, kingdomForRound } from '../sim/run';
+import { createWorldForRound, eventForRound, finishRound, kingdomForRound } from '../sim/run';
 import type { RunState } from '../sim/run';
 import { auraRadius, currentAttackSpeed, orbitHeadRadius, orbitRadius } from '../sim/world/attacks';
 import { hasShield, shieldBlocks, spawnGroup } from '../sim/world/enemies';
@@ -44,8 +47,6 @@ const DANGER = hexToNumber(PALETTE.danger);
 const GOLD = hexToNumber(PALETTE.playerEffects);
 
 /** Muted floor tones keep enemies and telegraphs the strongest shapes (GDD 15.1). */
-const FLOOR = 0xddd2ba;
-const FLOOR_LINE = 0xcbbfa5;
 const PILLAR = 0x6b635a;
 
 const SMOKE = 0xbfb8a8;
@@ -144,6 +145,7 @@ export class Combat extends Phaser.Scene {
   private lastGold = -1;
   private researchText!: Phaser.GameObjects.Text;
   private lastResearch = -1;
+  private hazardLayer!: Phaser.GameObjects.Graphics;
 
   constructor() {
     super('Combat');
@@ -250,41 +252,10 @@ export class Combat extends Phaser.Scene {
 
   // --- Setup --------------------------------------------------------------------
 
-  /** Placeholder Great Foundry: a muted floor, the central crucible and iron pillars (GDD 5.9). */
+  /** The kingdom's arena (GDD 5.9): floor and fixed shapes once, hazards every frame. */
   private drawArena(): void {
-    const arena = this.sim.arena;
-    const kingdom = hexToNumber(KINGDOM_COLOURS[arena.kingdom]);
-    const floor = this.inWorld(this.add.graphics()).setDepth(DEPTH.floor);
-
-    floor.fillStyle(FLOOR, 1);
-    floor.fillRect(0, 0, arena.width, arena.height);
-    floor.lineStyle(2, FLOOR_LINE, 1);
-    for (let x = 200; x < arena.width; x += 200) floor.lineBetween(x, 0, x, arena.height);
-    for (let y = 200; y < arena.height; y += 200) floor.lineBetween(0, y, arena.width, y);
-
-    floor.lineStyle(10, INK, 1);
-    floor.strokeRect(5, 5, arena.width - 10, arena.height - 10);
-    floor.lineStyle(3, kingdom, 0.8);
-    floor.strokeRect(16, 16, arena.width - 32, arena.height - 32);
-
-    for (const obstacle of arena.obstacles) {
-      if (obstacle.kind === 'landmark') {
-        floor.fillStyle(PILLAR, 1);
-        floor.fillCircle(obstacle.x, obstacle.y, obstacle.radius);
-        floor.fillStyle(kingdom, 1);
-        floor.fillCircle(obstacle.x, obstacle.y, obstacle.radius * 0.72);
-        floor.lineStyle(4, INK, 1);
-        floor.strokeCircle(obstacle.x, obstacle.y, obstacle.radius * 0.72);
-        floor.strokeCircle(obstacle.x, obstacle.y, obstacle.radius);
-      } else {
-        floor.fillStyle(PILLAR, 1);
-        floor.fillCircle(obstacle.x, obstacle.y, obstacle.radius);
-        floor.lineStyle(3, INK, 1);
-        floor.strokeCircle(obstacle.x, obstacle.y, obstacle.radius);
-        floor.lineStyle(2, INK, 0.5);
-        floor.strokeCircle(obstacle.x, obstacle.y, obstacle.radius * 0.6);
-      }
-    }
+    drawArenaFloor(this.inWorld(this.add.graphics()).setDepth(DEPTH.floor), this.sim.arena);
+    this.hazardLayer = this.inWorld(this.add.graphics()).setDepth(DEPTH.floor + 1);
   }
 
   /** HUD layout from GDD 15.7. */
@@ -318,6 +289,27 @@ export class Combat extends Phaser.Scene {
     )
       .setOrigin(0.5, 0)
       .setDepth(DEPTH.hudText);
+
+    // A territory event announces itself at the start of the round (GDD 5.11).
+    const event = eventForRound(this.run);
+    if (event) {
+      const def = EVENTS[event.id];
+      const banner = [
+        this.inHud(addText(this, centreX, 150 * s, STRINGS.hud.event(def.name), { role: 'heading', size: 34 * s, colour: PALETTE.danger })),
+        this.inHud(
+          addText(this, centreX, 150 * s + 44 * s, event.invader ? STRINGS.hud.invader(event.invader) : def.effect, {
+            size: 18 * s,
+            weight: '700',
+            align: 'center',
+            wrapWidth: 760,
+          }),
+        ),
+      ];
+      for (const text of banner) {
+        text.setOrigin(0.5, 0).setDepth(DEPTH.hudText).setStroke(PALETTE.parchment, 5);
+        this.tweens.add({ targets: text, alpha: 0, delay: 4500, duration: 900 });
+      }
+    }
 
     // Weapon tiles, bottom centre. Three slots (GDD 7.8).
     const tile = this.tileLayout();
@@ -632,6 +624,21 @@ export class Combat extends Phaser.Scene {
         case 'projectileBlocked':
           this.effects.burst(event.x, event.y, GOLD, 3, 90, 2, 0.2);
           break;
+        case 'hazardBurst': {
+          // Hazards hit both sides: the ring keeps the hazard's damage colour (GDD 5.10).
+          const type = HAZARDS[event.hazard].damageType;
+          const colour = type ? hexToNumber(DAMAGE_TYPE_COLOURS[type]) : INK;
+          if (event.radius > 0) this.effects.ring(event.x, event.y, event.radius, colour, 0.35);
+          this.effects.burst(event.x, event.y, colour, 10, 260, 3, 0.4);
+          if (event.hazard === 'slag-wave' || event.hazard === 'stamping-press') this.cameras.main.shake(140, 0.005);
+          break;
+        }
+        case 'hazardArc':
+          this.effects.line([event.fromX, event.fromY, event.toX, event.toY], 3, hexToNumber(DAMAGE_TYPE_COLOURS.Electric));
+          break;
+        case 'tilesErased':
+          this.cameras.main.shake(260, 0.006);
+          break;
         case 'playerHit':
           this.cameras.main.shake(110, 0.004);
           break;
@@ -738,6 +745,7 @@ export class Combat extends Phaser.Scene {
 
   private draw(frame: number): void {
     this.drawCamera(frame);
+    drawEnvironment(this.hazardLayer, this.sim.environment, this.sim.elapsed);
     this.drawPlayer();
     this.drawEnemies();
     this.drawUnder();

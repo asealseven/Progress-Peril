@@ -160,7 +160,8 @@ export class CharacterSelect extends Phaser.Scene {
       archive = createArchive();
       this.registry.set('archive', archive);
     }
-    this.scene.start('Combat', { run: createRun(seed, CHARACTERS.inventor, weapon, archive) });
+    // The map reveals the first kingdom before Round 1 (GDD 5.7, 5.8).
+    this.scene.start('Transition', { run: createRun(seed, CHARACTERS.inventor, weapon, archive) });
   }
 
   /** Controller: stick or D-pad moves the highlight, A confirms (GDD 3.5). */

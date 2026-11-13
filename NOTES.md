@@ -392,3 +392,52 @@ Every choice below is mine and easy to reverse. Each names its GDD section.
 
 - **Campaign bot.** Researches the cheapest available node until points run out, and takes the first capture. Seed 2026 ends with 55 nodes. Research Points per round run 20 in Round 1, 109 in Round 8, 172 in Round 21.
 - **Folder layout.** New files from the layout: `src/data/research.ts`, `src/sim/research.ts` and `src/sim/archive.ts`. One file outside the layout: `src/ui/researchWeb.ts`, a UI piece.
+
+## Milestone 7
+
+Every choice below is mine and easy to reverse. Each names its GDD section.
+
+### Kingdom selection (GDD 5.1, 5.2, 5.7, 5.8)
+
+- **When the kingdom is chosen.** The run picks each kingdom at its reveal, from the run seed. Round 1 reveals before combat. Rounds 8 and 15 reveal when you press Start after preparation, so preparation stays blind.
+- **First campaign.** The Archive counts campaigns started. The first ever starts in Keldrath and shows the opening card. The count lives in memory until Milestone 9 adds saves.
+- **Unrevealed rounds.** Debug tools and lookups for a territory not yet revealed fall back to the last kingdom known.
+
+### Territory events (GDD 5.4, 5.6, 5.11)
+
+- **Planning.** The event and its round are planned at the kingdom reveal.
+- **Event rosters.** Royal Muster sends Forgeguard Knights and Royal Bastions in line formation. Containment Failure sends Vat Chimeras and Chemical Crawlers. Production Restart sends Clockwork Crawlers and Gear Lancers in a ring from every wall. Rift Storm sends Anomalies and Static Motes. Outlaw Ambush sends Highwaymen, Rogue Inventors and Mercenary Captains, with one Captain at the head of the first group. Event enemies skip the round gates, since the event names them.
+- **Biological Bloom.** Keeps the Wilds mix. Fungal growth spreads every 3 seconds, and each new patch sprouts one Thornling outside the threat budget.
+- **Military Invasion.** The invader is a random home faction of another kingdom, never the event kingdom's own home or guest faction. The invader takes 35 per cent of the budget, the guest and incursion shares together. Invaders from Medium-threat enemies up.
+- **Containment Failure.** Enemies enter from the usual spawn points, not from the vats.
+- **Gold.** The 25 per cent bonus comes at the end of the round, rounded, and shows on the results screen.
+
+### Arenas (GDD 5.3, 5.9)
+
+- **Changes stay on.** A change starts in its round and lasts to the end of the territory. Round 7 in Orthelyn has lightning, gravity wells, orrery arms and erased tiles together.
+- **Boss parts.** The throne platform, the Abomination's vat, the belts carrying parts, the Spore Sovereign and the mini-boss actions in Round 4 wait for Milestone 8. Round 7 hazards that need no boss already run: falling ingots, spreading acid, erased tiles and fungal growth.
+- **Shapes.** Every solid shape is a circle. Workbenches are low cover: they block movement and let projectiles pass. Thorn hedges are lines of circles with gaps at both ends and the middle.
+- **Layout.** Keldrath: two channel lines with a crossing by the crucible. Myrathis: 12 vats on a ring, 8 puddles inside it, 4 workbenches. Merovant: two long belts pushing in opposite directions, 12 press tiles along the top and bottom walls, 4 machines. Orthelyn: the orrery, 6 rods, 200-pixel tiles. Nymora: 3 fountains, 4 short hedges, 4 thorn lines.
+
+### Hazards (GDD 5.10)
+
+- **Warning.** 1.5 seconds for every hazard, the boss telegraph length Milestone 8 uses. A slag wave warns for 3 seconds.
+- **Damage.** On the enemy Damage row, shifted one step per territory. Damage over time deals the tier per second in half-second ticks: molten channel Medium, toxic puddle Low, acid pool Low, fungal growth Low, thorn contact Low. Bursts: slag wave Extreme, falling ingot High, stamping press Extreme, volatile vat High, lightning High with arcs at half, erased tile High. Hazard damage to the player uses the normal invulnerability window.
+- **Resistance.** Champions take hazard damage one tier lower. Bosses join this rule in Milestone 8.
+- **Timers.** Slag wave every 16 seconds on a random half. One ingot every 2.5 seconds near the player. Three presses every 4 seconds. Two lightning strikes every 3.5 seconds, one near the player. Acid every 4 seconds, spreading out from the centre. A healing bloom every 6 seconds for 8 seconds at 4 health per second. Fungal growth every 3 seconds, at most 24 patches.
+- **Belts.** Push at 90 pixels per second. In Rounds 5 to 7 they reverse every 8 seconds.
+- **Gravity wells.** Two wells, 260-pixel radius, pulling up to 110 pixels per second at the centre and bending Straight projectiles. Rift Storm moves them every 5 seconds.
+- **Orrery arms.** Two arms of 6 circles, turning slowly. They block projectiles and push bodies.
+- **Erased tiles.** One ring of tiles every 14 seconds, two rings at most, so the plaza keeps 2000 by 1200 pixels at the first stage and 1600 by 800 at the second. Enemies outside die. A player outside takes High damage and returns to the edge. Knockback past the edge kills an enemy.
+- **Vines.** Slow to 60 per cent. They grow from 80 to 260 pixels deep over 40 seconds.
+- **Volatile vats.** Projectiles, enemy shots, explosions and enemy blasts break vats. Melee swings do not. A vat blast reaches vats within 220 pixels one step later.
+- **Acid.** Halves the player's Armour while inside and builds Corroded on enemies at 30 per cent of a meter per second.
+- **Fungal growth.** Fire explosions, Fire enemy blasts and Burning enemies standing in a patch burn it away.
+- **Thorn hedges.** Sprout over the warning, then block.
+- **Hazard kills.** Count as kills with no weapon credit and drop normal loot.
+
+### Story and transition (GDD 2.4, 5.8)
+
+- **Transition order.** Steps 1 to 5 run through the results and preparation screens. The relic choice in step 3 waits for Milestone 8. Step 6 is the Transition scene: the map with the route so far, beaten kingdoms crossed out, a ring closing on the new kingdom, and its reveal card.
+- **Map.** Kingdom positions on the map are mine. The GDD gives no geography.
+- **Folder layout.** New files from the layout: `src/data/hazards.ts`, `src/data/events.ts`, `src/data/story.ts` and the `Transition` scene. Two files outside it: `src/sim/world/environment.ts` (arena changes and hazards) and `src/render/environment.ts` (their placeholders).

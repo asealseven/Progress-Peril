@@ -308,15 +308,16 @@ describe('headless run', () => {
 });
 
 describe('campaign structure', () => {
-  it('uses the Keldrath, Orthelyn and Nymora rosters until kingdom selection arrives', () => {
+  it('keeps one kingdom for each seven-round territory', () => {
     const run = createRun(1, CHARACTERS.inventor, WEAPONS.crossbow);
+    run.kingdoms = ['Merovant', 'Nymora', 'Myrathis'];
     expect([1, 7, 8, 14, 15, 21].map((round) => kingdomForRound(run, round))).toEqual([
-      'Keldrath',
-      'Keldrath',
-      'Orthelyn',
-      'Orthelyn',
+      'Merovant',
+      'Merovant',
       'Nymora',
       'Nymora',
+      'Myrathis',
+      'Myrathis',
     ]);
   });
 

@@ -1,15 +1,17 @@
-// Run state: the campaign between rounds. So far: 21 rounds across three
-// territories, up to three weapons with components, and no economy. Later
-// milestones add the shop, kingdom selection, bosses and relics.
+// Run state: the campaign between rounds. 21 rounds across three kingdoms
+// revealed one at a time, one event per territory, weapons, the economy and
+// research. Milestone 8 adds bosses, relics and endings.
 
-import { ARENAS } from '../data/arenas';
+import { ARENA_BY_KINGDOM } from '../data/arenas';
 import type { ArenaDef } from '../data/arenas';
+import { EVENT_RULES, SIGNATURE_EVENT } from '../data/events';
+import type { EventId } from '../data/events';
 import type { CharacterDef } from '../data/characters';
 import { emptyMaterials } from '../data/economy';
 import type { MaterialStock } from '../data/economy';
-import { DEFAULT_KINGDOM_ORDER } from '../data/kingdoms';
-import type { KingdomName } from '../data/palette';
-import { CAMPAIGN_ROUNDS, roundDuration, roundKind, territoryIndex } from '../data/rounds';
+import { FIRST_CAMPAIGN_KINGDOM, KINGDOMS, KINGDOM_NAMES } from '../data/kingdoms';
+import type { FactionName, KingdomName } from '../data/palette';
+import { CAMPAIGN_ROUNDS, ROUNDS_PER_TERRITORY, roundDuration, roundInTerritory, roundKind, territoryIndex } from '../data/rounds';
 import { ADAPTATION, PERFORMANCE_LIMITS, tierValue } from '../data/tiers';
 import type { PerformanceLimits } from '../data/tiers';
 import type { WeaponDef } from '../data/weapons';
@@ -19,6 +21,7 @@ import type { UpgradeStat } from '../data/economy';
 import { createArchive } from './archive';
 import type { ArchiveState } from './archive';
 import { planRound } from './director';
+import type { RoundEvent } from './director';
 import { beginPreparation, createShops, recordRound } from './economy';
 import type { RoundLedger, ShopState } from './economy';
 import { WEAPON_SLOTS, cloneWeapon, createComponent, createWeapon, installedComponents, resolveLoadout } from './loadout';
@@ -28,6 +31,11 @@ import type { ResearchState } from './research';
 import { Rng } from './rng';
 import type { AdaptationMap, PlayerStats, RoundStats } from './world/types';
 import { World } from './world/world';
+
+/** The territory event: which one, and the campaign round it runs in (GDD 5.11). */
+export interface TerritoryEvent extends RoundEvent {
+  readonly round: number;
+}
 
 /**
  * Rounds playable in the current build: the full campaign (GDD 4.10).
@@ -51,6 +59,9 @@ export interface RoundResult {
   readonly research: number;
   /** Hidden nodes the round discovered (GDD 8.12). */
   readonly discoveries: readonly string[];
+  /** The territory event of the round, if any, and its extra gold (GDD 5.11). */
+  readonly event?: EventId;
+  readonly eventGold: number;
 }
 
 export interface RunState {
@@ -58,12 +69,15 @@ export interface RunState {
   readonly character: CharacterDef;
   /** Up to three weapons (GDD 7.1). */
   weapons: WeaponInstance[];
-  readonly arena: ArenaDef;
   /**
-   * The kingdom roster of each territory (GDD 5.6). Milestone 7 adds kingdom
-   * selection and arenas. Until then every territory plays in the same arena.
+   * The kingdom of each territory revealed so far (GDD 5.7). The next kingdom
+   * stays unknown until the player presses Start after the boss (GDD 5.8).
    */
   kingdoms: KingdomName[];
+  /** The event of each territory, planned when the kingdom is revealed (GDD 5.11). */
+  events: Array<TerritoryEvent | undefined>;
+  /** The first campaign ever starts in Keldrath (GDD 5.7) and shows the opening card (GDD 2.4). */
+  readonly firstCampaign: boolean;
   /** Gold carried (GDD 14.1). Highwaymen steal from this (GDD 9.11). */
   gold: number;
   /** Materials by type (GDD 14.2). */
@@ -100,12 +114,15 @@ export function createRun(
   startingWeapon: WeaponDef,
   archive: ArchiveState = createArchive(),
 ): RunState {
+  const firstCampaign = archive.campaigns === 0;
+  archive.campaigns++;
   return {
     seed: seed >>> 0,
     character,
     weapons: [createWeapon(startingWeapon)],
-    arena: ARENAS['great-foundry'],
-    kingdoms: [...DEFAULT_KINGDOM_ORDER],
+    kingdoms: [],
+    events: [],
+    firstCampaign,
     gold: 0,
     materials: emptyMaterials(),
     inventory: [],
@@ -146,9 +163,63 @@ export function resolvePlayerStats(character: CharacterDef): PlayerStats {
   };
 }
 
-/** The kingdom whose roster a round uses. */
+/** The kingdom whose roster a round uses. Unrevealed territories fall back to the last kingdom known. */
 export function kingdomForRound(run: RunState, round: number = run.round): KingdomName {
-  return run.kingdoms[territoryIndex(round)] ?? run.kingdoms[0] ?? 'Keldrath';
+  for (let index = territoryIndex(round); index >= 0; index--) {
+    const kingdom = run.kingdoms[index];
+    if (kingdom) return kingdom;
+  }
+  return FIRST_CAMPAIGN_KINGDOM;
+}
+
+/** The arena of a round's kingdom (GDD 5.9). */
+export function arenaForRound(run: RunState, round: number = run.round): ArenaDef {
+  return ARENA_BY_KINGDOM[kingdomForRound(run, round)];
+}
+
+/** True when the kingdom of the current territory waits for its reveal (GDD 5.8). */
+export function revealPending(run: RunState): boolean {
+  return run.kingdoms[territoryIndex(run.round)] === undefined;
+}
+
+/**
+ * Reveals the kingdom of the current territory (GDD 5.7, 5.8): random among
+ * kingdoms not yet visited, Keldrath for the first campaign ever, and plans
+ * the territory's one event (GDD 5.11). Returns the kingdom.
+ */
+export function revealKingdom(run: RunState): KingdomName {
+  const territory = territoryIndex(run.round);
+  const known = run.kingdoms[territory];
+  if (known) return known;
+  const rng = new Rng(run.seed).fork(8000 + territory);
+  const unvisited = KINGDOM_NAMES.filter((name) => !run.kingdoms.includes(name));
+  const kingdom =
+    territory === 0 && run.firstCampaign ? FIRST_CAMPAIGN_KINGDOM : rng.pick(unvisited.length > 0 ? unvisited : KINGDOM_NAMES);
+  run.kingdoms[territory] = kingdom;
+  run.events[territory] = planEvent(kingdom, territory, rng);
+  return kingdom;
+}
+
+/** One event per territory: a random round from 2, 3, 5 and 6, and the GDD 5.11 odds. */
+export function planEvent(kingdom: KingdomName, territory: number, rng: Rng): TerritoryEvent {
+  const local = rng.pick(EVENT_RULES.rounds);
+  const round = territory * ROUNDS_PER_TERRITORY + local;
+  const roll = rng.next();
+  const odds = EVENT_RULES.odds;
+  if (roll < odds.signature) return { id: SIGNATURE_EVENT[kingdom], round };
+  if (roll < odds.signature + odds.invasion) {
+    // Another kingdom's home faction, distinct from this kingdom's own factions (NOTES.md).
+    const own: FactionName[] = [KINGDOMS[kingdom].homeFaction, KINGDOMS[kingdom].guestFaction];
+    const invaders = KINGDOM_NAMES.map((name) => KINGDOMS[name].homeFaction).filter((faction) => !own.includes(faction));
+    return { id: 'military-invasion', round, invader: rng.pick(invaders) };
+  }
+  return { id: 'outlaw-ambush', round };
+}
+
+/** The event running in a round, if any. */
+export function eventForRound(run: RunState, round: number = run.round): TerritoryEvent | undefined {
+  const event = run.events[territoryIndex(round)];
+  return event && event.round === round ? event : undefined;
 }
 
 /** A copy of the loadout with every Auxiliary component removed, for The Unstable (GDD 9.11). */
@@ -171,12 +242,17 @@ export function createWorldForRound(run: RunState, limits: PerformanceLimits = P
   const research = resolveResearch(run.research.researched);
   const loadout = resolveLoadout(equipped, base, { research });
   const suppressed = resolveLoadout(withoutAuxiliary(equipped), base, { research });
+  // A run driven without the scenes reveals its kingdom here.
+  const kingdom = revealKingdom(run);
+  const event = eventForRound(run);
   return new World({
-    arena: run.arena,
+    arena: ARENA_BY_KINGDOM[kingdom],
+    localRound: roundInTerritory(run.round),
+    ...(event ? { event: event.id } : {}),
     seed: roundRng.int(0, 0xffffffff),
     round: run.round,
     duration: roundDuration(run.round),
-    spawns: planRound(run.round, kingdomForRound(run), roundRng),
+    spawns: planRound(run.round, kingdom, roundRng, event),
     playerStats: loadout.playerStats,
     weapons: loadout.weapons,
     // A weapon with no Auxiliary component keeps its numbers under suppression.
@@ -195,6 +271,9 @@ export function createWorldForRound(run: RunState, limits: PerformanceLimits = P
 export function finishRound(run: RunState, world: World): RoundResult {
   const survived = world.phase === 'cleared';
   const loot = world.loot;
+  // Event rounds pay 25 per cent extra gold (GDD 5.11).
+  const event = eventForRound(run);
+  const eventGold = event && survived ? Math.round(loot.gold * EVENT_RULES.goldBonus) : 0;
   const result: RoundResult = {
     round: run.round,
     survived,
@@ -209,11 +288,13 @@ export function finishRound(run: RunState, world: World): RoundResult {
       healthShare: world.player.health / world.player.stats.maxHealth,
       weapons: run.weapons.slice(0, WEAPON_SLOTS).map((weapon) => weapon.def.name),
     }),
+    ...(event ? { event: event.id } : {}),
+    eventGold,
   };
   run.history.push(result);
   run.research.points += loot.research;
   // Loot collected before a defeat still counts for the campaign statistics.
-  run.gold = world.gold;
+  run.gold = world.gold + eventGold;
   let materialsEarned = 0;
   for (const material of Object.keys(loot.materials) as Array<keyof MaterialStock>) {
     run.materials[material] += loot.materials[material];
@@ -226,7 +307,7 @@ export function finishRound(run: RunState, world: World): RoundResult {
     interest = Math.min(RESEARCH_RULES.interestCap, Math.floor(run.gold * RESEARCH_RULES.interestShare));
     run.gold += interest;
   }
-  recordRound(run, run.round, world.stats.kills, loot.gold + interest, materialsEarned, loot.components.length, loot.research);
+  recordRound(run, run.round, world.stats.kills, loot.gold + eventGold + interest, materialsEarned, loot.components.length, loot.research);
   // Adaptation lasts for a territory (GDD 3.7).
   const sameTerritory = territoryIndex(run.round + 1) === territoryIndex(run.round);
   run.adaptation = sameTerritory ? { ...world.player.adaptation } : {};

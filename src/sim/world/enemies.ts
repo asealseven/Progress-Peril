@@ -423,10 +423,11 @@ function volleyOpen(world: World, squad: Squad): boolean {
  */
 export function pickSpawnPoint(world: World, margin: number): { x: number; y: number } {
   const { arena, player, rng } = world;
+  const { left, top, right, bottom } = arena.bounds;
   let minimum = COMBAT.spawnMinDistance;
   for (let attempt = 0; attempt < SPAWN_TRIES; attempt++) {
-    const x = rng.range(margin, arena.width - margin);
-    const y = rng.range(margin, arena.height - margin);
+    const x = rng.range(left + margin, right - margin);
+    const y = rng.range(top + margin, bottom - margin);
     const dx = x - player.x;
     const dy = y - player.y;
     if (dx * dx + dy * dy >= minimum * minimum && !insideObstacle(x, y, margin, arena)) {
@@ -436,8 +437,8 @@ export function pickSpawnPoint(world: World, margin: number): { x: number; y: nu
   }
   // Fallback: the corner farthest from the player.
   return {
-    x: player.x < arena.width / 2 ? arena.width - margin : margin,
-    y: player.y < arena.height / 2 ? arena.height - margin : margin,
+    x: player.x < (left + right) / 2 ? right - margin : left + margin,
+    y: player.y < (top + bottom) / 2 ? bottom - margin : top + margin,
   };
 }
 
@@ -452,10 +453,10 @@ export interface Wave {
 }
 
 function clampPoint(world: World, x: number, y: number, margin: number): { x: number; y: number } {
-  const arena = world.arena;
+  const { left, top, right, bottom } = world.arena.bounds;
   return {
-    x: Math.min(arena.width - margin, Math.max(margin, x)),
-    y: Math.min(arena.height - margin, Math.max(margin, y)),
+    x: Math.min(right - margin, Math.max(left + margin, x)),
+    y: Math.min(bottom - margin, Math.max(top + margin, y)),
   };
 }
 

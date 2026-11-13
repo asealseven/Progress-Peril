@@ -75,6 +75,11 @@ function push(world: World, enemy: Enemy, dx: number, dy: number): number {
   enemy.x += dx;
   enemy.y += dy;
   pushOutOfObstacles(enemy, world.arena);
+  // An enemy pushed off an erased tile dies (GDD 5.10).
+  if (world.environment.outside(enemy.x, enemy.y)) {
+    killEnemy(world, enemy, -1, 0);
+    return 0;
+  }
   clampToArena(enemy, world.arena);
   return Math.hypot(enemy.x - startX, enemy.y - startY);
 }
@@ -505,11 +510,12 @@ export function explode(
     }
   }
 
-  // Fire burns Thornling seeds (GDD 9.11).
-  if (world.seedCount > 0) {
-    const fire = options.explosive || (parts ?? resolved.damageParts).some((part) => part.type === 'Fire');
-    if (fire) burnSeeds(world, x, y, radius);
-  }
+  // Fire burns Thornling seeds (GDD 9.11) and fungal growth (GDD 5.10).
+  const fire = options.explosive || (parts ?? resolved.damageParts).some((part) => part.type === 'Fire');
+  if (fire && world.seedCount > 0) burnSeeds(world, x, y, radius);
+  if (fire) world.environment.burnFungus(x, y, radius);
+  // Explosions set off volatile vats and join the chain (GDD 5.10).
+  world.environment.breakVatsIn(world, x, y, radius);
 
   if (primary) {
     if (resolved.triggers.fragmentsOnExplosion) spawnFragments(world, x, y, weaponIndex);
@@ -669,7 +675,8 @@ export function hitPlayer(world: World, damage: number, damageType: DamageType):
     evasion: player.stats.evasion,
     // Chaos Theory keeps the better of two Evasion rolls.
     evasionRoll: world.rule('chaosTheory') > 0 ? Math.min(world.rng.next(), world.rng.next()) : world.rng.next(),
-    armour: player.stats.armour,
+    // Acid pools lower Armour (GDD 5.10).
+    armour: player.stats.armour * world.environment.armourShare,
     adaptation: player.adaptation[damageType] ?? 0,
   });
 

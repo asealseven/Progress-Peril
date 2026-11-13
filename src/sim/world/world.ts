@@ -1,10 +1,9 @@
 // The fixed-step combat simulation. No Phaser imports (CLAUDE.md rule 1).
 // A scene owns one World, feeds input in, calls step() and draws the state.
 
-import type { ArenaDef } from '../../data/arenas';
 import type { DamageType } from '../../data/damageTypes';
 import { ENEMIES } from '../../data/enemies';
-import { territoryIndex } from '../../data/rounds';
+import { roundInTerritory, territoryIndex } from '../../data/rounds';
 import { COMBAT, DIRECTOR_RULES, PERFORMANCE_LIMITS, WEAPON_RULES, activeEnemyLimit } from '../../data/tiers';
 import type { PerformanceLimits } from '../../data/tiers';
 import { attackTokens } from '../ai';
@@ -17,6 +16,8 @@ import { Rng } from '../rng';
 import { updateWeapons } from './attacks';
 import { createConstruct, updateConstructs } from './constructs';
 import { explode } from './damage';
+import { Environment, createRoundArena } from './environment';
+import type { RoundArena } from './environment';
 import { createEnemy, prepareWave, spawnFromWave, updateEnemies } from './enemies';
 import type { Wave } from './enemies';
 import { SpatialGrid } from './grid';
@@ -92,7 +93,9 @@ function createWeaponState(resolved: ResolvedWeapon, suppressed: ResolvedWeapon 
 }
 
 export class World {
-  readonly arena: ArenaDef;
+  readonly arena: RoundArena;
+  /** Arena changes and hazards (GDD 5.9, 5.10). */
+  readonly environment: Environment;
   readonly rng: Rng;
   readonly round: number;
   /** Target combat duration in seconds. */
@@ -176,7 +179,7 @@ export class World {
   private readonly pendingExplosions: PendingExplosion[] = [];
 
   constructor(config: WorldConfig) {
-    this.arena = config.arena;
+    this.arena = createRoundArena(config.arena);
     this.rng = new Rng(config.seed);
     this.round = config.round;
     this.duration = config.duration;
@@ -218,6 +221,11 @@ export class World {
     this.hazards = new Pool<Hazard>(createHazard, this.limits.hazards);
     this.pickups = new Pool<Pickup>(createPickup, this.limits.pickups);
     this.grid = new SpatialGrid(config.arena.width, config.arena.height, GRID_CELL);
+    this.environment = new Environment(
+      this.arena,
+      { localRound: config.localRound ?? roundInTerritory(config.round), ...(config.event ? { event: config.event } : {}) },
+      this.territory,
+    );
   }
 
   /** Seconds of combat so far. */
@@ -318,6 +326,7 @@ export class World {
     updateEnemyShots(this, dt);
     updateZones(this, dt);
     updateHazards(this, dt);
+    this.environment.update(this, dt);
     updatePickups(this, dt);
     this.tickPlayer(dt);
 

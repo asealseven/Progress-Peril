@@ -61,7 +61,7 @@ import {
   researchProblem,
   resolveResearch,
 } from '../sim/research';
-import { resolvePlayerStats } from '../sim/run';
+import { resolvePlayerStats, revealPending } from '../sim/run';
 import type { RunState } from '../sim/run';
 import { Button } from '../ui/button';
 import { ResearchWeb, fitCamera } from '../ui/researchWeb';
@@ -192,7 +192,8 @@ export class Preparation extends Phaser.Scene {
   }
 
   private startRound(): void {
-    this.scene.start('Combat', { run: this.run });
+    // After a boss the next kingdom stays hidden until Start (GDD 5.8).
+    this.scene.start(revealPending(this.run) ? 'Transition' : 'Combat', { run: this.run });
   }
 
   /** A clickable panel with an ink border. */

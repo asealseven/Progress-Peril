@@ -245,7 +245,7 @@ describe('difficulty scaling (GDD 4.12, 9.12, 9.13)', () => {
   });
 
   it('follows a fixed curve: the plan ignores player power', () => {
-    // planRound takes the round, the kingdom and the seed. Nothing about the player enters.
-    expect(planRound.length).toBe(3);
+    // planRound takes the round, the kingdom, the seed and the territory event. Nothing about the player enters.
+    expect(planRound.length).toBe(4);
   });
 });

@@ -22,7 +22,7 @@ import { masteryRank } from './archive';
 import type { ArchiveState } from './archive';
 
 /** The milestone the build has reached. Rules for later milestones stay inert. */
-export const RESEARCH_MILESTONE = 6;
+export const RESEARCH_MILESTONE = 7;
 
 export interface Payment {
   readonly points: number;

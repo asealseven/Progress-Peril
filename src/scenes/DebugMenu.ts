@@ -1,7 +1,9 @@
 import Phaser from 'phaser';
 import { COMPONENT_LIST, SLOT_TYPES, componentFitsFamily } from '../data/components';
 import type { ComponentDef, SlotType } from '../data/components';
-import { KINGDOM_NAMES } from '../data/kingdoms';
+import { EVENTS, EVENT_IDS } from '../data/events';
+import type { EventId } from '../data/events';
+import { KINGDOMS, KINGDOM_NAMES } from '../data/kingdoms';
 import { PALETTE, hexToNumber } from '../data/palette';
 import type { KingdomName } from '../data/palette';
 import { CAMPAIGN_ROUNDS, territoryIndex } from '../data/rounds';
@@ -20,7 +22,7 @@ import {
 } from '../sim/loadout';
 import type { ResolvedWeapon, WeaponInstance } from '../sim/loadout';
 import { resolveResearch } from '../sim/research';
-import { kingdomForRound, resolvePlayerStats } from '../sim/run';
+import { eventForRound, kingdomForRound, resolvePlayerStats } from '../sim/run';
 import type { RunState } from '../sim/run';
 import { Button } from '../ui/button';
 import { drawPageFrame } from '../ui/frame';
@@ -36,6 +38,8 @@ export interface DebugMenuData {
   round?: number;
   /** Kingdom roster for the round's territory. Absent on first open. */
   kingdom?: KingdomName;
+  /** Territory event forced on the round. Absent on first open. */
+  event?: EventId | 'none';
 }
 
 const COLUMN_WIDTH = 396;
@@ -56,6 +60,7 @@ export class DebugMenu extends Phaser.Scene {
   private researchOpen = false;
   private round = 1;
   private kingdom: KingdomName = 'Keldrath';
+  private event: EventId | 'none' = 'none';
 
   constructor() {
     super('DebugMenu');
@@ -66,6 +71,7 @@ export class DebugMenu extends Phaser.Scene {
     this.researchOpen = data.researchOpen ?? data.run.researchSynergies.length > 0;
     this.round = data.round ?? data.run.round;
     this.kingdom = data.kingdom ?? kingdomForRound(data.run, this.round);
+    this.event = data.event ?? eventForRound(data.run, this.round)?.id ?? 'none';
     this.draft =
       data.draft ??
       Array.from({ length: WEAPON_SLOTS }, (_, index) => {
@@ -109,6 +115,11 @@ export class DebugMenu extends Phaser.Scene {
     });
     this.addStepper(width - 290, 44, 260, STRINGS.debug.roster(this.kingdom), (direction) => {
       this.kingdom = this.cycle(KINGDOM_NAMES, this.kingdom, direction);
+      this.refresh();
+    });
+    // Force any territory event on the round (GDD 5.11).
+    this.addStepper(width - 290, 88, 260, STRINGS.debug.event(this.event === 'none' ? STRINGS.debug.noEvent : EVENTS[this.event].name), (direction) => {
+      this.event = this.cycle(['none', ...EVENT_IDS] as const, this.event, direction);
       this.refresh();
     });
 
@@ -311,6 +322,7 @@ export class DebugMenu extends Phaser.Scene {
       researchOpen: this.researchOpen,
       round: this.round,
       kingdom: this.kingdom,
+      event: this.event,
     });
   }
 
@@ -322,7 +334,20 @@ export class DebugMenu extends Phaser.Scene {
     // Adaptation lasts for a territory (GDD 3.7).
     if (territoryIndex(this.round) !== territoryIndex(this.run.round)) this.run.adaptation = {};
     this.run.round = this.round;
-    this.run.kingdoms[territoryIndex(this.round)] = this.kingdom;
+    const territory = territoryIndex(this.round);
+    this.run.kingdoms[territory] = this.kingdom;
+    if (this.event === 'none') {
+      this.run.events[territory] = undefined;
+    } else {
+      // Military Invasion needs an invader: another kingdom's home faction.
+      const own = [KINGDOMS[this.kingdom].homeFaction, KINGDOMS[this.kingdom].guestFaction];
+      const invader = KINGDOM_NAMES.map((name) => KINGDOMS[name].homeFaction).find((faction) => !own.includes(faction));
+      this.run.events[territory] = {
+        id: this.event,
+        round: this.round,
+        ...(this.event === 'military-invasion' && invader ? { invader } : {}),
+      };
+    }
     this.scene.stop('Combat');
     this.scene.start('Combat', { run: this.run });
   }

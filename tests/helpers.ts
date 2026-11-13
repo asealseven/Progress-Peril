@@ -1,5 +1,6 @@
 import { ARENAS } from '../src/data/arenas';
 import type { ArenaDef } from '../src/data/arenas';
+import type { EventId } from '../src/data/events';
 import { CHARACTERS } from '../src/data/characters';
 import { componentByName } from '../src/data/components';
 import { ENEMIES, enemyByName } from '../src/data/enemies';
@@ -70,6 +71,9 @@ export interface TestWorldOptions {
   round?: number;
   gold?: number;
   activeLimit?: number;
+  /** Round within the territory for arena changes. Default 1: no hazards. */
+  localRound?: number;
+  event?: EventId;
 }
 
 export function makeWorld(options: TestWorldOptions = {}): World {
@@ -92,6 +96,8 @@ export function makeWorld(options: TestWorldOptions = {}): World {
     weapons,
     synergies: loadout.synergies,
     invincible: options.invincible,
+    localRound: options.localRound ?? 1,
+    ...(options.event ? { event: options.event } : {}),
   });
 }
 

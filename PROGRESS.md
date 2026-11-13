@@ -96,6 +96,18 @@
 - Debug tools in preparation: +100 research and find all hidden nodes.
 - 439 tests. New: 23 for research data, costs, requirements, refunds, gates, capture, mastery and hidden nodes. The campaign bot researches the cheapest node each phase.
 
+### Milestone 7: Kingdoms, arenas and events
+
+- Five kingdoms with lore, specialisations and focus areas from GDD 2.2 and 2.3.
+- Five arenas: the Great Foundry, the Grand Laboratory, the Assembly Yards, the Observatory Plaza and the Overgrown Arboretum, with round-by-round changes from GDD 5.9.
+- All 15 hazards from GDD 5.10. Each warns first, hits the player and enemies alike, carries its damage type, builds adaptation and scales with territory. Champions resist one step.
+- Kingdom selection: the first campaign starts in Keldrath, later campaigns at random, three kingdoms per campaign with no repeats. The next kingdom stays hidden until Start after the boss.
+- Seven territory events, one per territory in Round 2, 3, 5 or 6, at 60, 20 and 20 per cent. Event rosters, formations, the Military Invasion mix, the Mercenary Captain leading the ambush and 25 per cent extra gold.
+- Transition scene: the opening card on the first campaign, the map of the five kingdoms with the route so far, and the reveal card.
+- Event banner in combat, event gold on the results screen, an event picker in the debug menu.
+- Asset manifest entries for the five arenas and eleven story cards.
+- 465 tests. New: 26 for kingdom data, selection, events, arenas, every hazard type and a 21-round campaign through three random kingdoms.
+
 ### Asset folders
 
 - ART_PROMPTS.md sits in the repo root.
@@ -112,7 +124,10 @@
 - Scrap limits weapon grades. Orthelyn and Nymora drop Crystals and Specimens, so the test bot ends a run with about 75 Crystals and 100 Specimens unused and no weapon at Grade IV. Dismantling and Scrap recipes help a player. Milestone 12 tunes this.
 - Economy against GDD 14.3: Territory 1 earns about 200 gold against 337, with no mini-boss and no boss. Territories 2 and 3 earn about 750 and 830 against 544 and 753.
 - Rounds run long. The test bot plays the campaign in 25 minutes of combat. Territory 3 rounds take 80 to 148 seconds against targets of 50 to 75.
-- Every territory plays in the Great Foundry placeholder until Milestone 7. Vat Chimera and Gear Lancer appear only through the debug roster picker or the spawn tool.
+- Boss and mini-boss arena parts wait for Milestone 8: the throne platform, the Abomination's vat, belts carrying parts, the Spore Sovereign and the Round 4 mini-boss actions.
+- The relic choice in the territory transition waits for Milestone 8.
+- Melee swings do not break volatile vats. Projectiles, explosions and blasts do.
+- The campaign count for the first-campaign rule lives in memory until Milestone 9 adds saves.
 - Rounds 4, 7, 11, 14, 18 and 21 hold no mini-boss or boss until Milestone 8. The free shop visits after those rounds already work.
 - Preparation uses pick-then-place for components. Dragging on PC waits for Milestone 11.
 - Preparation text runs 13 to 19 pixels on a 1280 pixel screen. A phone shows this small. Milestone 11 revisits the layout.
@@ -129,4 +144,4 @@
 
 ## Next step
 
-Milestone 7: Kingdoms, arenas and events. Read GDD 2.2 to 2.4 and 5.1 to 5.11.
+Milestone 8: Bosses, relics and endings. Read GDD 4.10, 5.12, 10.1 to 10.6 and 2.4.

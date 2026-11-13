@@ -4,8 +4,10 @@
 // spending while the active enemy limit is full.
 
 import { CHAMPION_FIRST_ROUND } from '../data/champions';
-import { ENEMY_LIST } from '../data/enemies';
+import { ENEMIES, ENEMY_LIST } from '../data/enemies';
 import type { EnemyDef } from '../data/enemies';
+import { EVENTS, EVENT_RULES } from '../data/events';
+import type { EventId } from '../data/events';
 import { FACTION_MIX, KINGDOMS } from '../data/kingdoms';
 import type { FactionName, KingdomName } from '../data/palette';
 import { roundDuration, territoryIndex, threatBudget } from '../data/rounds';
@@ -23,9 +25,9 @@ export function threatCost(enemy: EnemyDef, rank: EnemyRank = 'normal'): number 
 }
 
 export interface BudgetSplit {
-  readonly trickle: number;
-  readonly groups: number;
-  readonly assault: number;
+  trickle: number;
+  groups: number;
+  assault: number;
 }
 
 /**
@@ -78,6 +80,14 @@ export function availableEnemies(kingdom: KingdomName, slot: FactionSlot, round:
   });
 }
 
+// --- Territory events (GDD 5.11) --------------------------------------------------
+
+/** The event a round hosts. Military Invasion names the invading faction. */
+export interface RoundEvent {
+  readonly id: EventId;
+  readonly invader?: FactionName;
+}
+
 // --- Planning --------------------------------------------------------------------
 
 interface Purchase {
@@ -91,12 +101,15 @@ class Planner {
   private readonly roster: Record<FactionSlot, EnemyDef[]>;
   private readonly eliteOdds: number;
   private champion = false;
+  /** Event groups enter in this formation (GDD 5.11). */
+  readonly eventFormation: Formation | undefined;
 
   constructor(
     readonly round: number,
     readonly kingdom: KingdomName,
     readonly rng: Rng,
     budget: number,
+    event?: RoundEvent,
   ) {
     const shares = factionShares(round);
     this.purse = { home: budget * shares.home, guest: budget * shares.guest, incursion: budget * shares.incursion };
@@ -105,6 +118,26 @@ class Planner {
       guest: shares.guest > 0 ? availableEnemies(kingdom, 'guest', round) : [],
       incursion: shares.incursion > 0 ? availableEnemies(kingdom, 'incursion', round) : [],
     };
+    const def = event ? EVENTS[event.id] : undefined;
+    this.eventFormation = def?.formation;
+    if (def?.roster) {
+      // The event replaces the faction mix for the round (GDD 5.6). Event enemies skip the round gates.
+      this.purse = { home: budget, guest: 0, incursion: 0 };
+      this.roster = { home: def.roster.filter((id) => id !== def.leader).map((id) => ENEMIES[id]), guest: [], incursion: [] };
+    } else if (event?.id === 'military-invasion' && event.invader) {
+      // A random home faction joins in place of the guest and the incursions.
+      const invader = event.invader;
+      const share = EVENT_RULES.invasionShare;
+      this.purse = { home: budget * (1 - share), guest: budget * share, incursion: 0 };
+      const gate = Math.max(round, DIRECTOR_RULES.tierFirstRound.Medium);
+      this.roster = {
+        home: this.roster.home,
+        guest: ENEMY_LIST.filter(
+          (enemy) => enemy.faction === invader && !enemy.signatureOf && DIRECTOR_RULES.tierFirstRound[enemy.threat] <= gate,
+        ),
+        incursion: [],
+      };
+    }
     const tier = DIRECTOR_RULES.eliteOdds[territoryIndex(round)] ?? 'Medium';
     this.eliteOdds = round >= DIRECTOR_RULES.eliteFirstRound ? tierValue('criticalChance', tier) : 0;
   }
@@ -121,6 +154,12 @@ class Planner {
 
   affordable(slot: FactionSlot, limit: number): EnemyDef[] {
     return this.roster[slot].filter((enemy) => threatCost(enemy) <= limit);
+  }
+
+  /** Buys one enemy outside the faction rosters, such as an event leader. */
+  buyLeader(enemy: EnemyDef): Purchase {
+    this.purse.home -= threatCost(enemy);
+    return { enemy, rank: 'normal' };
   }
 
   /** Buys one enemy. Elites appear by the odds of the territory when the budget covers three times the cost. */
@@ -233,6 +272,7 @@ class Planner {
 
   /** How a group enters: shield lines from Round 5, flanking from Round 12 (GDD 4.11). */
   formationFor(purchases: readonly Purchase[]): Formation | undefined {
+    if (this.eventFormation && purchases.length >= 2) return this.eventFormation;
     if (purchases.length < 3 || this.round < DIRECTOR_RULES.formationFirstRound) return undefined;
     if (purchases.some((purchase) => isGuard(purchase.enemy))) return 'line';
     if (this.round >= DIRECTOR_RULES.flankFirstRound && purchases.length >= 4 && this.rng.chance(0.4)) return 'pincer';
@@ -245,12 +285,20 @@ class Planner {
  * share moves to the next share, so the plan spends as much of the budget as
  * whole enemies allow. Unspent budget never carries over to the next round.
  */
-export function planRound(round: number, kingdom: KingdomName, rng: Rng): SpawnEntry[] {
+export function planRound(round: number, kingdom: KingdomName, rng: Rng, event?: RoundEvent): SpawnEntry[] {
   const duration = roundDuration(round);
   const budget = threatBudget(round);
   const split = splitBudget(budget);
   const territory = territoryIndex(round);
-  const planner = new Planner(round, kingdom, rng, budget);
+  const planner = new Planner(round, kingdom, rng, budget, event);
+
+  // Outlaw Ambush: a Mercenary Captain leads the first group (GDD 5.11).
+  const leaderId = event ? EVENTS[event.id].leader : undefined;
+  let leader: Purchase | undefined;
+  if (leaderId) {
+    leader = planner.buyLeader(ENEMIES[leaderId]);
+    split.groups -= threatCost(leader.enemy);
+  }
 
   // Steady trickle: single enemies and small packs at even intervals.
   // Territory 1 trickles enemies up to Medium threat. Later territories add High threat.
@@ -289,6 +337,10 @@ export function planRound(round: number, kingdom: KingdomName, rng: Rng): SpawnE
     remaining -= cost;
     groups.push(purchases);
     if (groups.length >= groupCount && remaining < groupBudget) break;
+  }
+  if (leader) {
+    if (groups[0]) groups[0].unshift(leader);
+    else groups.push([leader]);
   }
   groups.forEach((purchases, index) => {
     const share = groups.length === 1 ? 0.5 : index / (groups.length - 1);

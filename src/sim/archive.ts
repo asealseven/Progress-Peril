@@ -13,6 +13,8 @@ export interface ArchiveState {
   mastery: Record<Discipline, number>;
   /** Ids of hidden nodes with a hint (GDD 8.12). */
   hints: Set<string>;
+  /** Campaigns started. The first ever starts in Keldrath (GDD 5.7). */
+  campaigns: number;
 }
 
 /**
@@ -26,6 +28,7 @@ export function createArchive(): ArchiveState {
     discovered: new Set(RESEARCH_NODES.filter((node) => node.ring !== 'Hidden').map((node) => node.id)),
     mastery,
     hints: new Set(),
+    campaigns: 0,
   };
 }
 

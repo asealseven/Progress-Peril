@@ -1,6 +1,8 @@
 // Entities and events of the combat simulation.
 
 import type { ResearchRule } from '../../data/research';
+import type { EventId } from '../../data/events';
+import type { HazardId } from '../../data/hazards';
 import type { ArenaDef } from '../../data/arenas';
 import type { ChampionTraitId } from '../../data/champions';
 import type { ComponentDef } from '../../data/components';
@@ -520,6 +522,9 @@ export type WorldEvent =
     }
   | { readonly type: 'enemyKilled'; readonly x: number; readonly y: number; readonly enemyId: string }
   | { readonly type: 'projectileBlocked'; readonly x: number; readonly y: number }
+  | { readonly type: 'hazardBurst'; readonly hazard: HazardId; readonly x: number; readonly y: number; readonly radius: number }
+  | { readonly type: 'hazardArc'; readonly fromX: number; readonly fromY: number; readonly toX: number; readonly toY: number }
+  | { readonly type: 'tilesErased'; readonly stage: number }
   | { readonly type: 'playerHit'; readonly amount: number; readonly damageType: DamageType }
   | { readonly type: 'playerEvaded' }
   | { readonly type: 'playerHealed'; readonly amount: number }
@@ -609,4 +614,8 @@ export interface WorldConfig {
   readonly invincible?: boolean;
   /** Named research rules and how many researched nodes carry each (GDD 8.12). */
   readonly research?: ReadonlyMap<ResearchRule, number>;
+  /** Round within the territory, 1 to 7, for arena changes (GDD 5.9). Defaults from the round. */
+  readonly localRound?: number;
+  /** The territory event running this round (GDD 5.11). */
+  readonly event?: EventId;
 }
