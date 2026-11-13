@@ -82,6 +82,20 @@
 - Specimen Jar works. Research Notebook waits for Milestone 6.
 - 416 tests. New: 35 for prices, shops, grades, recipes and merging, 15 for drops and pickups, a seven-round Territory 1 loop with shop visits, and the 21-round campaign on the real economy.
 
+### Milestone 6: Research
+
+- All 120 nodes from GDD 8.12: 90 discipline nodes, 20 cross nodes and 10 hidden nodes, each with GDD effect wording and a typed effect.
+- Costs by ring in points and materials, AND requirements, instant research, and refunds at 75 per cent with dependent nodes removed.
+- Research opens weapons and components in shops and recipes. Grade III needs a middle-ring node, Grade IV an outer-ring node. Extraordinary components appear on free milestone visits after their outer node.
+- 53 rule effects in the simulation: typed damage, statuses, reactions, chains, constructs, criticals, regeneration, Compound Interest, Mutagenics, Perfect Information and more.
+- Research Points per kill, Research Yield and the Research Notebook. Champions drop a Rare component or 25 Research Points.
+- Hidden nodes found by their GDD conditions, with ink smudge hints after a near miss.
+- Captured research after Rounds 7 and 14. Mastery points per discipline and ranks from Novice to Grandmaster, kept in one Archive per session.
+- Research tab: the web in five coloured sectors with rings, node states, linking lines, a node card with effect, cost, requirements, refund preview and capture, pan and zoom by mouse, pinch and buttons.
+- Research Points in the preparation bar, the combat HUD and the round results, with hidden nodes found that round.
+- Debug tools in preparation: +100 research and find all hidden nodes.
+- 439 tests. New: 23 for research data, costs, requirements, refunds, gates, capture, mastery and hidden nodes. The campaign bot researches the cheapest node each phase.
+
 ### Asset folders
 
 - ART_PROMPTS.md sits in the repo root.
@@ -91,13 +105,15 @@
 
 - Phone checks ran in an emulated phone viewport with touch events. No test on a physical phone yet.
 - Controller input has no automated test. The preparation screen has no controller navigation yet.
-- The research web arrives in Milestone 6. Until then every item is open in shops and recipes, and Grades III and IV need no research.
+- The Archive lives in memory. A reload resets mastery and hidden nodes until Milestone 9 adds saves.
+- Absolute Precision and The Philosopher's Engine can be found, but their effects wait for Milestones 8 and 9.
+- Node labels on the research web overlap at middle zoom. Milestone 11 revisits the layout.
+- Cross nodes for disciplines with no shared border sit inside a third sector.
 - Scrap limits weapon grades. Orthelyn and Nymora drop Crystals and Specimens, so the test bot ends a run with about 75 Crystals and 100 Specimens unused and no weapon at Grade IV. Dismantling and Scrap recipes help a player. Milestone 12 tunes this.
 - Economy against GDD 14.3: Territory 1 earns about 200 gold against 337, with no mini-boss and no boss. Territories 2 and 3 earn about 750 and 830 against 544 and 753.
 - Rounds run long. The test bot plays the campaign in 25 minutes of combat. Territory 3 rounds take 80 to 148 seconds against targets of 50 to 75.
 - Every territory plays in the Great Foundry placeholder until Milestone 7. Vat Chimera and Gear Lancer appear only through the debug roster picker or the spawn tool.
 - Rounds 4, 7, 11, 14, 18 and 21 hold no mini-boss or boss until Milestone 8. The free shop visits after those rounds already work.
-- Champion drops give a component now. The Research Point choice waits for Milestone 6.
 - Preparation uses pick-then-place for components. Dragging on PC waits for Milestone 11.
 - Preparation text runs 13 to 19 pixels on a 1280 pixel screen. A phone shows this small. Milestone 11 revisits the layout.
 - Guards in a Protect squad hold next to their ward. A player with one short weapon has to walk in to finish the round.
@@ -113,4 +129,4 @@
 
 ## Next step
 
-Milestone 6: Research. Read GDD 8.1 to 8.13 and 15.8.
+Milestone 7: Kingdoms, arenas and events. Read GDD 2.2 to 2.4 and 5.1 to 5.11.

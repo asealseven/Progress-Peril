@@ -69,9 +69,12 @@ export class Results extends Phaser.Scene {
         [STRINGS.results.damageTaken, `${Math.round(result.stats.damageTaken)}`],
         [STRINGS.results.time, formatTime(result.seconds)],
         [STRINGS.results.gold, `${result.gold}`],
+        [STRINGS.results.research, `${Math.round(result.research * 10) / 10}`],
         [STRINGS.results.materials, materialsLabel(result)],
         [STRINGS.results.components, result.components.length > 0 ? result.components.join(', ') : STRINGS.results.none],
       ];
+      if (result.discoveries.length > 0) rows.push([STRINGS.results.discoveries, result.discoveries.join(', ')]);
+      if (run.research.captures.length > 0) note = `${note} ${STRINGS.results.capture}`;
       buttonLabel = STRINGS.results.nextRound;
       // Preparation follows every round (GDD 3.3).
       this.confirm = () => this.scene.start('Preparation', { run });

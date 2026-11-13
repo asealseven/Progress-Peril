@@ -88,7 +88,8 @@ function deployTurrets(world: World, weapon: WeaponState, weaponIndex: number, d
     own++;
     if (!oldest || construct.born < oldest.born) oldest = construct;
   }
-  if (own >= WEAPON_RULES.turretLimit) {
+  // Clockwork Companions: active construct limit plus one.
+  if (own >= WEAPON_RULES.turretLimit + world.rule('constructLimit')) {
     // At the limit, a turret left far behind moves up to the player.
     if (!oldest || Math.hypot(oldest.x - player.x, oldest.y - player.y) < WEAPON_RULES.turretReplaceDistance) return;
     world.constructs.release(oldest);
@@ -100,9 +101,12 @@ function deployTurrets(world: World, weapon: WeaponState, weaponIndex: number, d
 
 /** Companion weapons keep one companion beside the player. */
 function ensureCompanion(world: World, weapon: WeaponState, weaponIndex: number): void {
+  let own = 0;
   for (const construct of world.constructs.items) {
-    if (construct.active && construct.weaponIndex === weaponIndex && construct.kind !== 'turret') return;
+    if (construct.active && construct.weaponIndex === weaponIndex && construct.kind !== 'turret') own++;
   }
+  // Clockwork Companions: active construct limit plus one.
+  if (own >= 1 + world.rule('constructLimit')) return;
   const kind: ConstructKind = weapon.resolved.tags.includes('Organic') ? 'creature' : 'hound';
   const health = WEAPON_RULES.companionHealth * weapon.resolved.constructHealthFactor;
   spawnConstruct(world, kind, weaponIndex, world.player.x - HEEL_DISTANCE, world.player.y, health);
@@ -135,7 +139,8 @@ function updateTurret(world: World, construct: Construct, weapon: WeaponState, i
       x: construct.x,
       y: construct.y,
       range: resolved.range,
-      rule: 'Nearest',
+      // Clockwork Logic: constructs use the Highest threat targeting rule.
+      rule: world.rule('constructsHighestThreat') > 0 ? 'Highest threat' : 'Nearest',
       // Kill Zone: constructs focus trapped enemies (GDD 7.19).
       prefer: world.synergies.has('kill-zone') ? (enemy) => enemy.trapped > 0 : undefined,
     });

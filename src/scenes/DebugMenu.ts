@@ -19,6 +19,7 @@ import {
   resolveLoadout,
 } from '../sim/loadout';
 import type { ResolvedWeapon, WeaponInstance } from '../sim/loadout';
+import { resolveResearch } from '../sim/research';
 import { kingdomForRound, resolvePlayerStats } from '../sim/run';
 import type { RunState } from '../sim/run';
 import { Button } from '../ui/button';
@@ -84,7 +85,8 @@ export class DebugMenu extends Phaser.Scene {
 
     const equipped = this.draft.filter((weapon): weapon is WeaponInstance => weapon !== undefined);
     const loadout = resolveLoadout(equipped, resolvePlayerStats(this.run.character), {
-      researchSynergies: this.researchOpen ? RESEARCH_SYNERGY_IDS : [],
+      researchSynergies: this.researchOpen ? RESEARCH_SYNERGY_IDS : resolveResearch(this.run.research.researched).synergies,
+      research: resolveResearch(this.run.research.researched),
     });
 
     // Research synergies stay locked until Milestone 6. This toggle opens all seven for testing.
@@ -314,7 +316,9 @@ export class DebugMenu extends Phaser.Scene {
 
   private apply(): void {
     this.run.weapons = this.draft.filter((weapon): weapon is WeaponInstance => weapon !== undefined);
-    this.run.researchSynergies = this.researchOpen ? [...RESEARCH_SYNERGY_IDS] : [];
+    this.run.researchSynergies = this.researchOpen
+      ? [...RESEARCH_SYNERGY_IDS]
+      : [...resolveResearch(this.run.research.researched).synergies];
     // Adaptation lasts for a territory (GDD 3.7).
     if (territoryIndex(this.round) !== territoryIndex(this.run.round)) this.run.adaptation = {};
     this.run.round = this.round;

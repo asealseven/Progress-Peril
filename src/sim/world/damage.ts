@@ -1,8 +1,10 @@
 // Applies damage to enemies and to the player, with on-hit and on-kill
 // effects, status build-up and status reactions.
 
+import { DAMAGE_TYPES } from '../../data/damageTypes';
 import type { DamageType } from '../../data/damageTypes';
 import { STATUS_INDEX } from '../../data/statusEffects';
+import { RESEARCH_RULES } from '../../data/research';
 import {
   COMBAT,
   DAMAGE_STEP,
@@ -29,9 +31,11 @@ import {
   reactToHit,
   reactionScale,
   spreadInfection,
+  buildStatus,
   statusHit,
   triggerStatus,
   typeMultiplier,
+  vulnerability,
 } from './status';
 import { hasModifier, hasTrait, isJuggernaut } from './traits';
 import type { Enemy, WeaponState } from './types';
@@ -147,14 +151,27 @@ export function hitEnemy(world: World, enemy: Enemy, weaponIndex: number, option
       if (hasStatus(enemy, 'Marked')) chance += tierValue('criticalChance', 'Medium');
       // Steady Hand: the first hit on each enemy is a critical hit.
       const first = hasSynergy(resolved, 'steady-hand') && !weapon.firstHits.has(enemy.id);
-      critical = first || world.rng.chance(chance);
+      critical = first || world.luck(chance);
     }
     weapon.firstHits.add(enemy.id);
   }
 
   // Step 7. Status reactions set off by this hit.
+  const frozenBefore = hasStatus(enemy, 'Frozen');
+  const poisonedBefore = hasStatus(enemy, 'Poisoned');
   const reactions = reactToHit(world, enemy, types, critical);
-  const criticalMultiplier = critical ? resolved.criticalDamage + reactions.criticalBonus : 1;
+  // Anatomy and Field Surgery raise Critical Damage against matching targets.
+  let criticalExtra = reactions.criticalBonus;
+  if (critical) {
+    if (world.rule('criticalVsOrganic') > 0 && enemy.def.properties.includes('Organic')) {
+      criticalExtra += tierValue('modifierSize', 'Low');
+    }
+    if (world.rule('criticalVsBleeding') > 0 && hasStatus(enemy, 'Bleeding')) {
+      criticalExtra += tierValue('modifierSize', 'Medium');
+    }
+  }
+  const criticalMultiplier = critical ? resolved.criticalDamage + criticalExtra : 1;
+  const wasElite = enemy.rank === 'elite';
 
   // Step 3 extras decided per hit. Component bonuses join the component sum. Synergies multiply.
   let componentFactor = 1;
@@ -163,6 +180,8 @@ export function hitEnemy(world: World, enemy: Enemy, weaponIndex: number, option
     componentFactor = Math.max(0.2, 1 + resolved.componentDamageBonus + resolved.bonusAgainstAmount) / base;
   }
   const synergyBonuses: PercentBonus[] = [];
+  const weak = vulnerability(world, enemy, frozenBefore);
+  if (weak > 1) synergyBonuses.push({ source: 'research', amount: weak - 1 });
   const delivery = resolved.delivery;
   if (world.synergies.has('kill-zone') && (delivery === 'turret' || delivery === 'companion') && enemy.trapped > 0) {
     synergyBonuses.push({ source: 'synergies', amount: tierValue('modifierSize', 'Medium') });
@@ -183,7 +202,7 @@ export function hitEnemy(world: World, enemy: Enemy, weaponIndex: number, option
       typeMultiplier:
         typeMultiplier(enemy, part.type) *
         (directional ? hitMultiplier(world, enemy, part.type, magnetic, options.dirX, options.dirY) : 1),
-      armour: enemyArmour(enemy, part.type),
+      armour: enemyArmour(enemy, part.type, world),
       reactionBonus: reactions.bonus + (part.type === 'Electric' ? reactions.electricBonus : 0),
     });
     amount += dealt;
@@ -197,7 +216,11 @@ export function hitEnemy(world: World, enemy: Enemy, weaponIndex: number, option
   enemy.hitFlash = HIT_FLASH_SECONDS;
   world.stats.damageDealt += dealt;
   weapon.damageDealt += dealt;
-  if (critical) world.stats.criticalHits++;
+  if (critical) {
+    world.stats.criticalHits++;
+    world.noteCritical();
+  }
+  if (generation > 0) world.noteChain(generation, resolved.chainDepthLimit);
   noteDamage(world, enemy, amount, mainType);
   world.lastHitType = mainType;
   world.emit({ type: 'enemyHit', x, y, amount, critical, damageType: mainType });
@@ -215,7 +238,13 @@ export function hitEnemy(world: World, enemy: Enemy, weaponIndex: number, option
   }
 
   const killed = enemy.health <= 0;
-  if (killed) killEnemy(world, enemy, weaponIndex, generation);
+  if (killed) {
+    if (reactions.galvanic && wasElite) world.findings.galvanicEliteKill = true;
+    killEnemy(world, enemy, weaponIndex, generation, {
+      fromConstruct: options.fromConstruct === true || delivery === 'turret' || delivery === 'companion' || delivery === 'trap',
+      poisoned: poisonedBefore,
+    });
+  }
 
   // Reaction follow-ups happen at the hit point, whether or not the target survived.
   if (reactions.steamBurst) {
@@ -225,9 +254,12 @@ export function hitEnemy(world: World, enemy: Enemy, weaponIndex: number, option
       parts: [{ type: 'Fire', amount: resolved.damage }],
     });
   }
-  if (reactions.galvanicArc && electric > 0) {
-    const next = nearestOther(world, x, y, WEAPON_RULES.chainRange, [enemy.id]);
-    if (next) {
+  if (reactions.galvanicArcs > 0 && electric > 0) {
+    const arced = [enemy.id];
+    for (let arc = 0; arc < reactions.galvanicArcs; arc++) {
+      const next = nearestOther(world, x, y, WEAPON_RULES.chainRange, arced);
+      if (!next) break;
+      arced.push(next.id);
       world.emit({ type: 'chain', points: [x, y, next.x, next.y], damageType: 'Electric' });
       statusHit(world, next, weaponIndex, electric * REACTION_RULES.galvanicArcShare, 'Electric', true);
     }
@@ -236,7 +268,12 @@ export function hitEnemy(world: World, enemy: Enemy, weaponIndex: number, option
 
   if (reactions.shortCircuit) triggerStatus(world, enemy, weaponIndex, 'Stunned');
   if (primary) {
-    applyStatusBuilds(world, enemy, weaponIndex);
+    // Statistical Toxicology: critical hits double Status Build-up.
+    applyStatusBuilds(world, enemy, weaponIndex, critical && world.rule('criticalDoubleBuild') > 0 ? 2 : 1);
+    // Probability Storm: critical hits build Electrified.
+    if (critical && enemy.active && world.rule('criticalsElectrify') > 0) {
+      buildStatus(world, enemy, weaponIndex, 'Electrified', tierValue('statusBuildUp', RESEARCH_RULES.grantedBuild));
+    }
     if (enemy.active) runHitEffects(world, enemy, weapon, weaponIndex, options, amount, critical);
   }
   return !enemy.active;
@@ -267,6 +304,10 @@ function runHitEffects(
 
   if (resolved.knockback > 0 && options.dirX !== undefined && options.dirY !== undefined) {
     const moved = push(world, enemy, options.dirX * resolved.knockback, options.dirY * resolved.knockback);
+    // Ballistic Pendulum: knockback into walls builds Stunned.
+    if (world.rule('wallStun') > 0 && moved < resolved.knockback * 0.6 && !isJuggernaut(enemy)) {
+      buildStatus(world, enemy, weaponIndex, 'Stunned', tierValue('statusBuildUp', RESEARCH_RULES.wallStun));
+    }
     // Kinetic Probability: knockback into walls or enemies counts as a critical hit.
     if (!critical && hasSynergy(resolved, 'kinetic-probability')) {
       const blocked = moved < resolved.knockback * 0.6 || touchesEnemy(world, enemy);
@@ -309,7 +350,7 @@ function runHitEffects(
       fromY = next.y;
       points.push(fromX, fromY);
       hitEnemy(world, next, weaponIndex, {
-        scale: WEAPON_RULES.arcOnHitDamageShare * WEAPON_RULES.chainFalloff ** (jump - 1),
+        scale: WEAPON_RULES.arcOnHitDamageShare * world.chainFalloff ** (jump - 1),
         primary: false,
         forcedType: 'Electric',
         generation: jump,
@@ -451,6 +492,19 @@ export function explode(
     });
   }
 
+  // Gravity Studies: area effects pull enemies toward the centre.
+  if (primary && world.rule('areaPull') > 0) {
+    for (const enemy of targets) {
+      if (!enemy.active) continue;
+      const dx = x - enemy.x;
+      const dy = y - enemy.y;
+      const distance = Math.hypot(dx, dy);
+      if (distance < 1e-6) continue;
+      const pull = Math.min(RESEARCH_RULES.gravityPull, distance);
+      push(world, enemy, (dx / distance) * pull, (dy / distance) * pull);
+    }
+  }
+
   // Fire burns Thornling seeds (GDD 9.11).
   if (world.seedCount > 0) {
     const fire = options.explosive || (parts ?? resolved.damageParts).some((part) => part.type === 'Fire');
@@ -476,8 +530,23 @@ export function explode(
 }
 
 /** Removes a defeated enemy and runs on-kill effects for the weapon credited with the kill. */
-export function killEnemy(world: World, enemy: Enemy, weaponIndex = -1, generation = 0): void {
+export function killEnemy(
+  world: World,
+  enemy: Enemy,
+  weaponIndex = -1,
+  generation = 0,
+  how: { readonly fromConstruct?: boolean; readonly poisoned?: boolean } = {},
+): void {
   if (!enemy.active) return;
+  // Hidden node conditions (GDD 8.12).
+  if (enemy.def.id === 'spore-mother') {
+    world.findings.sporeMotherKilled = true;
+    if (how.fromConstruct) world.findings.sporeMotherByConstruct = true;
+  } else if (enemy.def.id === 'the-unstable') {
+    world.findings.unstableKilled = true;
+    if (world.suppressing) world.findings.unstableSuppressedKill = true;
+  }
+  const poisoned = how.poisoned ?? hasStatus(enemy, 'Poisoned');
   const x = enemy.x;
   const y = enemy.y;
 
@@ -506,7 +575,9 @@ export function killEnemy(world: World, enemy: Enemy, weaponIndex = -1, generati
   // Infected spreads to a nearby enemy on death (GDD 9.14). Overgrowth spreads to two.
   if (infected) {
     const source = world.weapons[infectionSource]?.resolved;
-    const count = source && hasSynergy(source, 'overgrowth') ? SYNERGY_RULES.overgrowthSpreads : 1;
+    // Contagion: Infected spreads to one extra enemy on death.
+    const count =
+      (source && hasSynergy(source, 'overgrowth') ? SYNERGY_RULES.overgrowthSpreads : 1) + world.rule('infectedExtraSpread');
     spreadInfection(world, enemy, infectionSource, infectionGeneration, count);
     // Parasite Larvae: Infected enemies release a parasite on death, which seeks a new host.
     if (source?.triggers.parasite) spawnParasite(world, x, y, infectionSource);
@@ -524,6 +595,16 @@ export function killEnemy(world: World, enemy: Enemy, weaponIndex = -1, generati
       generation: generation + 1,
       explosive: true,
     });
+  }
+
+  // Medical Alchemy: killing a Poisoned enemy restores a small amount of health.
+  // Symbiosis: so do companion and construct kills.
+  const heals =
+    (poisoned && world.rule('poisonKillHeal') > 0 ? 1 : 0) + (how.fromConstruct && world.rule('constructKillHeal') > 0 ? 1 : 0);
+  if (heals > 0 && world.player.health > 0 && world.player.health < world.player.stats.maxHealth) {
+    const amount = RESEARCH_RULES.smallHeal * heals;
+    world.player.health = Math.min(world.player.stats.maxHealth, world.player.health + amount);
+    world.emit({ type: 'playerHealed', amount });
   }
 
   const weapon = world.weapons[weaponIndex];
@@ -586,7 +667,8 @@ export function hitPlayer(world: World, damage: number, damageType: DamageType):
   const result = resolvePlayerHit({
     damage,
     evasion: player.stats.evasion,
-    evasionRoll: world.rng.next(),
+    // Chaos Theory keeps the better of two Evasion rolls.
+    evasionRoll: world.rule('chaosTheory') > 0 ? Math.min(world.rng.next(), world.rng.next()) : world.rng.next(),
     armour: player.stats.armour,
     adaptation: player.adaptation[damageType] ?? 0,
   });
@@ -604,6 +686,16 @@ export function hitPlayer(world: World, damage: number, damageType: DamageType):
     player.stats.adaptationCap,
     (player.adaptation[damageType] ?? 0) + player.stats.adaptationPerHit,
   );
+  // Iron Lung: adaptation also applies to every other damage type at half strength.
+  if (world.rule('ironLung') > 0) {
+    for (const other of DAMAGE_TYPES) {
+      if (other === damageType) continue;
+      player.adaptation[other] = Math.min(
+        player.stats.adaptationCap,
+        (player.adaptation[other] ?? 0) + player.stats.adaptationPerHit / 2,
+      );
+    }
+  }
   world.stats.hitsTaken++;
   world.stats.damageTaken += taken;
   world.emit({ type: 'playerHit', amount: taken, damageType });

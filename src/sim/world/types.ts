@@ -1,5 +1,6 @@
 // Entities and events of the combat simulation.
 
+import type { ResearchRule } from '../../data/research';
 import type { ArenaDef } from '../../data/arenas';
 import type { ChampionTraitId } from '../../data/champions';
 import type { ComponentDef } from '../../data/components';
@@ -30,6 +31,10 @@ export interface PlayerStats {
   readonly adaptationCap: number;
   /** Multiplier for status meter fill, strength and duration (GDD 3.6). 1 at the base tier. */
   readonly statusPotency: number;
+  /** Multiplier for Research Points gained (GDD 3.6). 1 at the base tier. */
+  readonly researchYield: number;
+  /** Added share for drop chances (GDD 3.6). 0 at the base tier. */
+  readonly fortune: number;
 }
 
 export type AdaptationMap = Partial<Record<DamageType, number>>;
@@ -602,4 +607,6 @@ export interface WorldConfig {
   readonly limits?: PerformanceLimits;
   /** Debug tool: the player takes no damage. */
   readonly invincible?: boolean;
+  /** Named research rules and how many researched nodes carry each (GDD 8.12). */
+  readonly research?: ReadonlyMap<ResearchRule, number>;
 }

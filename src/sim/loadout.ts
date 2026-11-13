@@ -13,6 +13,7 @@ import type { StatusEffect } from '../data/statusEffects';
 import type { Tag } from '../data/tags';
 import type { Tier } from '../data/tiers';
 import {
+  ADAPTATION,
   COMBAT,
   KNOCKBACK_PIXELS,
   TIERS,
@@ -25,7 +26,11 @@ import {
   tierValue,
 } from '../data/tiers';
 import type { Delivery, ProjectileBehaviour, TargetingRule, WeaponDef, WeaponZone } from '../data/weapons';
+import { RESEARCH_RULES } from '../data/research';
+import type { ResearchWhen } from '../data/research';
 import { ModifierStack, stackArmour } from './modifiers';
+import { NO_RESEARCH } from './research';
+import type { ResolvedResearch } from './research';
 import { evaluateSynergies } from './synergies';
 import type { SynergyReport, SynergyWeapon } from './synergies';
 import type { PlayerStats } from './world/types';
@@ -38,6 +43,8 @@ export interface ComponentInstance {
   readonly isDefault: boolean;
   /** Rounds completed with the component installed, for growth effects. */
   rounds: number;
+  /** Stat steps grown by Mutagenics (GDD 8.12). */
+  mutations?: Partial<Record<UpgradeStat, number>>;
 }
 
 /** 0 means no grade bought yet. Grades I to IV follow (GDD 7.22). */
@@ -74,7 +81,7 @@ export function createComponent(def: ComponentDef, isDefault = false): Component
 export function cloneWeapon(weapon: WeaponInstance): WeaponInstance {
   const components: Partial<Record<SlotType, ComponentInstance>> = {};
   for (const [slot, component] of Object.entries(weapon.components) as Array<[SlotType, ComponentInstance]>) {
-    components[slot] = { ...component };
+    components[slot] = { ...component, ...(component.mutations ? { mutations: { ...component.mutations } } : {}) };
   }
   return {
     def: weapon.def,
@@ -163,7 +170,7 @@ export function weaponTags(weapon: WeaponInstance): Tag[] {
 // --- Resolution --------------------------------------------------------------
 
 /** The milestone the build has reached. Effects marked for a later milestone stay inactive. */
-export const CURRENT_MILESTONE = 5;
+export const CURRENT_MILESTONE = 6;
 
 export function isActive(effect: Effect): boolean {
   return (effect.activeFrom ?? 0) <= CURRENT_MILESTONE;
@@ -196,6 +203,8 @@ export interface WeaponTriggers {
   readonly parasite: boolean;
   /** Specimen Jar: kills grant extra Specimens. */
   readonly specimenOnKill: boolean;
+  /** Research Notebook: kills grant extra Research Points. */
+  readonly researchOnKill: boolean;
 }
 
 /** Meter fill per hit for one status, as a share of a Normal enemy meter (GDD 9.14). */
@@ -282,6 +291,10 @@ export interface ResolvedWeapon {
   readonly explosionArea: number;
   /** Ballistic Tables: Arcing shots lead moving targets. */
   readonly leadTargets: boolean;
+  /** Share of a full lead: 1, or less for a slight lead (Trigonometry). */
+  readonly leadShare: number;
+  /** Masterwork Forging and Mutagenics steps show in the build panel. */
+  readonly researchDamageBonus: number;
   /** Chain depth limit for this weapon's chain reactions (GDD 7.20). */
   readonly chainDepthLimit: number;
   /** Clockwork Precision: constructs roll critical hits with player Critical Chance. */
@@ -397,6 +410,8 @@ export function resolveWeapon(
   weapon: WeaponInstance,
   player: PlayerStats,
   synergies: readonly string[] = [],
+  research: ResolvedResearch = NO_RESEARCH,
+  activeSynergies = 0,
 ): ResolvedWeapon {
   const def = weapon.def;
   const components = installedComponents(weapon);
@@ -415,6 +430,8 @@ export function resolveWeapon(
   let criticalChanceBonus = 0;
   let criticalDamageBonus = 0;
   let knockback = 0;
+  let knockbackFactor = 1;
+  const mutationSteps: Partial<Record<UpgradeStat, number>> = {};
   let lowHealthAttackSpeed = 0;
   let constructRepair = false;
   let chainDepthLimit: number = WEAPON_RULES.chainDepthLimit;
@@ -442,6 +459,7 @@ export function resolveWeapon(
     bayonet: false,
     parasite: false,
     specimenOnKill: false,
+    researchOnKill: false,
   };
 
   for (const component of components) {
@@ -556,6 +574,7 @@ export function resolveWeapon(
           break;
         case 'resourceOnKill':
           if (effect.resource === 'Specimens') triggers.specimenOnKill = true;
+          else triggers.researchOnKill = true;
           break;
         case 'bonusAgainstStatus':
           bonusAgainst = STATUS_EFFECTS.filter((name) => effect.statuses.includes(name));
@@ -570,6 +589,52 @@ export function resolveWeapon(
       }
     }
   }
+
+  // Mutagenics: stat steps grown on Organic components (GDD 8.12).
+  for (const component of components) {
+    for (const [stat, steps] of Object.entries(component.mutations ?? {}) as Array<[UpgradeStat, number]>) {
+      mutationSteps[stat] = (mutationSteps[stat] ?? 0) + steps;
+    }
+  }
+
+  // Research nodes (GDD 8.12). Bonuses share the research source, so they add.
+  const ruleCount = (name: Parameters<ResolvedResearch['rules']['get']>[0]): number => research.rules.get(name) ?? 0;
+  const weaponTypes = new Set<DamageType>([...def.damageTypes, ...addedDamage.map((entry) => entry.type)]);
+  const researchApplies = (when: ResearchWhen | undefined): boolean => {
+    if (!when) return true;
+    if ('damageType' in when) return weaponTypes.has(when.damageType);
+    if ('anyDamageType' in when) return when.anyDamageType.some((type) => weaponTypes.has(type));
+    if ('tag' in when) return tags.includes(when.tag);
+    if ('family' in when) return def.family === when.family;
+    return delivery === when.delivery;
+  };
+  const researchTypeDamage = new Map<DamageType, number>();
+  let researchBuild = 0;
+  for (const effect of research.weaponStats) {
+    if (!researchApplies(effect.when)) continue;
+    const size = tierValue('modifierSize', effect.tier);
+    if (effect.stat === 'criticalChance') criticalChanceBonus += tierValue('criticalChance', effect.tier);
+    else if (effect.stat === 'criticalDamage') criticalDamageBonus += size;
+    else if (effect.stat === 'knockback') {
+      // Research raises knockback a weapon has. Weapons with none stay still.
+      knockbackFactor += size;
+    } else if (effect.stat === 'statusBuildUp') researchBuild += size;
+    else if (effect.stat === 'damage' && effect.when && 'damageType' in effect.when) {
+      // Typed bonuses raise the matching share of the damage.
+      const type = effect.when.damageType;
+      researchTypeDamage.set(type, (researchTypeDamage.get(type) ?? 0) + size);
+    } else stack.addPercent(effect.stat, 'research', size);
+  }
+  for (const effect of research.statusDurations) {
+    statusDurationFor[effect.status] = (statusDurationFor[effect.status] ?? 1) + tierValue('modifierSize', effect.tier);
+  }
+  // Combinatorics: each active synergy grants Damage up, Minimal.
+  if (ruleCount('synergyDamage') > 0 && activeSynergies > 0) {
+    stack.addPercent('damage', 'research', tierValue('modifierSize', 'Minimal') * activeSynergies);
+  }
+  chainDepthLimit += ruleCount('chainDepth');
+  // Magnetic Fields: Magnetic projectiles home slightly.
+  if (ruleCount('magneticHoming') > 0 && tags.includes('Magnetic') && homing === 0) homing = WEAPON_RULES.homingSlight;
 
   // The Living Arsenal adapts each round (GDD 7.17): a weapon-level Damage bonus.
   if (def.id === 'living-arsenal') {
@@ -600,17 +665,28 @@ export function resolveWeapon(
     stack.addPercent('damage', 'synergies', Math.min(cap, step * weapon.rounds));
   }
 
+  // Whole stat steps: grades, quality, Mutagenics, and Masterwork Forging's extra Grade IV step.
+  const masterwork = ruleCount('masterworkForging') > 0 && weapon.grade >= 4 ? weapon.upgrades[3] : undefined;
+  const steps = (stat: UpgradeStat): number =>
+    upgradeSteps(weapon, stat) + (mutationSteps[stat] ?? 0) + (masterwork === stat ? 1 : 0);
+
   // Damage (GDD 7.14 steps 1 to 3). Two damage types split the damage evenly.
   // Grades and quality move the base tier by whole steps (GDD 7.22).
-  const baseDamage = steppedWeaponValue('weaponDamage', def.damage, upgradeSteps(weapon, 'damage'));
+  const baseDamage = steppedWeaponValue('weaponDamage', def.damage, steps('damage'));
   const share = 1 / def.damageTypes.length;
   const damageParts: DamagePart[] = def.damageTypes.map((type) => ({
     type,
-    amount: stack.resolve('damage', baseDamage * share, { components: typeDamage.get(type) ?? 0 }),
+    amount: stack.resolve('damage', baseDamage * share, {
+      components: typeDamage.get(type) ?? 0,
+      research: researchTypeDamage.get(type) ?? 0,
+    }),
   }));
   for (const added of addedDamage) {
     const amount =
-      stack.resolve('damage', baseDamage, { components: typeDamage.get(added.type) ?? 0 }) * added.share;
+      stack.resolve('damage', baseDamage, {
+        components: typeDamage.get(added.type) ?? 0,
+        research: researchTypeDamage.get(added.type) ?? 0,
+      }) * added.share;
     damageParts.push({ type: added.type, amount });
   }
   const damage = damageParts.reduce((sum, part) => sum + part.amount, 0);
@@ -618,9 +694,33 @@ export function resolveWeapon(
   const baseAttacksPerSecond = steppedWeaponValue(
     'weaponAttackSpeed',
     def.attackSpeed,
-    upgradeSteps(weapon, 'attackSpeed'),
+    steps('attackSpeed'),
   );
-  const buildFactor = ECONOMY_RULES.statusStepFactor ** upgradeSteps(weapon, 'statusBuildUp');
+  const buildFactor = ECONOMY_RULES.statusStepFactor ** steps('statusBuildUp') * (1 + researchBuild);
+  // Pharmacology: Poisoned and Infected meters fill faster.
+  const toxicFactor = ruleCount('fasterToxicMeters') > 0 ? 1 + tierValue('modifierSize', 'Medium') : 1;
+  const statusBuilds = weaponStatusBuilds(weapon).builds.map((build) => ({
+    status: build.status,
+    share: Math.min(
+      1,
+      build.share * buildFactor * (build.status === 'Poisoned' || build.status === 'Infected' ? toxicFactor : 1),
+    ),
+  }));
+  const grant = (status: StatusEffect): void => {
+    if (statusBuilds.some((build) => build.status === status)) return;
+    statusBuilds.push({ status, share: tierValue('statusBuildUp', RESEARCH_RULES.grantedBuild) });
+  };
+  // Bioelectricity: Organic weapons build Electrified.
+  if (ruleCount('organicElectrified') > 0 && tags.includes('Organic')) grant('Electrified');
+  // Explosive Ordnance: Siege explosions build Burning.
+  if (ruleCount('siegeBurning') > 0 && def.family === 'Siege' && (def.blast || tags.includes('Explosive'))) grant('Burning');
+  // Living Battery and Fungal Machinery: companions and constructs build statuses on hit.
+  if (ruleCount('companionsElectrify') > 0 && delivery === 'companion') grant('Electrified');
+  if (ruleCount('constructsInfect') > 0 && (delivery === 'turret' || delivery === 'companion' || delivery === 'trap')) {
+    grant('Infected');
+  }
+  const leadAll = ruleCount('leadTargets') > 0;
+  const leadArcing = (active('ballistic-tables') || ruleCount('arcingLead') > 0) && arcingWeapon;
   const attackSpeedBonus = stack.percentFor('attackSpeed', 'components');
 
   // Conversions change which numbers matter.
@@ -657,20 +757,20 @@ export function resolveWeapon(
     attackSpeedBonus,
     attacksPerSecond: stack.resolve('attackSpeed', baseAttacksPerSecond),
     lowHealthAttackSpeed,
-    range: stack.resolve('range', steppedWeaponValue('weaponRange', def.range, upgradeSteps(weapon, 'range'))),
-    area: stack.resolve('area', steppedWeaponValue('weaponArea', def.area, upgradeSteps(weapon, 'area'))),
+    range: stack.resolve('range', steppedWeaponValue('weaponRange', def.range, steps('range'))),
+    area: stack.resolve('area', steppedWeaponValue('weaponArea', def.area, steps('area'))),
     criticalChance: Math.min(
       1,
       Math.max(
         0,
         steppedCritical(
           def.criticalChance ? tierValue('criticalChance', def.criticalChance) : player.criticalChance,
-          upgradeSteps(weapon, 'criticalChance'),
+          steps('criticalChance'),
         ) + criticalChanceBonus,
       ),
     ),
     criticalDamage: Math.max(1, player.criticalDamage + criticalDamageBonus),
-    knockback: Math.max(0, knockback),
+    knockback: Math.max(0, knockback * knockbackFactor),
     projectileSpeed: stack.resolve('projectileSpeed', COMBAT.projectileSpeed * (def.projectileSpeedFactor ?? 1)),
     arcWidth: stack.factor('arcWidth'),
     projectiles: Math.max(1, projectiles),
@@ -688,22 +788,24 @@ export function resolveWeapon(
     constructRepair,
     triggers,
     inactive,
-    statusBuilds: weaponStatusBuilds(weapon).builds.map((build) => ({
-      status: build.status,
-      share: Math.min(1, build.share * buildFactor),
-    })),
+    statusBuilds,
     statusDuration: stack.factor('statusDuration'),
     statusDurationFor,
     componentDamageBonus: stack.percentFor('damage', 'components'),
     bonusAgainst,
     bonusAgainstAmount: tierValue('modifierSize', SYNERGY_RULES.resonanceBonus),
     synergies,
-    extraChainJumps: active('conductive-strike') ? 1 : 0,
-    explosionArea: active('pressure-burst') ? 1 + tierValue('modifierSize', 'Medium') : 1,
-    leadTargets: active('ballistic-tables') && arcingWeapon,
+    extraChainJumps: (active('conductive-strike') ? 1 : 0) + ruleCount('extraChainJump'),
+    explosionArea:
+      (active('pressure-burst') ? 1 + tierValue('modifierSize', 'Medium') : 1) *
+      (1 + tierValue('modifierSize', 'Low') * ruleCount('explosionArea')),
+    leadTargets: leadAll || leadArcing,
+    leadShare:
+      leadAll || (active('ballistic-tables') && arcingWeapon) ? 1 : leadArcing ? RESEARCH_RULES.slightLead : 0,
+    researchDamageBonus: stack.percentFor('damage', 'research'),
     chainDepthLimit,
     constructsCrit: active('clockwork-precision'),
-    constructRegen: active('bioengineering'),
+    constructRegen: active('bioengineering') || (ruleCount('companionRegen') > 0 && delivery === 'companion'),
   };
 }
 
@@ -719,6 +821,8 @@ export interface ResolvedLoadout {
 export interface LoadoutOptions {
   /** Ids of research synergies opened by research nodes (Milestone 6). */
   readonly researchSynergies?: readonly string[];
+  /** Researched nodes (GDD 8.12). Their research synergies join the list above. */
+  readonly research?: ResolvedResearch;
 }
 
 /**
@@ -730,12 +834,29 @@ export function resolveLoadout(
   base: PlayerStats,
   options: LoadoutOptions = {},
 ): ResolvedLoadout {
-  const report = evaluateSynergies(weapons.map(synergyProfile), options.researchSynergies ?? []);
+  const research = options.research ?? NO_RESEARCH;
+  const report = evaluateSynergies(weapons.map(synergyProfile), [
+    ...(options.researchSynergies ?? []),
+    ...research.synergies,
+  ]);
   const synergies = report.active.map((entry) => entry.def.id);
   const forWeapon = (index: number): string[] =>
     report.active.filter((entry) => entry.weapons.includes(index)).map((entry) => entry.def.id);
 
   const armourSources = [base.armour];
+  const rules = research.rules;
+  const percent = { pickupRadius: 0, regeneration: 0, moveSpeed: 0 };
+  let evasion = base.evasion;
+  let researchYield = base.researchYield;
+  let fortune = base.fortune;
+  for (const effect of research.playerStats) {
+    const size = tierValue('modifierSize', effect.tier);
+    if (effect.stat === 'armour') armourSources.push(tierValue('armour', effect.tier));
+    else if (effect.stat === 'evasion') evasion += tierValue('evasion', effect.tier);
+    else if (effect.stat === 'researchYield') researchYield += size;
+    else if (effect.stat === 'fortune') fortune += size;
+    else percent[effect.stat] += size;
+  }
   for (const weapon of weapons) {
     for (const component of installedComponents(weapon)) {
       for (const effect of component.def.effects) {
@@ -750,14 +871,24 @@ export function resolveLoadout(
     ...base,
     armour: Math.min(armourCap, stackArmour(armourSources)),
     // Magnetic Field: Pickup Radius up, High.
-    pickupRadius: base.pickupRadius * (synergies.includes('magnetic-field') ? 1 + tierValue('modifierSize', 'High') : 1),
+    pickupRadius:
+      base.pickupRadius *
+      (synergies.includes('magnetic-field') ? 1 + tierValue('modifierSize', 'High') : 1) *
+      (1 + percent.pickupRadius),
+    regeneration: base.regeneration * (1 + percent.regeneration),
+    moveSpeed: base.moveSpeed * (1 + percent.moveSpeed),
+    evasion: Math.min(Math.max(base.evasion, tierValue('evasion', PLAYER_STAT_CAPS.evasion)), evasion),
+    researchYield,
+    fortune,
     // Adaptive Armour: damage adaptation gain and cap double.
-    adaptationPerHit: base.adaptationPerHit * adaptive,
-    adaptationCap: base.adaptationCap * adaptive,
+    // Immunology raises the gain. Antitoxins raises the cap one step.
+    adaptationPerHit:
+      base.adaptationPerHit * adaptive * (1 + tierValue('modifierSize', 'Medium') * (rules.get('adaptationGain') ?? 0)),
+    adaptationCap: (base.adaptationCap + ADAPTATION.capStep * (rules.get('adaptationCap') ?? 0)) * adaptive,
   };
   return {
     playerStats,
-    weapons: weapons.map((weapon, index) => resolveWeapon(weapon, playerStats, forWeapon(index))),
+    weapons: weapons.map((weapon, index) => resolveWeapon(weapon, playerStats, forWeapon(index), research, synergies.length)),
     report,
     synergies,
   };

@@ -11,6 +11,7 @@ import {
   STATUS_INDEX,
 } from '../../data/statusEffects';
 import type { Reaction, StatusEffect } from '../../data/statusEffects';
+import { RESEARCH_RULES } from '../../data/research';
 import {
   DAMAGE_STEP,
   ENEMY_RULES,
@@ -117,14 +118,26 @@ export function typeMultiplier(enemy: Enemy, type: DamageType): number {
 }
 
 /** Target Armour after Corroded and Piercing (GDD 7.14 step 6). */
-export function enemyArmour(enemy: Enemy, type: DamageType): number {
+export function enemyArmour(enemy: Enemy, type: DamageType, world?: World): number {
+  // Thermite: Fire damage ignores Armour.
+  if (type === 'Fire' && world && world.rule('fireIgnoresArmour') > 0) return 0;
   let corroded = 0;
   if (hasStatus(enemy, 'Corroded')) {
     corroded = enemy.def.properties.includes('Metallic')
       ? STATUS_RULES.corroded.metallicSteps
       : STATUS_RULES.corroded.armourSteps;
+    // Concentrated Acids: one extra step.
+    corroded += world?.rule('corrodedExtraStep') ?? 0;
   }
   return effectiveArmour(enemy.armour, type, corroded);
+}
+
+/** Damage taken up from research: Universal Solvent on Corroded enemies, Absolute Zero on Frozen ones. */
+export function vulnerability(world: World, enemy: Enemy, frozen = hasStatus(enemy, 'Frozen')): number {
+  let factor = 1;
+  if (world.rule('corrodedVulnerable') > 0 && hasStatus(enemy, 'Corroded')) factor += tierValue('modifierSize', 'Low');
+  if (world.rule('frozenVulnerable') > 0 && frozen) factor += tierValue('modifierSize', 'Medium');
+  return factor;
 }
 
 /** Damage from a status tick or a reaction: no critical roll, no on-hit effects. Returns true on a kill. */
@@ -138,9 +151,9 @@ export function statusHit(
 ): boolean {
   if (!enemy.active || amount <= 0) return false;
   const dealt = computeDamage({
-    base: amount,
+    base: amount * vulnerability(world, enemy),
     typeMultiplier: typeMultiplier(enemy, type),
-    armour: ignoresArmour ? 0 : enemyArmour(enemy, type),
+    armour: ignoresArmour ? 0 : enemyArmour(enemy, type, world),
   });
   if (dealt <= 0) return false;
   const applied = Math.min(dealt, enemy.health);
@@ -209,7 +222,8 @@ function announce(world: World, reaction: Reaction, enemy: Enemy): void {
 
 /** Damage multiplier for reactions from synergies: Thermal Shock and Catalytic Mix (GDD 7.19). */
 export function reactionScale(world: World, reaction: Reaction): number {
-  let bonus = 0;
+  // Reaction Theory: status reaction damage up, Low.
+  let bonus = tierValue('modifierSize', 'Low') * world.rule('reactionDamage');
   if (world.synergies.has('catalytic-mix')) bonus += tierValue('modifierSize', 'Medium');
   if (world.synergies.has('thermal-shock') && (reaction === 'Shatter' || reaction === 'Steam Burst')) {
     bonus += tierValue('modifierSize', 'High');
@@ -228,6 +242,7 @@ export function triggerStatus(
   weaponIndex: number,
   status: StatusEffect,
   generation = 0,
+  spread = true,
 ): void {
   const index = I[status];
   const base = BASE_SECONDS[status];
@@ -239,7 +254,9 @@ export function triggerStatus(
   if (share !== undefined) {
     const weaponDamage = world.weapons[weaponIndex]?.resolved.damage ?? 0;
     const ticks = base / STATUS_RULES.tickSeconds;
-    enemy.statusDamage[index] = (weaponDamage * share * world.player.stats.statusPotency) / ticks;
+    // Venomology: Poisoned damage up, Low.
+    const venom = status === 'Poisoned' ? 1 + tierValue('modifierSize', 'Low') * world.rule('poisonDamage') : 1;
+    enemy.statusDamage[index] = (weaponDamage * share * world.player.stats.statusPotency * venom) / ticks;
     if ((enemy.statusTick[index] ?? 0) <= 0) enemy.statusTick[index] = STATUS_RULES.tickSeconds;
   }
 
@@ -252,7 +269,18 @@ export function triggerStatus(
     if (enemy.fumesCooldown <= 0) {
       enemy.fumesCooldown = REACTION_RULES.fumesCooldown;
       announce(world, 'Toxic Fumes', enemy);
-      addZone(world, 'fumes', enemy.x, enemy.y, REACTION_RULES.fumesRadius, REACTION_RULES.fumesSeconds, weaponIndex);
+      // Fume Chemistry: cloud size up, Medium.
+      const size = 1 + tierValue('modifierSize', 'Medium') * world.rule('fumesSize');
+      addZone(world, 'fumes', enemy.x, enemy.y, REACTION_RULES.fumesRadius * size, REACTION_RULES.fumesSeconds, weaponIndex);
+    }
+  }
+
+  // Spontaneous Combustion: each Burning trigger spreads Burning to one adjacent enemy.
+  if (status === 'Burning' && spread && world.rule('burningSpreads') > 0) {
+    const other = nearestWithout(world, enemy.x, enemy.y, RESEARCH_RULES.burnSpreadRange, 'Burning', enemy);
+    if (other) {
+      world.emit({ type: 'chain', points: [enemy.x, enemy.y, other.x, other.y], damageType: 'Fire' });
+      triggerStatus(world, other, weaponIndex, 'Burning', generation, false);
     }
   }
 }
@@ -318,7 +346,10 @@ export interface HitReactions {
   criticalBonus: number;
   steamBurst: boolean;
   shortCircuit: boolean;
-  galvanicArc: boolean;
+  /** Extra enemies a Galvanic Surge arcs to. */
+  galvanicArcs: number;
+  /** The target stood under a Galvanic Surge for this hit. */
+  galvanic: boolean;
 }
 
 /** Works out the reactions a hit sets off, and ends the statuses they consume. */
@@ -329,18 +360,22 @@ export function reactToHit(world: World, enemy: Enemy, types: readonly DamageTyp
     criticalBonus: 0,
     steamBurst: false,
     shortCircuit: false,
-    galvanicArc: false,
+    galvanicArcs: 0,
+    galvanic: false,
   };
   const frozen = hasStatus(enemy, 'Frozen');
 
   // Shatter: Impact hit on a Frozen enemy. Burst damage. Ends Frozen.
   if (frozen && types.includes('Impact')) {
-    result.bonus += REACTION_RULES.shatterBonus * reactionScale(world, 'Shatter');
+    // Cryogenics: Shatter damage up, Medium.
+    const cryo = 1 + tierValue('modifierSize', 'Medium') * world.rule('shatterDamage');
+    result.bonus += REACTION_RULES.shatterBonus * reactionScale(world, 'Shatter') * cryo;
     endStatus(enemy, 'Frozen');
     announce(world, 'Shatter', enemy);
   } else if ((frozen && types.includes('Fire')) || (hasStatus(enemy, 'Burning') && types.includes('Cold'))) {
     // Steam Burst: Fire hit on a Frozen enemy, or Cold hit on a Burning enemy. Ends both effects.
     result.steamBurst = true;
+    world.findings.steamBursts++;
     endStatus(enemy, 'Frozen');
     endStatus(enemy, 'Burning');
     announce(world, 'Steam Burst', enemy);
@@ -358,7 +393,10 @@ export function reactToHit(world: World, enemy: Enemy, types: readonly DamageTyp
       const doubled = world.synergies.has('galvanic-corrosion');
       result.electricBonus +=
         tierValue('modifierSize', REACTION_RULES.galvanicBonus) * reactionScale(world, 'Galvanic Surge') * (doubled ? 2 : 1);
-      result.galvanicArc = doubled;
+      // Galvanic Chemistry: the surge arcs to one extra enemy.
+      result.galvanicArcs = (doubled ? 1 : 0) + world.rule('galvanicExtraArc');
+      result.galvanic = true;
+      if (enemy.rank === 'elite') world.findings.galvanicElite = true;
     }
   }
 
@@ -366,7 +404,10 @@ export function reactToHit(world: World, enemy: Enemy, types: readonly DamageTyp
   if (critical && hasStatus(enemy, 'Marked')) {
     result.criticalBonus +=
       tierValue('modifierSize', REACTION_RULES.calculatedStrikeBonus) * reactionScale(world, 'Calculated Strike');
-    endStatus(enemy, 'Marked');
+    // Risk Analysis: the critical hit extends Marked in place of ending the effect.
+    if (world.rule('criticalExtendsMarked') > 0) {
+      enemy.statusActive[I.Marked] = Math.max(enemy.statusActive[I.Marked] ?? 0, BASE_SECONDS.Marked);
+    } else endStatus(enemy, 'Marked');
     announce(world, 'Calculated Strike', enemy);
   }
   return result;
@@ -438,6 +479,12 @@ export function updateStatuses(world: World, dt: number): void {
 
       const active = enemy.statusActive[index] ?? 0;
       if (active <= 0) continue;
+
+      // Neurotoxins: Poisoned enemies also slow down.
+      if (status === 'Poisoned' && world.rule('poisonSlows') > 0 && !isJuggernaut(enemy)) {
+        enemy.slowTimer = Math.max(enemy.slowTimer, 0.2);
+        enemy.slowFactor = Math.min(enemy.slowFactor, RESEARCH_RULES.poisonSlowFactor);
+      }
 
       // Damage ticks come first, so the tick due at the last moment still lands.
       const damage = enemy.statusDamage[index] ?? 0;

@@ -127,14 +127,27 @@ describe('material and component drops (GDD 14.2)', () => {
     expect(world.loot.gold).toBe(kills * 4);
   });
 
-  it('gives a champion 3 materials and one Rare or better component', () => {
-    const world = quiet({ round: 15 });
-    killEnemy(world, enemyAt(world, 'Hunting Hound', 10, 0, { rank: 'champion', modifiers: [] }));
-    stepSeconds(world, 1);
-    expect(world.loot.materials.Specimens).toBe(3);
-    expect(world.loot.components).toHaveLength(1);
-    expect(QUALITIES.indexOf(world.loot.components[0]!.quality)).toBeGreaterThanOrEqual(2);
-    expect(world.loot.gold).toBe(12);
+  it('gives a champion 3 materials and a Rare component or 25 Research Points (GDD 9.13)', () => {
+    let components = 0;
+    let research = 0;
+    for (let seed = 1; seed <= 40; seed++) {
+      const world = quiet({ round: 15, seed });
+      killEnemy(world, enemyAt(world, 'Hunting Hound', 10, 0, { rank: 'champion', modifiers: [] }));
+      stepSeconds(world, 1);
+      expect(world.loot.materials.Specimens).toBe(3);
+      expect(world.loot.gold).toBe(12);
+      if (world.loot.components.length > 0) {
+        components++;
+        expect(world.loot.components).toHaveLength(1);
+        expect(QUALITIES.indexOf(world.loot.components[0]!.quality)).toBeGreaterThanOrEqual(2);
+        expect(world.loot.research).toBe(1);
+      } else {
+        research++;
+        expect(world.loot.research).toBe(25);
+      }
+    }
+    expect(components).toBeGreaterThan(5);
+    expect(research).toBeGreaterThan(5);
   });
 
   it('never drops an Extraordinary component', () => {

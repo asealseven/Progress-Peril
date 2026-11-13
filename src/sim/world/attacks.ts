@@ -155,7 +155,7 @@ function chainLightning(
     // Damage falls by a set share with each generation (GDD 7.20).
     hitEnemy(world, next, weaponIndex, {
       ...firstOptions,
-      scale: jumpScale * WEAPON_RULES.chainFalloff ** jump,
+      scale: jumpScale * world.chainFalloff ** jump,
       primary: false,
       generation: jump,
     });
@@ -171,15 +171,22 @@ function attack(world: World, weapon: WeaponState, weaponIndex: number, target: 
   const player = world.player;
 
   // Prototype Overclock: the weapon jams briefly at random (GDD 7.18).
-  if (resolved.triggers.jam && world.rng.chance(WEAPON_RULES.jamChance)) {
+  if (resolved.triggers.jam && world.mishap(WEAPON_RULES.jamChance)) {
     weapon.jamTimer = WEAPON_RULES.jamSeconds;
     world.emit({ type: 'jam', weaponIndex });
     return false;
   }
 
-  const dx = target.x - player.x;
-  const dy = target.y - player.y;
-  const distance = Math.hypot(dx, dy);
+  let dx = target.x - player.x;
+  let dy = target.y - player.y;
+  let distance = Math.hypot(dx, dy);
+  // Calculus of Motion: straight projectiles lead moving targets.
+  if (resolved.delivery === 'straight' && resolved.leadTargets && resolved.projectileSpeed > 0) {
+    const flight = distance / resolved.projectileSpeed;
+    dx += target.vx * flight * resolved.leadShare;
+    dy += target.vy * flight * resolved.leadShare;
+    distance = Math.hypot(dx, dy);
+  }
   const dirX = distance > 1e-6 ? dx / distance : weapon.aimX;
   const dirY = distance > 1e-6 ? dy / distance : weapon.aimY;
   const angle = Math.atan2(dirY, dirX);
@@ -226,8 +233,8 @@ function attack(world: World, weapon: WeaponState, weaponIndex: number, target: 
       let aimY = target.y;
       if (resolved.leadTargets) {
         const flight = Math.max(WEAPON_RULES.arcingMinFlight, distance / speed);
-        aimX += target.vx * flight;
-        aimY += target.vy * flight;
+        aimX += target.vx * flight * resolved.leadShare;
+        aimY += target.vy * flight * resolved.leadShare;
       }
       for (let shot = 0; shot < count; shot++) {
         // The first projectile lands on the target. Extra ones scatter around the point.
@@ -391,7 +398,8 @@ function runExtras(world: World, weapon: WeaponState, weaponIndex: number): void
   if (resolved.triggers.lightning && weapon.lightningTimer <= 0) {
     const first = nearestOther(world, player.x, player.y, WEAPON_RULES.lightningRange, []);
     if (first) {
-      weapon.lightningTimer = WEAPON_RULES.lightningSeconds;
+      // Lightning in a Bottle: the capacitor discharges twice as often.
+      weapon.lightningTimer = WEAPON_RULES.lightningSeconds / (world.rule('capacitorDouble') > 0 ? 2 : 1);
       const amount = tierValue('weaponDamage', WEAPON_RULES.lightningDamage) * damageFactor(resolved);
       chainLightning(
         world,

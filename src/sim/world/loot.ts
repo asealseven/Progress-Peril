@@ -6,6 +6,7 @@ import { COMPONENT_LIST, QUALITIES } from '../../data/components';
 import type { ComponentDef } from '../../data/components';
 import { ECONOMY_RULES, FACTION_MATERIALS, GOLD_DROPS, MATERIAL_DROPS, emptyMaterials } from '../../data/economy';
 import type { Material, MaterialStock } from '../../data/economy';
+import { RESEARCH_REWARDS } from '../../data/research';
 import { STOCK_ODDS } from '../../data/shop';
 import { tierValue } from '../../data/tiers';
 import type { Rng } from '../rng';
@@ -17,10 +18,12 @@ export interface Loot {
   gold: number;
   materials: MaterialStock;
   components: ComponentDef[];
+  /** Research Points (GDD 8.5). Fractions from Research Yield stay in the total. */
+  research: number;
 }
 
 export function emptyLoot(): Loot {
-  return { gold: 0, materials: emptyMaterials(), components: [] };
+  return { gold: 0, materials: emptyMaterials(), components: [], research: 0 };
 }
 
 export function createPickup(slot: number): Pickup {
@@ -113,31 +116,51 @@ export function dropLoot(world: World, enemy: Enemy, weaponIndex: number): void 
   const rng = world.rng;
   const types = FACTION_MATERIALS[enemy.def.faction];
   const material = (): Material => rng.pick(types);
+  // Fortune raises the odds of rare drops (GDD 3.6).
+  const odds = 1 + world.player.stats.fortune;
+  const drop = (amount: number, type: Material): void => {
+    // Natural History: Specimen yield up, Low.
+    const extra = type === 'Specimens' && world.rule('specimenYield') > 0 && world.luck(tierValue('modifierSize', 'Low')) ? 1 : 0;
+    addPickup(world, 'material', x, y, amount + extra, type);
+  };
+
+  // A champion drops a Rare component or a large Research Point reward, at even odds (GDD 9.13).
+  const championComponent = enemy.rank === 'champion' && rng.chance(0.5);
+  // Research Points go straight to the notebook (GDD 8.5). Research Notebook adds to kills with its weapon.
+  let reward: number = RESEARCH_REWARDS.normal;
+  if (enemy.rank === 'elite') reward = RESEARCH_REWARDS.elite;
+  else if (enemy.rank === 'champion') reward = championComponent ? RESEARCH_REWARDS.normal : RESEARCH_REWARDS.champion;
+  const notebook = world.weapons[weaponIndex]?.resolved.triggers.researchOnKill
+    ? tierValue('modifierSize', ECONOMY_RULES.resourceOnKillChance)
+    : 0;
+  world.loot.research += reward * (world.player.stats.researchYield + notebook);
 
   if (enemy.rank === 'champion') {
     addPickup(world, 'gold', x, y, GOLD_DROPS.champion);
-    addPickup(world, 'material', x, y, MATERIAL_DROPS.champion, material());
-    // One Rare or better component.
-    const component = rollDroppedComponent(world.territory, rng, QUALITIES.indexOf('Rare'));
-    if (component) addPickup(world, 'component', x, y, 1, 'Scrap', component);
+    drop(MATERIAL_DROPS.champion, material());
+    if (championComponent) {
+      // One Rare or better component.
+      const component = rollDroppedComponent(world.territory, rng, QUALITIES.indexOf('Rare'));
+      if (component) addPickup(world, 'component', x, y, 1, 'Scrap', component);
+    }
   } else if (enemy.rank === 'elite') {
     addPickup(world, 'gold', x, y, GOLD_DROPS.elite);
-    const count = MATERIAL_DROPS.elite + (rng.chance(MATERIAL_DROPS.eliteSecondChance) ? 1 : 0);
-    addPickup(world, 'material', x, y, count, material());
-    if (rng.chance(MATERIAL_DROPS.eliteComponentChance)) {
+    const count = MATERIAL_DROPS.elite + (world.luck(MATERIAL_DROPS.eliteSecondChance * odds) ? 1 : 0);
+    drop(count, material());
+    if (world.luck(MATERIAL_DROPS.eliteComponentChance * odds)) {
       const component = rollDroppedComponent(world.territory, rng);
       if (component) addPickup(world, 'component', x, y, 1, 'Scrap', component);
     }
   } else {
     addPickup(world, 'gold', x, y, GOLD_DROPS.normal);
-    if (rng.chance(MATERIAL_DROPS.normalChance)) addPickup(world, 'material', x, y, 1, material());
+    if (world.luck(MATERIAL_DROPS.normalChance * odds)) drop(1, material());
   }
 
   // Specimen Jar: kills with this weapon grant extra Specimens (GDD 7.18).
   const weapon = world.weapons[weaponIndex];
   if (weapon?.resolved.triggers.specimenOnKill) {
-    if (rng.chance(tierValue('modifierSize', ECONOMY_RULES.resourceOnKillChance))) {
-      addPickup(world, 'material', x, y, 1, 'Specimens');
+    if (world.luck(tierValue('modifierSize', ECONOMY_RULES.resourceOnKillChance))) {
+      drop(1, 'Specimens');
     }
   }
 }

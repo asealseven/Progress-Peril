@@ -29,6 +29,7 @@ import {
 } from './loadout';
 import type { ComponentInstance, WeaponGrade, WeaponInstance } from './loadout';
 import { Rng } from './rng';
+import { gradeOpen, hasRule, itemLockedBy } from './research';
 import type { RunState } from './run';
 
 // --- Prices (GDD 6.5, 6.6) ---------------------------------------------------------
@@ -82,11 +83,10 @@ export function recipeCost(def: ComponentDef): { gold: number; material: Materia
 
 /**
  * The research node an item still needs, or undefined when the run may buy
- * and build the item. Milestone 6 adds the research web. Until then every
- * item is open (NOTES.md, GDD 6.4).
+ * and build the item (GDD 8.10).
  */
-export function lockedBy(_run: RunState, _item: ComponentDef | WeaponDef): string | undefined {
-  return undefined;
+export function lockedBy(run: RunState, item: ComponentDef | WeaponDef): string | undefined {
+  return itemLockedBy(run, item.name);
 }
 
 // --- Ledger ------------------------------------------------------------------------
@@ -100,6 +100,8 @@ export interface RoundLedger {
   materialsEarned: number;
   materialsSpent: number;
   componentsFound: number;
+  /** Research Points earned in the round and spent in the preparation after. */
+  researchEarned: number;
 }
 
 /** The ledger entry of the round just played: spending in preparation counts toward the round before. */
@@ -114,6 +116,7 @@ function ledger(run: RunState): RoundLedger {
     materialsEarned: 0,
     materialsSpent: 0,
     componentsFound: 0,
+    researchEarned: 0,
   };
   run.ledger.push(entry);
   return entry;
@@ -157,10 +160,12 @@ export interface ShopState {
   visit: ShopVisit | undefined;
   /** Stock rolls so far, for a fresh seed each time. */
   rolls: number;
+  /** Perfect Information shows the stock before the door opens (GDD 8.12). */
+  previewed: boolean;
 }
 
 export function createShops(): Record<ShopId, ShopState> {
-  const shop = (id: ShopId): ShopState => ({ id, stock: [], specialist: undefined, visit: undefined, rolls: 0 });
+  const shop = (id: ShopId): ShopState => ({ id, stock: [], specialist: undefined, visit: undefined, rolls: 0, previewed: false });
   return { blacksmith: shop('blacksmith'), alchemist: shop('alchemist'), 'royal-inventor': shop('royal-inventor') };
 }
 
@@ -173,11 +178,6 @@ function rollQuality(odds: readonly number[], rng: Rng, atLeast = 0): Quality {
     if (roll < 0) return QUALITIES[index] ?? 'Common';
   }
   return QUALITIES[Math.max(atLeast, 0)] ?? 'Common';
-}
-
-/** Extraordinary items appear only after the matching outer node (GDD 6.6). Research arrives in Milestone 6. */
-function extraordinaryOpen(_run: RunState): boolean {
-  return true;
 }
 
 /** Builds a weapon at a quality: stat steps and default components by quality (GDD 7.17). */
@@ -198,15 +198,28 @@ export function createShopWeapon(def: WeaponDef, quality: Quality, rng: Rng): We
 }
 
 /** One stock item for a shop at a rolled quality. Steps down in quality when the shop holds nothing there. */
-function rollItem(shopId: ShopId, quality: Quality, territory: number, rng: Rng): ShopItem | undefined {
+function rollItem(
+  run: RunState,
+  shopId: ShopId,
+  quality: Quality,
+  territory: number,
+  rng: Rng,
+  milestone: boolean,
+): ShopItem | undefined {
   const weapons = WEAPON_LIST.filter((weapon) => shopForWeapon(weapon) === shopId);
   for (let index = QUALITIES.indexOf(quality); index >= 0; index--) {
     const rolled = QUALITIES[index] ?? 'Common';
     const components = COMPONENT_LIST.filter(
-      (component) => component.quality === rolled && shopForComponent(component) === shopId,
+      (component) =>
+        component.quality === rolled &&
+        shopForComponent(component) === shopId &&
+        // An Extraordinary component needs its outer node and a free milestone shop (GDD 6.6, 8.12).
+        // Other locked items show with the node's name.
+        (rolled !== 'Extraordinary' || (milestone && !lockedBy(run, component))),
     );
     const wantComponent =
-      components.length > 0 && (weapons.length === 0 || rng.chance(ECONOMY_RULES.componentShare));
+      components.length > 0 &&
+      (weapons.length === 0 || rolled === 'Extraordinary' || rng.chance(ECONOMY_RULES.componentShare));
     if (wantComponent) {
       return { kind: 'component', def: rng.pick(components), quality: rolled, price: shopPrice('component', rolled, territory) };
     }
@@ -218,12 +231,10 @@ function rollItem(shopId: ShopId, quality: Quality, territory: number, rng: Rng)
   return undefined;
 }
 
-function stockOdds(run: RunState, free: boolean): number[] {
+function stockOdds(run: RunState, free: boolean): readonly number[] {
   // Free milestone visits use the odds of the next territory (GDD 6.6).
   const territory = Math.min(STOCK_ODDS.length - 1, territoryIndex(run.round) + (free ? 1 : 0));
-  const odds = [...(STOCK_ODDS[territory] ?? STOCK_ODDS[0] ?? [100, 0, 0, 0, 0])];
-  if (!extraordinaryOpen(run)) odds[4] = 0;
-  return odds;
+  return STOCK_ODDS[territory] ?? STOCK_ODDS[0] ?? [100, 0, 0, 0, 0];
 }
 
 /** Restocks every slot of a shop. Free visits show six items, with one Rare or better. */
@@ -239,7 +250,7 @@ function rollStock(run: RunState, shop: ShopState, free: boolean): void {
     // A few fresh rolls keep one visit from showing the same item twice.
     let item: ShopItem | undefined;
     for (let attempt = 0; attempt < 6; attempt++) {
-      item = rollItem(shop.id, rollQuality(odds, rng, guaranteed ? 2 : 0), territory, rng);
+      item = rollItem(run, shop.id, rollQuality(odds, rng, guaranteed ? 2 : 0), territory, rng, free);
       if (!item || !names.has(itemName(item))) break;
     }
     if (item) names.add(itemName(item));
@@ -248,7 +259,7 @@ function rollStock(run: RunState, shop: ShopState, free: boolean): void {
   if (!shop.specialist) {
     // The specialist slot holds one Rare or better item from the next territory's odds.
     const next = stockOdds(run, true);
-    shop.specialist = rollItem(shop.id, rollQuality(next, rng, 2), territory, rng);
+    shop.specialist = rollItem(run, shop.id, rollQuality(next, rng, 2), territory, rng, false);
   }
 }
 
@@ -281,12 +292,21 @@ export function openShop(run: RunState, shopId: ShopId): ShopProblem | undefined
   }
   run.freeVisit = false;
   shop.visit = { free, rerolls: 0, purchases: 0, experimental: 0, extraordinary: 0 };
-  rollStock(run, shop, free);
+  // Perfect Information showed the stock of all three shops. The chosen shop keeps the stock shown.
+  if (!(free && shop.previewed)) rollStock(run, shop, free);
+  if (free) {
+    for (const id of SHOP_IDS) {
+      const other = run.shops[id];
+      if (other !== shop && other.previewed && !other.visit) other.stock = [];
+      other.previewed = false;
+    }
+  }
   return undefined;
 }
 
 export function shopRerollCost(run: RunState, shopId: ShopId): number {
-  return rerollCost(run.shops[shopId].visit?.rerolls ?? 0, run.freeRerolls);
+  // Optimisation: the first reroll in each shop visit is free.
+  return rerollCost(run.shops[shopId].visit?.rerolls ?? 0, run.freeRerolls + (hasRule(run, 'freeReroll') ? 1 : 0));
 }
 
 /** Rerolls restock every slot. The specialist slot stays (GDD 6.5). */
@@ -351,12 +371,25 @@ export function buyItem(run: RunState, shopId: ShopId, slot: number | 'specialis
  * Starts a preparation phase: every door shuts again and the stock rotates
  * out. Mini-boss and boss rounds grant one free visit (GDD 6.1).
  */
+/** Perfect Information: free milestone visits preview the stock of all three shops (GDD 8.12). */
+export function previewShops(run: RunState): void {
+  if (!run.freeVisit || !hasRule(run, 'perfectInformation')) return;
+  for (const id of SHOP_IDS) {
+    const shop = run.shops[id];
+    if (shop.visit || shop.previewed) continue;
+    rollStock(run, shop, true);
+    shop.previewed = true;
+  }
+}
+
 export function beginPreparation(run: RunState, finishedRound: number): void {
   for (const id of SHOP_IDS) {
     run.shops[id].visit = undefined;
     run.shops[id].stock = [];
+    run.shops[id].previewed = false;
   }
   run.freeVisit = roundKind(finishedRound) !== 'encounter';
+  previewShops(run);
 }
 
 // --- Workbench (GDD 7.8 to 7.10, 7.12, 7.22, 7.23, 15.8) ------------------------------
@@ -385,6 +418,8 @@ export function upgradeProblem(run: RunState, weapon: WeaponInstance, stat: Upgr
   const cost = upgradeCost(weapon.grade);
   if (!cost) return 'max-grade';
   if (!upgradeChoices(weapon).includes(stat)) return 'no-effect';
+  // Grade III needs any middle-ring node, Grade IV any outer-ring node (GDD 8.10).
+  if (!gradeOpen(run, weapon.grade + 1)) return 'locked';
   if (run.gold < cost.gold) return 'no-gold';
   if (run.materials.Scrap < cost.scrap) return 'no-materials';
   return undefined;
@@ -565,6 +600,16 @@ export function recordRound(
   goldEarned: number,
   materialsEarned: number,
   componentsFound: number,
+  researchEarned = 0,
 ): void {
-  run.ledger.push({ round, kills, goldEarned, goldSpent: 0, materialsEarned, materialsSpent: 0, componentsFound });
+  run.ledger.push({
+    round,
+    kills,
+    goldEarned,
+    goldSpent: 0,
+    materialsEarned,
+    materialsSpent: 0,
+    componentsFound,
+    researchEarned,
+  });
 }

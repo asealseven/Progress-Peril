@@ -339,3 +339,56 @@ GDD 3.3, 6.1 to 6.6, 7.8 to 7.10, 7.22, 7.23, 14.1 to 14.3 and 15.8. You asked f
 - **Headless campaign.** The Milestone 4 Damage stand-in is gone. The bot buys grades in Damage, visits one shop per phase when a free visit waits or gold reaches 80, buys a weapon for a free slot, then every affordable component, and fits components into free sockets. The bot hunts the weakest enemy within 500 pixels, so Mechanists fall before the Sentinel they mend.
 - **Economy against GDD 14.3.** The run prints kills, gold and materials per territory. Seed 2026: 198, 662 and 883 kills against 255, 410 and 539. 204, 748 and 829 gold against 337, 544 and 753. 14, 83 and 109 materials against 40, 70 and 106. Territory 1 runs low with no mini-boss and no boss. Territories 2 and 3 run high on swarms of Minimal enemies. Milestone 12 tunes this.
 - **CLAUDE.md, folder layout.** New files from the layout: `src/data/economy.ts`, `src/data/shop.ts`, `src/sim/economy.ts` and the `Preparation` scene. One file outside the layout: `src/sim/world/loot.ts`.
+
+## Milestone 6
+
+Every choice below is mine and easy to reverse. Each names its GDD section.
+
+### Archive before Milestone 9 (GDD 8.10, 11.10)
+
+- **Discovery.** Every node except the ten hidden nodes counts as discovered until Milestone 9 adds Archive Points and discovery costs. `STARTING_KNOWLEDGE` already lists the GDD 11.10 starting set for that milestone.
+- **One Archive per session.** The title flow keeps one Archive in memory, so mastery, hints and hidden nodes carry from run to run. A reload clears it until Milestone 9 adds saves.
+
+### Research Points (GDD 8.5)
+
+- **No pickup.** Research Points go straight to the notebook on a kill. Research Yield and the Research Notebook multiply the reward. Fractions stay in the total. The bar and the HUD round down.
+- **Champions (GDD 9.13).** "A rare component or a large Research Point reward": an even roll per champion. The Research Point side pays 25, the component side pays the normal 1.
+
+### Costs (GDD 8.11)
+
+- **Materials by discipline.** Chemistry pays Reagents, Physics and Mathematics pay Crystals, Engineering pays Scrap, Biology pays Specimens. A cross node pays the ring amount once per linked discipline, so a Physics and Mathematics node costs 6 Crystals.
+- **Efficient Research.** Point costs times 0.9, rounded up.
+
+### Rules (GDD 8.10)
+
+- **Grade gates.** An outer-ring node also opens Grade III, since an outer node sits past the middle ring.
+- **Refunds.** 75 per cent of each removed node's payment, rounded down per node and per material. Captured nodes refund nothing. Mastery stays earned, and a node pays mastery once per run.
+- **Captured research (GDD 5.8).** One capture waits after Round 7 and after Round 14. It offers centre and inner nodes from the beaten kingdom's disciplines whose requirements are met. Keldrath and Merovant offer Engineering, Myrathis offers Chemistry and Biology, Orthelyn offers Physics and Mathematics, Nymora offers Biology.
+- **Shops.** Extraordinary components appear only on free milestone visits after their node. The specialist slot never rolls Extraordinary. Other locked items stay in stock and show the node's name.
+
+### Node effects (GDD 8.12)
+
+- **Numbers with no GDD value**, all in `RESEARCH_RULES`: Compound Interest 5 per cent of gold up to 25. Longer statuses one Medium step. Neurotoxins slow to 80 per cent speed. Gravity Studies pulls 14 pixels. Knockback into walls stuns at Medium build-up. Calculus of Motion leads by half the travel time. Chain falloff 0.85 per generation with Chain Kinetics. A small heal is 1 health. Burning spreads within 70 pixels. Granted builds run at Low.
+- **Knockback.** Research knockback scales a weapon's own knockback. A weapon with no knockback gains none.
+- **Fortune.** Raises drop odds by the same share.
+- **Chaos Theory.** Covers critical, Evasion, drop and jam rolls.
+- **Mutagenics.** After each round one Organic component gains a step in Damage, Attack Speed or Range, at most three steps per component, so Minimal reaches High.
+- **Waiting effects.** Absolute Precision needs boss phases (Milestone 8). The Philosopher's Engine effect needs Archive saves (Milestone 9). Both nodes exist and can be found.
+- **Tesla Capacitor.** The first discharge comes at a quarter of the interval, so a short test sees one. Lightning in a Bottle halves the interval.
+
+### Hidden node hints (GDD 8.12)
+
+- **Near misses.** Half the Steam Bursts. An elite standing in a Galvanic Surge. One of Living Arsenal and Tesla Rod. Chain generation 2. Below 20 per cent health at round end. Five criticals inside one second. A Spore Mother or The Unstable killed the other way. One discipline at Expert for The Philosopher's Engine.
+
+### Research web (GDD 15.8)
+
+- **Sector order.** Chemistry, Engineering, Biology, Physics, Mathematics around the circle. Each neighbouring pair shares two cross nodes, so 10 of 20 cross nodes sit on a shared border. The rest sit at the mean angle of their disciplines.
+- **Rings.** Centre, inner, middle and outer rings inside each sector. Cross nodes on a band outside the rings. Hidden smudges on the outermost band.
+- **Sector colours.** Chemistry green, Physics yellow, Mathematics violet, Engineering copper, Biology magenta. GDD 15.1 lists no discipline colours.
+- **States.** Available nodes glow gold. Researched nodes fill with their discipline colours. Blocked nodes grey out. Captured choices carry a crimson ring. Labels show from zoom 0.85, and the picked node's label always shows.
+- **Controls.** Drag pans, the wheel and a pinch zoom, and three buttons zoom for players with neither. A second press on a picked node researches it, or takes it as captured research when a capture waits.
+
+### Tests
+
+- **Campaign bot.** Researches the cheapest available node until points run out, and takes the first capture. Seed 2026 ends with 55 nodes. Research Points per round run 20 in Round 1, 109 in Round 8, 172 in Round 21.
+- **Folder layout.** New files from the layout: `src/data/research.ts`, `src/sim/research.ts` and `src/sim/archive.ts`. One file outside the layout: `src/ui/researchWeb.ts`, a UI piece.

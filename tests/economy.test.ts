@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { CHARACTERS } from '../src/data/characters';
 import { COMPONENT_LIST, QUALITIES, componentByName } from '../src/data/components';
 import { MERGE_COST, RECIPE_COSTS, UPGRADE_COSTS } from '../src/data/economy';
+import { OPENED_BY, RESEARCH_NODES } from '../src/data/research';
 import { SHOP_IDS, SHOP_RULES, STOCK_ODDS, shopForComponent, shopForWeapon } from '../src/data/shop';
 import { tierValue } from '../src/data/tiers';
 import { WEAPONS, WEAPON_LIST, weaponByName } from '../src/data/weapons';
@@ -16,6 +17,7 @@ import {
   dismantleWeapon,
   equipFromReserve,
   installFromInventory,
+  itemName,
   materialFor,
   mergeProblem,
   mergeWeapons,
@@ -48,6 +50,18 @@ function rich(round = 1, gold = 100000): RunState {
   run.gold = gold;
   run.materials = { Scrap: 500, Reagents: 500, Crystals: 500, Specimens: 500 };
   return run;
+}
+
+/** Researches the node an item waits for, with no cost. */
+function open(run: RunState, item: string): void {
+  const node = OPENED_BY.get(item);
+  if (node && !run.research.researched.includes(node.id)) run.research.researched.push(node.id);
+}
+
+function ringNode(ring: 'Middle' | 'Outer'): string {
+  const node = RESEARCH_NODES.find((entry) => entry.ring === ring);
+  if (!node) throw new Error(ring);
+  return node.id;
 }
 
 function part(name: string) {
@@ -240,6 +254,8 @@ describe('shop visits (GDD 6.1, 6.4, 6.5)', () => {
     run.shops.alchemist.stock = [];
     openShop(run, 'alchemist');
     expect(run.shops.alchemist.specialist).toBe(specialist);
+    // The specialist item waits for its research node (GDD 8.10).
+    open(run, specialist ? itemName(specialist) : '');
     expect(buyItem(run, 'alchemist', 'specialist')).toBeUndefined();
     expect(run.shops.alchemist.specialist).toBeUndefined();
     run.shops.alchemist.visit = undefined;
@@ -346,6 +362,8 @@ describe('weapon grades (GDD 7.8, 7.22)', () => {
     run.materials.Scrap = 20;
     const weapon = run.weapons[0]!;
     expect(weapon.grade).toBe(0);
+    // Grades III and IV wait for a middle-ring and an outer-ring node (GDD 8.10).
+    run.research.researched.push(ringNode('Middle'), ringNode('Outer'));
     for (let grade = 1; grade <= 4; grade++) {
       expect(auxiliaryOpen(weapon)).toBe(grade > 3);
       expect(upgradeWeapon(run, weapon, 'damage')).toBeUndefined();

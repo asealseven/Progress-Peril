@@ -9,16 +9,22 @@ import { emptyMaterials } from '../data/economy';
 import type { MaterialStock } from '../data/economy';
 import { DEFAULT_KINGDOM_ORDER } from '../data/kingdoms';
 import type { KingdomName } from '../data/palette';
-import { CAMPAIGN_ROUNDS, roundDuration, territoryIndex } from '../data/rounds';
+import { CAMPAIGN_ROUNDS, roundDuration, roundKind, territoryIndex } from '../data/rounds';
 import { ADAPTATION, PERFORMANCE_LIMITS, tierValue } from '../data/tiers';
 import type { PerformanceLimits } from '../data/tiers';
 import type { WeaponDef } from '../data/weapons';
 import type { ShopId } from '../data/shop';
+import { RESEARCH_RULES } from '../data/research';
+import type { UpgradeStat } from '../data/economy';
+import { createArchive } from './archive';
+import type { ArchiveState } from './archive';
 import { planRound } from './director';
 import { beginPreparation, createShops, recordRound } from './economy';
 import type { RoundLedger, ShopState } from './economy';
 import { WEAPON_SLOTS, cloneWeapon, createComponent, createWeapon, installedComponents, resolveLoadout } from './loadout';
 import type { ComponentInstance, WeaponInstance } from './loadout';
+import { applyFindings, createResearch, hasRule, queueCapture, resolveResearch } from './research';
+import type { ResearchState } from './research';
 import { Rng } from './rng';
 import type { AdaptationMap, PlayerStats, RoundStats } from './world/types';
 import { World } from './world/world';
@@ -41,6 +47,10 @@ export interface RoundResult {
   readonly gold: number;
   readonly materials: Readonly<MaterialStock>;
   readonly components: readonly string[];
+  /** Research Points earned (GDD 8.5). */
+  readonly research: number;
+  /** Hidden nodes the round discovered (GDD 8.12). */
+  readonly discoveries: readonly string[];
 }
 
 export interface RunState {
@@ -75,12 +85,21 @@ export interface RunState {
   status: RunStatus;
   /** Adaptation lasts for a territory (GDD 3.7). */
   adaptation: AdaptationMap;
-  /** Research synergies opened by research nodes (GDD 7.19). Milestone 6 fills the list. */
+  /** Research synergies opened by research nodes (GDD 7.19). */
   researchSynergies: string[];
+  /** Research Points and researched nodes. Both reset each run (GDD 8.5). */
+  research: ResearchState;
+  /** The Grand Archive: discovered nodes and mastery last across runs (GDD 8.13). */
+  archive: ArchiveState;
   readonly history: RoundResult[];
 }
 
-export function createRun(seed: number, character: CharacterDef, startingWeapon: WeaponDef): RunState {
+export function createRun(
+  seed: number,
+  character: CharacterDef,
+  startingWeapon: WeaponDef,
+  archive: ArchiveState = createArchive(),
+): RunState {
   return {
     seed: seed >>> 0,
     character,
@@ -99,6 +118,8 @@ export function createRun(seed: number, character: CharacterDef, startingWeapon:
     status: 'active',
     adaptation: {},
     researchSynergies: [],
+    research: createResearch(),
+    archive,
     history: [],
   };
 }
@@ -119,6 +140,9 @@ export function resolvePlayerStats(character: CharacterDef): PlayerStats {
     adaptationCap: ADAPTATION.baseCap,
     // Status Potency has base Low (GDD 3.6): no change at the base tier.
     statusPotency: 1,
+    // Research Yield has base Medium and Fortune base Low (GDD 3.6): no change at the base tiers.
+    researchYield: 1,
+    fortune: 0,
   };
 }
 
@@ -144,8 +168,9 @@ export function createWorldForRound(run: RunState, limits: PerformanceLimits = P
   // Synergies recalculate here, when the player presses Start (CLAUDE.md rule 7).
   const equipped = run.weapons.slice(0, WEAPON_SLOTS);
   const base = resolvePlayerStats(run.character);
-  const loadout = resolveLoadout(equipped, base, { researchSynergies: run.researchSynergies });
-  const suppressed = resolveLoadout(withoutAuxiliary(equipped), base, { researchSynergies: run.researchSynergies });
+  const research = resolveResearch(run.research.researched);
+  const loadout = resolveLoadout(equipped, base, { research });
+  const suppressed = resolveLoadout(withoutAuxiliary(equipped), base, { research });
   return new World({
     arena: run.arena,
     seed: roundRng.int(0, 0xffffffff),
@@ -161,6 +186,7 @@ export function createWorldForRound(run: RunState, limits: PerformanceLimits = P
     gold: run.gold,
     synergies: loadout.synergies,
     adaptation: run.adaptation,
+    research: research.rules,
     limits,
   });
 }
@@ -177,8 +203,15 @@ export function finishRound(run: RunState, world: World): RoundResult {
     gold: loot.gold,
     materials: { ...loot.materials },
     components: loot.components.map((component) => component.name),
+    research: loot.research,
+    discoveries: applyFindings(run, world.findings, {
+      survived,
+      healthShare: world.player.health / world.player.stats.maxHealth,
+      weapons: run.weapons.slice(0, WEAPON_SLOTS).map((weapon) => weapon.def.name),
+    }),
   };
   run.history.push(result);
+  run.research.points += loot.research;
   // Loot collected before a defeat still counts for the campaign statistics.
   run.gold = world.gold;
   let materialsEarned = 0;
@@ -187,7 +220,13 @@ export function finishRound(run: RunState, world: World): RoundResult {
     materialsEarned += loot.materials[material];
   }
   for (const component of loot.components) run.inventory.push(createComponent(component));
-  recordRound(run, run.round, world.stats.kills, loot.gold, materialsEarned, loot.components.length);
+  // Compound Interest: 5 per cent of unspent gold at the end of each round, up to 25 gold.
+  let interest = 0;
+  if (survived && hasRule(run, 'compoundInterest')) {
+    interest = Math.min(RESEARCH_RULES.interestCap, Math.floor(run.gold * RESEARCH_RULES.interestShare));
+    run.gold += interest;
+  }
+  recordRound(run, run.round, world.stats.kills, loot.gold + interest, materialsEarned, loot.components.length, loot.research);
   // Adaptation lasts for a territory (GDD 3.7).
   const sameTerritory = territoryIndex(run.round + 1) === territoryIndex(run.round);
   run.adaptation = sameTerritory ? { ...world.player.adaptation } : {};
@@ -198,6 +237,9 @@ export function finishRound(run: RunState, world: World): RoundResult {
       weapon.rounds++;
       for (const component of installedComponents(weapon)) component.rounds++;
     }
+    if (hasRule(run, 'mutagenics')) mutate(run);
+    // Captured research after each territory except the last (GDD 5.8).
+    if (roundKind(run.round) === 'boss' && run.round < PLAYABLE_ROUNDS) queueCapture(run, kingdomForRound(run));
   }
 
   if (!survived) {
@@ -210,6 +252,22 @@ export function finishRound(run: RunState, world: World): RoundResult {
     run.round++;
   }
   return result;
+}
+
+/** Mutagenics: each round, one Organic component gains a random stat step, up to High (GDD 8.12). */
+function mutate(run: RunState): void {
+  const rng = new Rng(run.seed).fork(9000 + run.round);
+  const stats: UpgradeStat[] = ['damage', 'attackSpeed', 'range'];
+  const total = (component: ComponentInstance): number =>
+    Object.values(component.mutations ?? {}).reduce((sum, steps) => sum + steps, 0);
+  const organic = run.weapons
+    .slice(0, WEAPON_SLOTS)
+    .flatMap((weapon) => installedComponents(weapon))
+    .filter((component) => component.def.tags.includes('Organic') && total(component) < RESEARCH_RULES.mutationCap);
+  if (organic.length === 0) return;
+  const component = rng.pick(organic);
+  const stat = rng.pick(stats);
+  component.mutations = { ...component.mutations, [stat]: (component.mutations?.[stat] ?? 0) + 1 };
 }
 
 /** Totals across every round played so far. */

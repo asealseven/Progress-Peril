@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { CHARACTERS } from '../src/data/characters';
+import { RESEARCH_NODES } from '../src/data/research';
 import { STARTING_WEAPONS, WEAPONS } from '../src/data/weapons';
 import type { WeaponDef } from '../src/data/weapons';
 import { GRADE_NUMERALS, MATERIALS } from '../src/data/economy';
@@ -14,6 +15,7 @@ import {
   kingdomForRound,
   runTotals,
 } from '../src/sim/run';
+import { captureChoices, captureNode, nodeCost, nodeState, researchNodeNow } from '../src/sim/research';
 import type { RunState } from '../src/sim/run';
 import {
   buyItem,
@@ -98,6 +100,17 @@ function playRun(seed: number, invincible: boolean, weapon: WeaponDef = WEAPONS.
  * shop and buy the first affordable item, then fit components into free slots.
  */
 function prepare(run: RunState): void {
+  // Research the cheapest available node, again and again while points last (CLAUDE.md "Testing").
+  for (;;) {
+    const cheapest = RESEARCH_NODES.filter((entry) => nodeState(run, entry) === 'available').sort(
+      (a, b) => nodeCost(run, a).points - nodeCost(run, b).points,
+    )[0];
+    if (!cheapest) break;
+    researchNodeNow(run, cheapest);
+  }
+  const capture = captureChoices(run)[0];
+  if (capture) captureNode(run, capture);
+
   // Grades first, lowest grade first, always in Damage.
   for (;;) {
     const weapon = [...run.weapons]
@@ -226,6 +239,7 @@ describe('headless run', () => {
           `Round ${result.round} (${kingdom}): ${result.seconds.toFixed(0)} s, ${result.stats.kills} kills, ` +
             `most enemies ${mostEnemies} of ${limit}, gold +${entry.goldEarned} -${entry.goldSpent} = ${run.gold}, ` +
             `materials +${entry.materialsEarned} (${materials}), ` +
+            `research +${entry.researchEarned.toFixed(0)} (${run.research.researched.length} nodes), ` +
             `weapons ${run.weapons.map((weapon) => `${weapon.def.name} ${GRADE_NUMERALS[weapon.grade] || '0'}`).join(', ')}`,
         );
       }

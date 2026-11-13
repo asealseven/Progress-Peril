@@ -256,7 +256,8 @@ describe('weapon resolution', () => {
 
   it('lists components waiting for a later milestone', () => {
     expect(resolved('Crossbow', 'Incendiary Oil').inactive).toEqual([]);
-    expect(resolved('Crossbow', 'Research Notebook').inactive).toEqual([{ component: 'Research Notebook', activeFrom: 6 }]);
+    // The Research Notebook woke with Milestone 6. No component waits now.
+    expect(resolved('Crossbow', 'Research Notebook').inactive).toEqual([]);
     expect(resolved('Crossbow', 'Tempered Steel Frame').inactive).toEqual([]);
   });
 

@@ -142,6 +142,8 @@ export class Combat extends Phaser.Scene {
   private suppressedText!: Phaser.GameObjects.Text;
   private goldText!: Phaser.GameObjects.Text;
   private lastGold = -1;
+  private researchText!: Phaser.GameObjects.Text;
+  private lastResearch = -1;
 
   constructor() {
     super('Combat');
@@ -173,6 +175,7 @@ export class Combat extends Phaser.Scene {
     this.debugVisible = false;
     this.warnings = [];
     this.lastGold = -1;
+    this.lastResearch = -1;
     this.championLabels = [];
     this.enemyButton = undefined;
     this.rankButton = undefined;
@@ -346,8 +349,13 @@ export class Combat extends Phaser.Scene {
       .setOrigin(1, 0)
       .setDepth(DEPTH.hudText);
 
+    // Research Points sit under the gold (GDD 15.7).
+    this.researchText = this.inHud(addText(this, goldRight, HUD_MARGIN - 4 + 28 * s, '', { size: 18 * s, weight: '700' }))
+      .setOrigin(1, 0)
+      .setDepth(DEPTH.hudText);
+
     // A parchment outline keeps HUD text readable over the arena.
-    for (const text of [this.healthText, this.timerText, roundText, territoryText, this.goldText]) {
+    for (const text of [this.healthText, this.timerText, roundText, territoryText, this.goldText, this.researchText]) {
       text.setStroke(PALETTE.parchment, 5);
     }
 
@@ -1419,6 +1427,11 @@ export class Combat extends Phaser.Scene {
     if (sim.gold !== this.lastGold) {
       this.lastGold = sim.gold;
       this.goldText.setText(STRINGS.prep.gold(sim.gold));
+    }
+    const research = Math.floor(this.run.research.points + sim.loot.research + 1e-9);
+    if (research !== this.lastResearch) {
+      this.lastResearch = research;
+      this.researchText.setText(STRINGS.hud.research(research));
     }
 
     this.suppressedText.setVisible(

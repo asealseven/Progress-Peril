@@ -9,6 +9,10 @@ import { COMBAT, DIRECTOR_RULES, PERFORMANCE_LIMITS, WEAPON_RULES, activeEnemyLi
 import type { PerformanceLimits } from '../../data/tiers';
 import { attackTokens } from '../ai';
 import type { ResolvedWeapon } from '../loadout';
+import type { ResearchRule } from '../../data/research';
+import { RESEARCH_RULES } from '../../data/research';
+import { emptyFindings } from '../research';
+import type { RoundFindings } from '../research';
 import { Rng } from '../rng';
 import { updateWeapons } from './attacks';
 import { createConstruct, updateConstructs } from './constructs';
@@ -78,7 +82,7 @@ function createWeaponState(resolved: ResolvedWeapon, suppressed: ResolvedWeapon 
     beamX: 0,
     beamY: 0,
     deployTimer: COMBAT.weaponStartDelay,
-    lightningTimer: WEAPON_RULES.lightningSeconds / 2,
+    lightningTimer: WEAPON_RULES.lightningSeconds / 4,
     bayonetTimer: 0,
     smokeTimer: 0,
     firstHits: new Set(),
@@ -142,6 +146,12 @@ export class World {
     shotsFired: 0,
     criticalHits: 0,
   };
+  /** Named research rules (GDD 8.12). */
+  readonly research: ReadonlyMap<ResearchRule, number>;
+  /** What the round showed for the hidden node conditions (GDD 8.12). */
+  readonly findings: RoundFindings = emptyFindings();
+  /** Times of recent critical hits, for Probability Storm. */
+  private readonly criticalTimes: number[] = [];
   /** Events since the scene last cleared the list. */
   readonly events: WorldEvent[] = [];
 
@@ -176,6 +186,7 @@ export class World {
     this.activeLimit = config.activeLimit ?? activeEnemyLimit(this.limits, config.round);
     this.tokenLimit = attackTokens(this.territory);
     this.gold = config.gold ?? 0;
+    this.research = config.research ?? new Map();
     this.spawns = [...config.spawns].sort((a, b) => a.time - b.time);
 
     this.player = {
@@ -227,6 +238,45 @@ export class World {
   /** Threat units the director has not sent in yet. */
   get spawnsLeft(): number {
     return this.spawns.length - this.nextSpawn + (this.wave ? 1 : 0);
+  }
+
+  /** How many researched nodes carry a rule. 0 means the rule is off. */
+  rule(name: ResearchRule): number {
+    return this.research.get(name) ?? 0;
+  }
+
+  /** A chance roll in the player's favour. Chaos Theory rolls twice and keeps the better result. */
+  luck(chance: number): boolean {
+    const first = this.rng.chance(chance);
+    if (this.rule('chaosTheory') === 0) return first;
+    return this.rng.chance(chance) || first;
+  }
+
+  /** A chance roll against the player. Chaos Theory rolls twice and keeps the better result. */
+  mishap(chance: number): boolean {
+    const first = this.rng.chance(chance);
+    if (this.rule('chaosTheory') === 0) return first;
+    return this.rng.chance(chance) && first;
+  }
+
+  /** Damage kept per chain generation (GDD 7.20). Infinite Series slows the fall. */
+  get chainFalloff(): number {
+    return this.rule('slowChainFalloff') > 0 ? RESEARCH_RULES.slowFalloff : WEAPON_RULES.chainFalloff;
+  }
+
+  /** Records a critical hit and the most landed inside one second. */
+  noteCritical(): void {
+    const now = this.elapsed;
+    const times = this.criticalTimes;
+    times.push(now);
+    while (times.length > 0 && now - (times[0] ?? now) > RESEARCH_RULES.criticalBurstSeconds) times.shift();
+    if (times.length > this.findings.criticalBurst) this.findings.criticalBurst = times.length;
+  }
+
+  /** Records the depth a chain reached against the limit of its weapon. */
+  noteChain(generation: number, limit: number): void {
+    if (generation > this.findings.chainDepth) this.findings.chainDepth = generation;
+    if (generation >= limit) this.findings.chainLimitReached = true;
   }
 
   emit(event: WorldEvent): void {
@@ -343,6 +393,8 @@ export class World {
   private applySuppression(): void {
     if (this.suppressing === this.auxiliarySuppressed) return;
     this.auxiliarySuppressed = this.suppressing;
+    // Anomalous Physics: Auxiliary components ignore suppression.
+    if (this.rule('ignoreSuppression') > 0) return;
     for (const weapon of this.weapons) weapon.resolved = this.suppressing ? weapon.suppressed : weapon.full;
     this.emit({ type: 'suppressed', active: this.suppressing });
   }
@@ -351,8 +403,9 @@ export class World {
   private runChainEvents(): void {
     const batch = this.pendingExplosions.splice(0, this.limits.chainEventsPerStep);
     for (const pending of batch) {
+      this.noteChain(pending.generation, this.weapons[pending.weaponIndex]?.resolved.chainDepthLimit ?? WEAPON_RULES.chainDepthLimit);
       explode(this, pending.x, pending.y, pending.radius, pending.weaponIndex, {
-        scale: pending.damageScale * WEAPON_RULES.chainFalloff ** (pending.generation - 1),
+        scale: pending.damageScale * this.chainFalloff ** (pending.generation - 1),
         generation: pending.generation,
         explosive: pending.explosive,
       });
@@ -399,7 +452,9 @@ export class World {
       if (player.slowTimer <= 0) player.slowFactor = 1;
     }
     if (player.health > 0) {
-      player.health = Math.min(player.stats.maxHealth, player.health + player.stats.regeneration * dt);
+      // Regeneration (research): the rate doubles below half health.
+      const low = this.rule('regenBelowHalf') > 0 && player.health < player.stats.maxHealth / 2;
+      player.health = Math.min(player.stats.maxHealth, player.health + player.stats.regeneration * (low ? 2 : 1) * dt);
     }
   }
 }

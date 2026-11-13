@@ -10,6 +10,8 @@ import {
 } from '../data/economy';
 import type { UpgradeStat } from '../data/economy';
 import { PALETTE, hexToNumber } from '../data/palette';
+import { DISCIPLINES, MASTERY_POINTS, RESEARCH_NODES, researchNode } from '../data/research';
+import type { ResearchNodeDef } from '../data/research';
 import { SCREEN } from '../data/screen';
 import { QUALITY_COLOURS, SHOPS, SHOP_IDS } from '../data/shop';
 import type { ShopId } from '../data/shop';
@@ -29,6 +31,7 @@ import {
   mergeProblem,
   mergeWeapons,
   openShop,
+  previewShops,
   recipeCost,
   recipes,
   removeToInventory,
@@ -45,9 +48,24 @@ import {
 import type { ShopItem, ShopProblem, WorkbenchProblem } from '../sim/economy';
 import { WEAPON_SLOTS, auxiliaryOpen, installProblem, resolveLoadout } from '../sim/loadout';
 import type { ComponentInstance, ResolvedWeapon, WeaponInstance } from '../sim/loadout';
+import { masteryRank, nextRank } from '../sim/archive';
+import {
+  captureChoices,
+  captureNode,
+  gradeOpen,
+  nodeCost,
+  nodeState,
+  refundNode,
+  refundPreview,
+  researchNodeNow,
+  researchProblem,
+  resolveResearch,
+} from '../sim/research';
 import { resolvePlayerStats } from '../sim/run';
 import type { RunState } from '../sim/run';
 import { Button } from '../ui/button';
+import { ResearchWeb, fitCamera } from '../ui/researchWeb';
+import type { WebCamera, WebViewport } from '../ui/researchWeb';
 import { addText } from '../ui/text';
 
 type Selection =
@@ -59,7 +77,10 @@ type TrayTab = 'components' | 'weapons' | 'recipes';
 
 /** What the screen shows. The scene redraws from this after every action. */
 interface PrepView {
-  tab: 'workbench' | 'shop';
+  tab: 'workbench' | 'shop' | 'research';
+  /** The node picked on the research web, and the web's pan and zoom. */
+  node?: string;
+  web?: WebCamera;
   /** The shop behind the open door. Undefined shows the three doors. */
   shop?: ShopId;
   tray: TrayTab;
@@ -98,11 +119,13 @@ const CHIP_HEIGHT = 84;
 const CHIP_GAP = 8;
 const SHOP_CARD_WIDTH = 170;
 const SHOP_CARD_GAP = 8;
+const WEB_VIEW: WebViewport = { x: 0, y: BAR_HEIGHT + 4, width: 856, height: SCREEN.height - BAR_HEIGHT - 4 };
+const NODE_PANEL_LEFT = 864;
 
 /**
  * The preparation screen (GDD 3.3, 15.8): Workbench and Shop tabs, a resource
  * bar and a large Start button. Untimed: the round starts when the player
- * presses Start. The Research tab arrives with Milestone 6.
+ * presses Start. The Research tab shows the research web (GDD 8, 15.8).
  */
 export class Preparation extends Phaser.Scene {
   private run!: RunState;
@@ -125,9 +148,11 @@ export class Preparation extends Phaser.Scene {
 
   create(): void {
     this.cameras.main.setBackgroundColor(PALETTE.parchment);
+    // The research web draws first, so the bar and the node card cover its edges.
+    if (this.view.tab === 'research') this.drawResearch();
     this.drawBar();
     if (this.view.tab === 'workbench') this.drawWorkbench();
-    else this.drawShop();
+    else if (this.view.tab === 'shop') this.drawShop();
 
     const keyboard = this.input.keyboard;
     const start = (): void => this.startRound();
@@ -197,29 +222,34 @@ export class Preparation extends Phaser.Scene {
     this.add.rectangle(0, 0, SCREEN.width, BAR_HEIGHT + 4, PANEL, 1).setOrigin(0);
     this.add.rectangle(0, BAR_HEIGHT + 4, SCREEN.width, 3, INK, 1).setOrigin(0);
 
-    new Button(this, MARGIN + 90, BAR_HEIGHT / 2 + 2, {
-      label: STRINGS.prep.workbench,
-      width: 180,
-      height: 52,
-      textSize: 24,
-      selected: view.tab === 'workbench',
-      onClick: () => this.redraw((next) => ((next.tab = 'workbench'), (next.message = undefined))),
-    });
-    new Button(this, MARGIN + 190 + 110, BAR_HEIGHT / 2 + 2, {
-      label: run.freeVisit ? STRINGS.prep.shopFree : STRINGS.prep.shop,
-      width: 220,
-      height: 52,
-      textSize: 24,
-      selected: view.tab === 'shop',
-      onClick: () => this.redraw((next) => ((next.tab = 'shop'), (next.message = undefined), (next.upgrade = undefined))),
-    });
+    const tabs: Array<[PrepView['tab'], string, number]> = [
+      ['workbench', STRINGS.prep.workbench, 150],
+      ['shop', run.freeVisit ? STRINGS.prep.shopFree : STRINGS.prep.shop, 170],
+      ['research', run.research.captures.length > 0 ? STRINGS.prep.researchWaiting : STRINGS.prep.research, 180],
+    ];
+    let tabLeft = MARGIN;
+    for (const [tab, label, width] of tabs) {
+      new Button(this, tabLeft + width / 2, BAR_HEIGHT / 2 + 2, {
+        label,
+        width,
+        height: 52,
+        textSize: 21,
+        selected: view.tab === tab,
+        onClick: () =>
+          this.redraw((next) => {
+            next.tab = tab;
+            next.message = undefined;
+            next.upgrade = undefined;
+          }),
+      });
+      tabLeft += width + 8;
+    }
 
-    // Resource bar: gold and the four materials (GDD 15.8).
-    const resources = [
-      STRINGS.prep.gold(run.gold),
-      ...MATERIALS.map((material) => STRINGS.prep.material(material, run.materials[material])),
-    ].join('     ');
-    addText(this, 446, BAR_HEIGHT / 2 + 2, resources, { size: 19, weight: '700' }).setOrigin(0, 0.5);
+    // Resource bar: gold, Research Points and the four materials (GDD 15.8).
+    const top = [STRINGS.prep.gold(run.gold), STRINGS.prep.researchPoints(Math.floor(run.research.points + 1e-9))].join('     ');
+    const materials = MATERIALS.map((material) => STRINGS.prep.material(material, run.materials[material])).join('     ');
+    addText(this, tabLeft + 10, BAR_HEIGHT / 2 - 11, top, { size: 18, weight: '700' }).setOrigin(0, 0.5);
+    addText(this, tabLeft + 10, BAR_HEIGHT / 2 + 14, materials, { size: 16, weight: '700' }).setOrigin(0, 0.5);
 
     new Button(this, SCREEN.width - MARGIN - 120, BAR_HEIGHT / 2 + 2, {
       label: STRINGS.prep.start(run.round),
@@ -248,6 +278,170 @@ export class Preparation extends Phaser.Scene {
             for (const material of MATERIALS) run.materials[material] += 10;
           }),
       }).setDepth(50);
+      new Button(this, 1010 - 440, BAR_HEIGHT + 22, {
+        label: STRINGS.prep.debugResearch,
+        width: 150,
+        height: 30,
+        textSize: 15,
+        onClick: () => this.redraw(() => (run.research.points += 100)),
+      }).setDepth(50);
+      new Button(this, 1010 - 620, BAR_HEIGHT + 22, {
+        label: STRINGS.prep.debugDiscover,
+        width: 190,
+        height: 30,
+        textSize: 15,
+        onClick: () =>
+          this.redraw(() => {
+            for (const node of RESEARCH_NODES) run.archive.discovered.add(node.id);
+          }),
+      }).setDepth(50);
+    }
+  }
+
+  // --- Research ----------------------------------------------------------------------
+
+  /** Researches, captures or refunds, then redraws with a line about the result. */
+  private researchAct(node: ResearchNodeDef, action: 'research' | 'capture' | 'refund'): void {
+    const run = this.run;
+    let message: string;
+    if (action === 'capture') {
+      message = captureNode(run, node) ? STRINGS.research.captured(node.name) : STRINGS.research.problems.requirements;
+    } else if (action === 'refund') {
+      message = refundNode(run, node) ? STRINGS.research.refunded(node.name) : STRINGS.research.problems.undiscovered;
+    } else {
+      const problem = researchNodeNow(run, node);
+      message = problem ? STRINGS.research.problems[problem] : STRINGS.research.researched(node.name);
+    }
+    // Perfect Information shows the next milestone stock at once (GDD 8.12).
+    previewShops(run);
+    this.redraw((view) => (view.message = message));
+  }
+
+  /** The research web on the left, the node card on the right (GDD 15.8). */
+  private drawResearch(): void {
+    const run = this.run;
+    const view = this.view;
+    const camera = (view.web ??= fitCamera(WEB_VIEW));
+    const captures = captureChoices(run);
+    const captureIds = new Set(captures.map((node) => node.id));
+
+    const web = new ResearchWeb(this, {
+      viewport: WEB_VIEW,
+      camera,
+      stateOf: (node) => nodeState(run, node),
+      hinted: (node) => run.archive.hints.has(node.id),
+      captures: captureIds,
+      selected: view.node,
+      onPick: (node) => {
+        // A second press researches the node, instantly (GDD 15.8).
+        if (view.node === node.id) {
+          if (captureIds.has(node.id)) return this.researchAct(node, 'capture');
+          if (nodeState(run, node) === 'available') return this.researchAct(node, 'research');
+        }
+        this.redraw((next) => ((next.node = node.id), (next.message = undefined)));
+      },
+    });
+
+    // Zoom buttons, for players with no wheel and no second finger.
+    const zoomY = SCREEN.height - 36;
+    const zoomButton = (x: number, label: string, onClick: () => void, width = 48): void => {
+      new Button(this, x, zoomY, { label, width, height: 48, textSize: 24, onClick });
+    };
+    zoomButton(MARGIN + 24, STRINGS.research.zoomOut, () => web.zoomBy(0.8));
+    zoomButton(MARGIN + 80, STRINGS.research.zoomIn, () => web.zoomBy(1.25));
+    zoomButton(MARGIN + 150, STRINGS.research.reset, () => web.reset(), 76);
+
+    // The node card.
+    const left = NODE_PANEL_LEFT;
+    const width = SCREEN.width - left;
+    const inner = width - 32;
+    this.add.rectangle(left, BAR_HEIGHT + 4, width, SCREEN.height - BAR_HEIGHT - 4, PANEL, 1).setOrigin(0).setInteractive();
+    this.add.rectangle(left, BAR_HEIGHT + 4, 3, SCREEN.height - BAR_HEIGHT - 4, INK, 1).setOrigin(0);
+    const x = left + 18;
+    let y = BAR_HEIGHT + 16;
+    const line = (content: string, options: Parameters<typeof addText>[4] = {}, gap = 6): void => {
+      const text = addText(this, x, y, content, { size: 16, wrapWidth: inner, ...options });
+      y += text.height + gap;
+    };
+    const materialsLine = (stock: Readonly<Partial<Record<(typeof MATERIALS)[number], number>>>): string =>
+      MATERIALS.filter((material) => (stock[material] ?? 0) > 0)
+        .map((material) => `${stock[material]} ${material}`)
+        .join(', ');
+
+    if (view.message) line(view.message, { weight: '700', colour: PALETTE.danger });
+
+    const node = view.node ? researchNode(view.node) : undefined;
+    const state = node ? nodeState(run, node) : undefined;
+    if (!node || !state || (state === 'undiscovered' && !run.archive.hints.has(node.id))) {
+      line(STRINGS.prep.research, { role: 'heading', size: 30 });
+      line(STRINGS.research.pick, {}, 4);
+      line(STRINGS.research.controls, { colour: PALETTE.brass });
+    } else if (state === 'undiscovered') {
+      // A hinted hidden node: an ink smudge with a cryptic note (GDD 8.12).
+      line(STRINGS.research.hintTitle, { role: 'heading', size: 30 });
+      line(STRINGS.research.hintNote, { colour: PALETTE.brass });
+      line(node.hint ?? '', { role: 'hand', size: 26 });
+    } else {
+      line(node.name, { role: 'heading', size: 30 }, 2);
+      line(`${STRINGS.research.rings[node.ring]}  ·  ${node.disciplines.join(', ')}`, { colour: PALETTE.brass, size: 15 }, 2);
+      line(STRINGS.research.states[state], { weight: '700', colour: state === 'available' ? PALETTE.playerEffects : PALETTE.ink }, 10);
+      line(STRINGS.research.effect, { role: 'hand', size: 22, colour: PALETTE.brass }, 0);
+      line(node.effect, { size: 17 }, 8);
+      const cost = nodeCost(run, node);
+      line(STRINGS.research.cost, { role: 'hand', size: 22, colour: PALETTE.brass }, 0);
+      line(STRINGS.research.costLine(cost.points, materialsLine(cost.materials)), { size: 17 }, 8);
+      line(STRINGS.research.requires, { role: 'hand', size: 22, colour: PALETTE.brass }, 0);
+      line(node.requires.length > 0 ? node.requires.join(', ') : STRINGS.research.noRequirements, { size: 17 }, 8);
+      if (node.condition) {
+        line(STRINGS.research.condition, { role: 'hand', size: 22, colour: PALETTE.brass }, 0);
+        line(node.condition, { size: 17 }, 8);
+      }
+      const points = MASTERY_POINTS[node.ring];
+      line(`${STRINGS.research.mastery}: +${points} ${node.disciplines.join(', +' + points + ' ')}`, { size: 14, colour: PALETTE.brass }, 10);
+
+      const button = (label: string, enabled: boolean, onClick: () => void): void => {
+        new Button(this, left + width / 2, y + 26, { label, width: inner, height: 52, textSize: 20, enabled, onClick });
+        y += 60;
+      };
+      if (state === 'researched') {
+        const preview = refundPreview(run, node);
+        if (preview) {
+          button(STRINGS.research.refund(preview.points), true, () => this.researchAct(node, 'refund'));
+          const back = materialsLine(preview.materials);
+          if (back) line(STRINGS.research.refundMaterials(back), { size: 14 }, 2);
+          if (preview.nodes.length > 1) {
+            line(STRINGS.research.refundAlso(preview.nodes.slice(1).map((entry) => entry.name).join(', ')), {
+              size: 14,
+              colour: PALETTE.danger,
+            });
+          }
+        }
+      } else {
+        if (captureIds.has(node.id)) button(STRINGS.research.capture, true, () => this.researchAct(node, 'capture'));
+        const problem = researchProblem(run, node);
+        button(problem ? STRINGS.research.problems[problem] : STRINGS.research.researchNow, problem === undefined, () =>
+          this.researchAct(node, 'research'),
+        );
+      }
+    }
+
+    // Captured research and mastery ranks sit at the foot of the card (GDD 5.8, 8.13).
+    let foot = SCREEN.height - 12 - DISCIPLINES.length * 20;
+    for (const discipline of DISCIPLINES) {
+      const points = run.archive.mastery[discipline];
+      addText(this, x, foot, STRINGS.research.masteryLine(discipline, masteryRank(points), points, nextRank(points)?.points), {
+        size: 14,
+      });
+      foot += 20;
+    }
+    const waiting = run.research.captures[0];
+    if (waiting) {
+      addText(this, x, SCREEN.height - 20 - DISCIPLINES.length * 20, `${STRINGS.research.captureDisciplines(waiting.join(', '))}. ${STRINGS.research.captureNote}`, {
+        size: 14,
+        weight: '700',
+        colour: PALETTE.danger,
+        wrapWidth: inner,
+      }).setOrigin(0, 1);
     }
   }
 
@@ -257,6 +451,7 @@ export class Preparation extends Phaser.Scene {
     const run = this.run;
     const loadout = resolveLoadout(run.weapons.slice(0, WEAPON_SLOTS), resolvePlayerStats(run.character), {
       researchSynergies: run.researchSynergies,
+      research: resolveResearch(run.research.researched),
     });
     for (let slot = 0; slot < WEAPON_SLOTS; slot++) {
       this.drawWeaponCard(slot, run.weapons[slot], loadout.weapons[slot]);
@@ -343,14 +538,17 @@ export class Preparation extends Phaser.Scene {
       return;
     }
     const cost = upgradeCost(weapon.grade);
+    // Grade III needs a middle-ring node, Grade IV an outer-ring node (GDD 8.10).
+    const gradeLocked = cost !== undefined && !gradeOpen(run, weapon.grade + 1);
+    let upgradeLabel: string = STRINGS.prep.maxGrade;
+    if (gradeLocked) upgradeLabel = STRINGS.prep.gradeLocked(GRADE_NUMERALS[weapon.grade + 1] ?? '', weapon.grade + 1 === 3 ? 'middle' : 'outer');
+    else if (cost) upgradeLabel = STRINGS.prep.upgrade(GRADE_NUMERALS[weapon.grade + 1] ?? '', cost.gold, cost.scrap);
     new Button(this, x + CARD_WIDTH / 2, rowOne, {
-      label: cost
-        ? STRINGS.prep.upgrade(GRADE_NUMERALS[weapon.grade + 1] ?? '', cost.gold, cost.scrap)
-        : STRINGS.prep.maxGrade,
+      label: upgradeLabel,
       width: CARD_WIDTH - 16,
       height: 54,
-      textSize: 19,
-      enabled: cost !== undefined && run.gold >= cost.gold && run.materials.Scrap >= cost.scrap,
+      textSize: gradeLocked ? 14 : 19,
+      enabled: cost !== undefined && !gradeLocked && run.gold >= cost.gold && run.materials.Scrap >= cost.scrap,
       selected: view.upgrade === weapon,
       onClick: () =>
         this.redraw((next) => {
@@ -756,6 +954,16 @@ export class Preparation extends Phaser.Scene {
       addText(this, centre, 320, shop.stockText, { size: 18, align: 'center', wrapWidth: width - 48 }).setOrigin(0.5, 0);
       const fee = visitFee(run, id);
       const open = run.shops[id].visit !== undefined;
+      if (run.shops[id].previewed && !open) {
+        // Perfect Information: the next milestone stock, before the choice of door (GDD 8.12).
+        const names = run.shops[id].stock.map((item) => (item ? itemName(item) : '')).filter((name) => name !== '');
+        addText(this, centre, 400, STRINGS.prep.preview(names.join(', ')), {
+          size: 15,
+          weight: '700',
+          align: 'center',
+          wrapWidth: width - 40,
+        }).setOrigin(0.5, 0);
+      }
       let label: string;
       if (open) label = STRINGS.prep.enterOpen;
       else if (fee === 0) label = STRINGS.prep.enterFree;
