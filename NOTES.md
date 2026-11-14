@@ -590,3 +590,9 @@ Every choice below is mine and easy to reverse. Each names its GDD section.
 - **Tier tuning (CLAUDE.md, Milestone 12).** Enemy Health Extreme is 220, keeping the 2.5 ratio used above Extreme. Weapon Damage is 5/9/15/25/44 and Attack Speed 0.45/0.8/1.25/2.0/3.3, for kill speed close to the GDD 4.3 round lengths. Territory bosses have 3,200 Health in Territory 1.
 - **Mobile effects (GDD 15.4).** Phones multiply effect density by 0.6 and cap particles at 300.
 - **Precache.** Unhashed files under public/assets carry revisions, so replaced art updates installed copies.
+
+## Art beyond the first list
+
+- **Boss parts.** Arm turrets, belt motors, war banners and pylons sit in `sprites/bosses`, named from their part names. The Unmaking's copies use the boss's own phase images.
+- **Constructs.** A new folder, `sprites/constructs`, holds the arena images of the Clockwork Turret, Clockwork Hound, Living Arsenal creature and Spring Trap. The weapon icons stay in `icons/weapons`. Companions mirror to face their heading. Turrets stay upright.
+- **Map and endless card.** `cards/kingdom-map.png` sits under the kingdom markers on the reveal screen. `cards/endless-loop.png` shows faintly behind the map at each new endless loop.

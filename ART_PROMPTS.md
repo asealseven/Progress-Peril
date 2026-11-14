@@ -2,7 +2,7 @@
 
 Every image in the game comes from an AI image generator, made from one fixed style so the art looks unified (GDD 15.1). The game runs on placeholder shapes until each file exists, so generate images in any order. CLAUDE.md explains the placeholders and the asset manifest.
 
-The list holds 164 images. A playable game needs none of them, and the most visible first batch is the player, the enemies and the arenas.
+The list holds 174 images. A playable game needs none of them, and the most visible first batch is the player, the enemies and the arenas.
 
 ## How to use this file
 
@@ -98,6 +98,32 @@ One image per phase. Keep phases 2 and 3 recognisably the same boss as phase 1, 
 | `spore-sovereign-phase-1.png` | Spore Sovereign, phase 1: a colossal fungal monarch rooted in a stone fountain, a crown of mushrooms. Colours: moss green and gold. Large and imposing. |
 | `spore-sovereign-phase-2.png` | Spore Sovereign, phase 2: the same monarch pulled free, walking on legs of roots. Colours: moss green and gold. Large and imposing. |
 | `spore-sovereign-phase-3.png` | Spore Sovereign, phase 3: the same monarch in full bloom, covered in glowing flowers. Colours: moss green and gold. Large and imposing. |
+
+## Boss parts
+
+Folder: `sprites/bosses`. Target size in the game: about 64 pixels tall.
+
+Parts of a boss fight that the player destroys (GDD 10.4, 10.5). Draw each on its own, as a separate object from the boss.
+
+| File | Prompt |
+|---|---|
+| `arm-turret.png` | Arm turret of the Grand Automaton: a detached brass gatling arm with a rotating barrel cluster on a heavy shoulder joint. Colours: teal and polished brass. |
+| `belt-motor.png` | Belt motor of the Grand Automaton: a squat iron motor housing with a large flywheel and a drive belt, steam vents on top. Colours: teal and polished brass. |
+| `war-banner.png` | War banner of the Forge Marshal: a tall iron pole planted in the ground with a torn ember-orange banner bearing a hammer crest. Colours: ember orange and soot black. |
+| `pylon.png` | Pylon of the Tesla Warden: a slender stone and copper pylon topped with a glass sphere of crackling light. Colours: violet and starlight white. |
+
+## Constructs
+
+Folder: `sprites/constructs`. Target size in the game: about 48 pixels tall, traps about 28 pixels.
+
+What the player's construct and trap weapons place in the arena (GDD 7.17). Draw each as the object in the field, not as a notebook item. Facing right.
+
+| File | Prompt |
+|---|---|
+| `clockwork-turret.png` | Clockwork Turret deployed on the ground: a small brass turret on three splayed legs with a wind-up key on the back and a crossbow barrel. Colours: brass and warm gold. |
+| `clockwork-hound.png` | Clockwork Hound running: a mechanical brass hound with visible gears in the chest, a wind-up key on the back and snapping steel jaws. Colours: brass and warm gold. |
+| `living-arsenal.png` | Living Arsenal creature in the field: a small agile beast with tendrils and armoured plates, half animal, half weapon, ready to pounce. Colours: magenta, moss green and warm gold. |
+| `spring-trap.png` | Spring Trap set on the ground: an open steel snap trap with jagged teeth and a coiled spring, seen from above. Colours: dark iron and warm gold. |
 
 ## Weapon icons
 
@@ -267,6 +293,8 @@ Use the scene style prompt.
 | `ending-myrathis.png` | Illustration for this ending: "The Abomination dissolves back into the vat. The princes of Myrathis seal their laboratories, and the Archive inherits their notes, with a warning in the margin." Colours: acid green and amber. Wide format. |
 | `ending-merovant.png` | Illustration for this ending: "The Grand Automaton winds down mid-step. The Free Cities vote to open their assembly yards, and the machines start building bridges instead of armies." Colours: teal and polished brass. Wide format. |
 | `ending-orthelyn.png` | Illustration for this ending: "The Unmaking folds into a single point and vanishes. Orthelyn's scholars begin repairing the crack in the sky, and the Archive keeps one shard for study." Colours: violet and starlight white. Wide format. |
+| `kingdom-map.png` | A hand-drawn map of five kingdoms on parchment, seen from above: a forge kingdom in the west, a laboratory kingdom in the south-west, a city of gears in the north, an observatory republic in the east and a forest commonwealth in the south. Ink coastlines, small landmark sketches, empty roads between them, no labels. Wide format. |
+| `endless-loop.png` | Illustration for this story text: "The kingdoms recover, and the Archive sends the inventor onward." The inventor walking a long road past all five kingdoms at dusk. Wide format. |
 | `ending-nymora.png` | Illustration for this ending: "The Spore Sovereign withers, and the forests of Nymora go quiet. The Commonwealth's healers return to their gardens, and the Archive plants the first seed." Colours: moss green and gold. Wide format. |
 
 ## Grand Archive hub

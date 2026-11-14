@@ -13,7 +13,7 @@ describe('asset manifest against ART_PROMPTS.md (CLAUDE.md rule 8)', () => {
   const listed = [...prompts.matchAll(/^\| `([a-z0-9-]+\.png)` \|/gm)].map((match) => match[1]);
 
   it('lists every image ART_PROMPTS.md asks for, and no other', () => {
-    expect(listed).toHaveLength(164);
+    expect(listed).toHaveLength(174);
     const files = IMAGE_ASSETS.map((entry) => entry.path?.split('/').pop());
     expect(files.sort()).toEqual([...listed].sort());
   });

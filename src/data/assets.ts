@@ -3,8 +3,8 @@
 // and the group sets the folder inside public/assets/.
 // src/render/images.ts loads the files that exist. Every other key draws its placeholder.
 
-import { BOSS_LIST } from './bosses';
-import type { BossId } from './bosses';
+import { BOSS_LIST, BOSS_PARTS } from './bosses';
+import type { BossId, BossPartId } from './bosses';
 import { COMPONENT_LIST } from './components';
 import { ENEMY_LIST } from './enemies';
 import { KINGDOM_NAMES } from './kingdoms';
@@ -20,6 +20,9 @@ export const ASSET_FOLDERS = {
   enemy: 'sprites/enemies',
   miniboss: 'sprites/minibosses',
   boss: 'sprites/bosses',
+  /** Boss parts sit beside their bosses. */
+  part: 'sprites/bosses',
+  construct: 'sprites/constructs',
   weapon: 'icons/weapons',
   component: 'icons/components',
   relic: 'icons/relics',
@@ -90,6 +93,32 @@ const BOSS_ASSETS = group(
   ),
 );
 
+/** Boss parts with an image of their own. The Unmaking's copies use the boss's image. */
+const PART_IDS = ['automaton-arm', 'belt-motor', 'war-banner', 'tesla-pylon'] as const satisfies readonly BossPartId[];
+
+/** A boss part's image: arm-turret.png, belt-motor.png, war-banner.png and pylon.png (ART_PROMPTS.md). */
+export function partAssetKey(id: BossPartId): string | undefined {
+  return (PART_IDS as readonly BossPartId[]).includes(id) ? assetKey('part', BOSS_PARTS[id].name) : undefined;
+}
+
+const PART_ASSETS = group(PART_IDS.map((id) => entry('part', BOSS_PARTS[id].name, `${BOSS_PARTS[id].faction} circle, ink outline`)));
+
+/** Constructs and traps in the arena (GDD 7.17). The weapon icons stay separate. */
+export const CONSTRUCT_NAMES = {
+  turret: 'Clockwork Turret',
+  hound: 'Clockwork Hound',
+  creature: 'Living Arsenal',
+  trap: 'Spring Trap',
+} as const;
+
+export function constructAssetKey(kind: keyof typeof CONSTRUCT_NAMES): string {
+  return assetKey('construct', CONSTRUCT_NAMES[kind]);
+}
+
+const CONSTRUCT_ASSETS = group(
+  Object.values(CONSTRUCT_NAMES).map((name) => entry('construct', name, 'Gold or brass circle with an ink outline drawn in code')),
+);
+
 const WEAPON_ASSETS = group(WEAPON_LIST.map((weapon) => entry('weapon', weapon.name, `${weapon.family} blueprint sketch drawn in code`)));
 const COMPONENT_ASSETS = group(
   COMPONENT_LIST.map((component) => entry('component', component.name, `${component.slot} socket shape in the quality colour`)),
@@ -102,6 +131,8 @@ export const ASSETS: Readonly<Record<string, AssetEntry>> = {
   ...ENEMY_ASSETS,
   ...MINI_BOSS_ASSETS,
   ...BOSS_ASSETS,
+  ...PART_ASSETS,
+  ...CONSTRUCT_ASSETS,
   ...WEAPON_ASSETS,
   ...COMPONENT_ASSETS,
   ...RELIC_ASSETS,
@@ -119,6 +150,9 @@ export const ASSETS: Readonly<Record<string, AssetEntry>> = {
       [assetKey('card', `ending-${kingdom}`), entry('card', `ending-${kingdom}`, `${kingdom} ending text on a parchment page`)],
     ]),
   ),
+  // The map of the five kingdoms on the reveal screen (GDD 5.8) and the endless loop card (GDD 2.4).
+  'card.kingdom-map': entry('card', 'kingdom-map', 'Five kingdom circles with the route drawn in ink'),
+  'card.endless-loop': entry('card', 'endless-loop', 'Endless loop text on the map screen'),
   'hub.grand-archive': entry('hub', 'grand-archive', 'Coloured boxes for the hall hotspots on parchment'),
   'app.app-icon': entry('app', 'app-icon', 'Brass gear ring around "P&P" on parchment'),
   // ART_PROMPTS.md lists no projectile images. Projectiles are shapes drawn in code (GDD 15.3).

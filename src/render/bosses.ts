@@ -5,7 +5,7 @@
 // original boss's kingdom colour.
 
 import type Phaser from 'phaser';
-import { bossAssetKey, miniBossAssetKey } from '../data/assets';
+import { bossAssetKey, miniBossAssetKey, partAssetKey } from '../data/assets';
 import { BOSSES, BOSS_RULES } from '../data/bosses';
 import { hasImage } from './images';
 import type { EnemyDef } from '../data/enemies';
@@ -35,6 +35,11 @@ export function bossKingdom(body: BossBody): KingdomName {
  * Undefined when no image exists, so the placeholder circle draws.
  */
 export function bossImageKey(body: BossBody): string | undefined {
+  // Arm turrets, belt motors, war banners and pylons have images of their own (ART_PROMPTS.md).
+  if (body.partId && body.partId !== 'unmaking-copy') {
+    const key = partAssetKey(body.partId);
+    return key && hasImage(key) ? key : undefined;
+  }
   if (body.miniId) {
     const key = miniBossAssetKey(body.miniId);
     return hasImage(key) ? key : undefined;
