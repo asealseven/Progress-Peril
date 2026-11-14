@@ -14,6 +14,14 @@ export const STRINGS = {
   },
 
   hud: {
+    endless: (loop: number, best: number) => `Endless loop ${loop}  ·  Personal best: ${best > 0 ? `Round ${best}` : 'none yet'}`,
+    // Captions for sound cues and voices, shown with subtitles on (GDD 3.10).
+    captions: {
+      elite: (name: string) => `[Elite arrives: ${name}]`,
+      boss: '[Boss attack coming]',
+      lowHealth: '[Low health]',
+      voice: (faction: string) => `[${faction} shout]`,
+    },
     round: (round: number) => `Round ${round}`,
     territory: (territory: number, kingdom: string) => `Territory ${territory}: ${kingdom}`,
     suppressed: 'Auxiliary suppressed',
@@ -48,6 +56,7 @@ export const STRINGS = {
   },
 
   pause: {
+    settings: 'Settings',
     title: 'Paused',
     seed: (seed: string) => `Seed ${seed}`,
     synergies: (names: readonly string[]) =>
@@ -63,6 +72,7 @@ export const STRINGS = {
   },
 
   results: {
+    summary: (kills: number, gold: number, research: number) => `${kills} kills  ·  ${gold} gold  ·  ${research} Research Points`,
     roundComplete: (round: number) => `Round ${round} complete`,
     buildComplete: 'Campaign survived',
     buildCompleteNote: 'All 21 rounds cleared. Later milestones add kingdoms, bosses and the Grand Archive.',
@@ -284,9 +294,13 @@ export const STRINGS = {
     fileName: 'progress-and-peril-save.json',
     exported: 'Save file exported.',
     copied: 'Save code copied.',
-    shown: 'Save code shown. Copy it from the box.',
-    copyPrompt: 'Copy this save code:',
-    pastePrompt: 'Paste a save code:',
+    shown: 'Save code shown for copying by hand.',
+    copyPrompt: 'Copy this save code and keep it somewhere safe.',
+    pastePrompt: 'Paste a save code from another device.',
+    done: 'Done',
+    cancel: 'Cancel',
+    replace: 'Replace',
+    importButton: 'Import',
     confirmImport: 'Replace every profile on this device with the imported save?',
     imported: 'Save imported.',
     fromBackup: 'The main save failed to load. The backup copy was used.',
@@ -308,7 +322,9 @@ export const STRINGS = {
       audioCues: 'Audio cues',
       subtitles: 'Subtitles',
       trial: 'Apprentice Trial on first campaign',
-      note: 'Every change saves at once. Effect density changes particles only. Colour palettes recolour the damage types.',
+      sfxVolume: 'Sound effects',
+      musicVolume: 'Music',
+      note: 'Every change saves at once. Effect density changes particles only. Colour palettes recolour the damage types. Audio cues sound for elites, boss attacks and low health. Subtitles caption cues and voices.',
     },
     controls: {
       focus: 'Focus',
@@ -346,6 +362,7 @@ export const STRINGS = {
   },
 
   victory: {
+    tally: (earned: number, total: number) => `Archive Points +${earned}  ·  Total ${total}`,
     title: 'Campaign complete',
     subtitle: (boss: string, kingdom: string) => `${boss} has fallen. ${kingdom} opens its archives.`,
     ending: (kingdom: string) => `The ending: ${kingdom}`,
@@ -461,6 +478,8 @@ export const STRINGS = {
   },
 
   select: {
+    rank: (rank: string) => `Highest mastery: ${rank}`,
+    endlessBest: (round: number) => `Endless best: Round ${round}`,
     heading: 'Choose a starting weapon',
     character: (name: string) => `${name} sets out with one weapon.`,
     hintKeyboard: 'Press 1 to 6, or use the arrow keys and Enter',

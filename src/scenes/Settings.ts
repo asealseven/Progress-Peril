@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
-import { DENSITY_STEPS, INPUT_ACTIONS, JOYSTICK_STEPS, PAD_ACTIONS } from '../data/modes';
+import { music } from '../audio/music';
+import { DENSITY_STEPS, INPUT_ACTIONS, JOYSTICK_STEPS, PAD_ACTIONS, VOLUME_STEPS } from '../data/modes';
 import type { ColourPalette, GameSettings, InputAction, PadAction, TextSize } from '../data/modes';
 import { PALETTE } from '../data/palette';
 import { SCREEN } from '../data/screen';
@@ -7,6 +8,7 @@ import { STRINGS } from '../data/strings';
 import { encodeSave, exportCode, importSave } from '../sim/save';
 import { Button } from '../ui/button';
 import { drawPageFrame } from '../ui/frame';
+import { openDialog } from '../ui/dialog';
 import { addText } from '../ui/text';
 import { applySettings, profile, replaceSave, saveNow, session, settings, switchProfile } from './session';
 
@@ -52,16 +54,35 @@ export class Settings extends Phaser.Scene {
   }
 
   create(): void {
+    // The quiet Archive theme plays in menus (GDD 15.10).
+    if (!this.scene.isPaused('Combat')) music.play({ kind: 'menu' });
     const { width, height } = SCREEN;
     this.cameras.main.setBackgroundColor(PALETTE.parchment);
     drawPageFrame(this.add.graphics(), width, height, 14);
     addText(this, 60, 34, STRINGS.settings.title, { role: 'heading', size: 40 });
-    new Button(this, width - 120, 56, { label: STRINGS.hub.back, width: 160, height: 50, textSize: 22, onClick: () => this.scene.start('Hub') });
+    // Opened from the pause screen, Back returns to the paused round. Saves stay with the Hub then.
+    const fromCombat = this.scene.isPaused('Combat');
+    new Button(this, width - 120, 56, {
+      label: STRINGS.hub.back,
+      width: 160,
+      height: 50,
+      textSize: 22,
+      onClick: () => {
+        if (this.scene.isPaused('Combat')) {
+          this.scene.resume('Combat');
+          this.scene.stop();
+        } else {
+          this.scene.start('Hub');
+        }
+      },
+    });
     const tabs: Array<[Tab, string]> = [
       ['options', STRINGS.settings.tabs.options],
       ['controls', STRINGS.settings.tabs.controls],
       ['saves', STRINGS.settings.tabs.saves],
     ];
+    if (fromCombat) tabs.pop();
+    if (fromCombat && this.tab === 'saves') this.tab = 'options';
     tabs.forEach(([tab, label], index) => {
       new Button(this, 400 + index * 200, 56, {
         label,
@@ -118,10 +139,12 @@ export class Settings extends Phaser.Scene {
         [`${t.audioCues}: ${on(prefs.audioCues)}`, () => this.change((p) => (p.audioCues = !p.audioCues))],
         [`${t.subtitles}: ${on(prefs.subtitles)}`, () => this.change((p) => (p.subtitles = !p.subtitles))],
         [`${t.trial}: ${on(prefs.trial)}`, () => this.change((p) => (p.trial = !p.trial))],
+        [`${t.sfxVolume}: ${Math.round(prefs.sfxVolume * 100)}%`, () => this.change((p) => (p.sfxVolume = next(VOLUME_STEPS, p.sfxVolume)))],
+        [`${t.musicVolume}: ${Math.round(prefs.musicVolume * 100)}%`, () => this.change((p) => (p.musicVolume = next(VOLUME_STEPS, p.musicVolume)))],
       ],
       130,
     );
-    addText(this, 60, 500, t.note, { size: 14, colour: PALETTE.brass, wrapWidth: 1160 });
+    addText(this, 60, 560, t.note, { size: 14, colour: PALETTE.brass, wrapWidth: 1160 });
   }
 
   private drawControls(): void {
@@ -263,9 +286,9 @@ export class Settings extends Phaser.Scene {
     try {
       await navigator.clipboard.writeText(code);
     } catch {
-      // Without clipboard access the code shows in a prompt, ready to copy by hand.
-      window.prompt(STRINGS.settings.copyPrompt, code);
+      // Without clipboard access the code shows on a notebook page, ready to copy by hand.
       message = STRINGS.settings.shown;
+      await openDialog({ title: STRINGS.settings.copyCode, text: STRINGS.settings.copyPrompt, field: { value: code, readOnly: true }, buttons: [STRINGS.settings.done] });
     }
     this.scene.restart({ tab: 'saves', message });
   }
@@ -283,8 +306,14 @@ export class Settings extends Phaser.Scene {
   }
 
   private importCode(): void {
-    const code = window.prompt(STRINGS.settings.pastePrompt);
-    if (code) this.finishImport(code);
+    void openDialog({
+      title: STRINGS.settings.importCode,
+      text: STRINGS.settings.pastePrompt,
+      field: { placeholder: 'PP1:' },
+      buttons: [STRINGS.settings.importButton, STRINGS.settings.cancel],
+    }).then((result) => {
+      if (result.button === 0 && result.value.trim()) this.finishImport(result.value);
+    });
   }
 
   private finishImport(text: string): void {
@@ -293,10 +322,14 @@ export class Settings extends Phaser.Scene {
       this.scene.restart({ tab: 'saves', message: STRINGS.settings.problems[result.problem] });
       return;
     }
-    if (!window.confirm(STRINGS.settings.confirmImport)) return;
-    replaceSave(this, result.file);
-    applySettings(this);
-    this.scene.restart({ tab: 'saves', message: STRINGS.settings.imported });
+    void openDialog({ title: STRINGS.settings.importCode, text: STRINGS.settings.confirmImport, buttons: [STRINGS.settings.replace, STRINGS.settings.cancel] }).then(
+      (answer) => {
+        if (answer.button !== 0) return;
+        replaceSave(this, result.file);
+        applySettings(this);
+        this.scene.restart({ tab: 'saves', message: STRINGS.settings.imported });
+      },
+    );
   }
 }
 

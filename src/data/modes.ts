@@ -112,6 +112,9 @@ export interface GameSettings {
   joystickFixed: boolean;
   audioCues: boolean;
   subtitles: boolean;
+  /** Sound effect and music volume, 0 to 1 (GDD 15.10). */
+  sfxVolume: number;
+  musicVolume: number;
   /** Keyboard key names (Phaser key codes by name), per action. */
   keys: Record<InputAction, string>;
   /** Controller button indices, per action. */
@@ -138,6 +141,8 @@ export const DEFAULT_SETTINGS: GameSettings = {
   joystickFixed: false,
   audioCues: true,
   subtitles: true,
+  sfxVolume: 0.8,
+  musicVolume: 0.6,
   keys: { up: 'W', down: 'S', left: 'A', right: 'D', pause: 'ESC', fastForward: 'TAB', focusToggle: 'F' },
   pad: { pause: 9, fastForward: 8, confirm: 0 },
   fastForward: false,
@@ -146,6 +151,7 @@ export const DEFAULT_SETTINGS: GameSettings = {
 
 export const TEXT_SCALE: Readonly<Record<TextSize, number>> = { normal: 1, large: 1.15, larger: 1.3 };
 export const DENSITY_STEPS: readonly number[] = [0.25, 0.5, 0.75, 1];
+export const VOLUME_STEPS: readonly number[] = [0, 0.2, 0.4, 0.6, 0.8, 1];
 export const JOYSTICK_STEPS: readonly number[] = [0.8, 1, 1.25, 1.5];
 
 /**

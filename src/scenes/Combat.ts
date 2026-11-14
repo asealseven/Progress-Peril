@@ -1,4 +1,9 @@
 import Phaser from 'phaser';
+import { assetKey } from '../data/assets';
+import { CombatAudio } from '../audio/combatAudio';
+import { music } from '../audio/music';
+import { SPRITE_IMAGE_SCALE, fitImage, hasImage } from '../render/images';
+import { drawDamageIcon, drawStatusIcon } from '../render/damageIcons';
 import { DAMAGE_TYPE_COLOURS, KINGDOM_COLOURS, PALETTE, hexToNumber } from '../data/palette';
 import type { DamageTypeName } from '../data/palette';
 import { SCREEN } from '../data/screen';
@@ -6,7 +11,7 @@ import { STRINGS, formatTime } from '../data/strings';
 import { ENEMY_RULES, PERFORMANCE_LIMITS } from '../data/tiers';
 import { Effects } from '../render/effects';
 import { drawArenaFloor, drawEnvironment } from '../render/environment';
-import { bossKey, bossKingdom, bossTextureSize, drawBossMarks, drawBossTelegraphs, ensureBossTexture } from '../render/bosses';
+import { bossImageKey, bossKey, bossKingdom, bossTextureSize, drawBossMarks, drawBossTelegraphs, ensureBossTexture } from '../render/bosses';
 import { mainBoss } from '../sim/world/bosses';
 import type { BossBody } from '../sim/world/bosses';
 import { roundKind } from '../data/rounds';
@@ -27,7 +32,8 @@ import { auraRadius, currentAttackSpeed, orbitHeadRadius, orbitRadius } from '..
 import { hasShield, shieldBlocks, spawnGroup } from '../sim/world/enemies';
 import { CHAMPION_TRAITS } from '../data/champions';
 import { ELITE_MODIFIERS } from '../data/eliteModifiers';
-import { ENEMY_LIST } from '../data/enemies';
+import { ENEMIES, ENEMY_LIST } from '../data/enemies';
+import type { EnemyId } from '../data/enemies';
 import { territorySlot } from '../data/rounds';
 import { REACTION_DEFS, STATUS_DEFS, STATUS_EFFECTS } from '../data/statusEffects';
 import { SYNERGIES } from '../data/synergies';
@@ -91,6 +97,16 @@ const DEPTH = {
 const MAX_FRAME_MS = 100;
 /** Camera look-ahead in the direction of movement, pixels (GDD 15.2). */
 const LOOK_AHEAD = 70;
+// Code animation (GDD 15.3): steps per second in radians, bob height in pixels, squash share and lean in radians.
+const STEP_RATE = 12;
+const BOB_HEIGHT = 3;
+const SQUASH = 0.06;
+const LEAN = 0.12;
+const MAX_GHOSTS = 24;
+const FLOURISH_SECONDS = 1.4;
+const CAPTION_MS = 2600;
+/** Chance per frame that a player shot leaves a trail puff (GDD 15.4). */
+const TRAIL_CHANCE = 0.35;
 const LOOK_SMOOTHING = 4;
 /** Mobile uses a slightly wider view than PC (GDD 15.2). */
 const TOUCH_ZOOM = 0.85;
@@ -123,6 +139,10 @@ export class Combat extends Phaser.Scene {
 
   private playerSprite!: Phaser.GameObjects.Image;
   private enemySprites: Array<Phaser.GameObjects.Image | undefined> = [];
+  private ghosts: Phaser.GameObjects.Image[] = [];
+  private audio!: CombatAudio;
+  private captionText!: Phaser.GameObjects.Text;
+  private captions: string[] = [];
   /** Zones, auras and traps draw under enemies. Projectiles, constructs and beams draw over them. */
   private under!: Phaser.GameObjects.Graphics;
   private over!: Phaser.GameObjects.Graphics;
@@ -192,6 +212,8 @@ export class Combat extends Phaser.Scene {
     this.lookY = 0;
     this.scale1 = uiScale();
     this.enemySprites = [];
+    this.ghosts = [];
+    this.captions = [];
     this.weaponLabels = [];
     this.debugButtons = [];
     this.focusPoint = undefined;
@@ -226,8 +248,7 @@ export class Combat extends Phaser.Scene {
     this.under = this.inWorld(this.add.graphics()).setDepth(DEPTH.under);
     this.over = this.inWorld(this.add.graphics()).setDepth(DEPTH.projectile);
     this.telegraphs = this.inWorld(this.add.graphics()).setDepth(DEPTH.telegraph);
-    this.playerSprite = this.inWorld(this.add.image(0, 0, PLAYER_KEY))
-      .setDisplaySize(PLAYER_TEXTURE_SIZE, PLAYER_TEXTURE_SIZE)
+    this.playerSprite = this.inWorld(fitImage(this.add.image(0, 0, PLAYER_KEY), this.spriteSize(PLAYER_KEY, PLAYER_TEXTURE_SIZE)))
       .setDepth(DEPTH.player);
     this.effects = new Effects(this.inWorld(this.add.graphics()).setDepth(DEPTH.effects));
     this.bars = this.inWorld(this.add.graphics()).setDepth(DEPTH.bars);
@@ -237,6 +258,28 @@ export class Combat extends Phaser.Scene {
     this.setPaused(false);
 
     this.controls = new CombatInput(this, this.prefs);
+    // Back from Settings: remapped controls and effect density take hold at once.
+    const onResume = (): void => {
+      this.controls.destroy();
+      this.controls = new CombatInput(this, this.prefs);
+      this.controls.enabled = !this.paused;
+      this.effects.density = this.prefs.effectDensity;
+    };
+    this.events.on(Phaser.Scenes.Events.RESUME, onResume);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.events.off(Phaser.Scenes.Events.RESUME, onResume));
+    // Sound and music (GDD 15.10). Captions show over the weapon tiles with subtitles on (GDD 3.10).
+    this.captionText = this.inHud(addText(this, SCREEN.width / 2, this.tileLayout().y - 40, '', { size: 18, weight: '700', align: 'center' }))
+      .setOrigin(0.5, 1)
+      .setDepth(DEPTH.hudText)
+      .setStroke(PALETTE.parchment, 5)
+      .setVisible(false);
+    this.audio = new CombatAudio(
+      this.prefs,
+      (text) => this.showCaption(text),
+      (x) => Math.max(-0.8, Math.min(0.8, (x - this.cameras.main.midPoint.x) / (SCREEN.width / 2))),
+    );
+    this.followMusic();
+    this.audio.roundStart();
     this.effects.density = this.prefs.effectDensity;
     const keyboard = this.input.keyboard;
     const pauseKey = `keydown-${this.prefs.keys.pause}`;
@@ -289,7 +332,12 @@ export class Combat extends Phaser.Scene {
 
   /** The kingdom's arena (GDD 5.9): floor and fixed shapes once, hazards every frame. */
   private drawArena(): void {
-    drawArenaFloor(this.inWorld(this.add.graphics()).setDepth(DEPTH.floor), this.sim.arena);
+    const arena = this.sim.arena;
+    // A generated arena painting replaces the floor placeholder (ART_PROMPTS.md).
+    const key = assetKey('arena', arena.kingdom);
+    const painted = hasImage(key);
+    if (painted) this.inWorld(this.add.image(0, 0, key).setOrigin(0).setDisplaySize(arena.width, arena.height).setDepth(DEPTH.floor));
+    drawArenaFloor(this.inWorld(this.add.graphics()).setDepth(DEPTH.floor), arena, painted);
     this.hazardLayer = this.inWorld(this.add.graphics()).setDepth(DEPTH.floor + 1);
   }
 
@@ -365,6 +413,31 @@ export class Combat extends Phaser.Scene {
       .setOrigin(0.5, 0)
       .setDepth(DEPTH.hudText);
 
+    // An event icon sits beside the round (GDD 15.7): a crimson wax seal.
+    if (eventForRound(this.run)) {
+      const sealX = centreX + roundText.width / 2 + 22 * s;
+      const sealY = 12 + 18 * s;
+      const seal = this.inHud(this.add.graphics()).setDepth(DEPTH.hudText);
+      seal.fillStyle(DANGER, 1);
+      for (let lobe = 0; lobe < 8; lobe++) {
+        const angle = (lobe / 8) * Math.PI * 2;
+        seal.fillCircle(sealX + Math.cos(angle) * 9 * s, sealY + Math.sin(angle) * 9 * s, 4 * s);
+      }
+      seal.fillCircle(sealX, sealY, 10 * s);
+      this.inHud(addText(this, sealX, sealY, '!', { role: 'heading', size: 18 * s, colour: PALETTE.parchment }))
+        .setOrigin(0.5)
+        .setDepth(DEPTH.hudText + 1);
+    }
+    // The endless overlay: loop counter and the character's personal best (GDD 15.9).
+    if (this.run.endless) {
+      const loop = Math.floor(territorySlot(this.sim.round) / MODE_RULES.loopLength) + 1;
+      const best = this.run.archive.bests.byCharacter[this.run.character.id] ?? 0;
+      this.inHud(addText(this, centreX, 12 + 88 * s, STRINGS.hud.endless(loop, best), { size: 14 * s, weight: '700', colour: PALETTE.danger }))
+        .setOrigin(0.5, 0)
+        .setDepth(DEPTH.hudText)
+        .setStroke(PALETTE.parchment, 4);
+    }
+
     // Boss and escort bars (GDD 15.7).
     this.bossHud = this.inHud(this.add.graphics()).setDepth(DEPTH.hud);
     this.bossLabels = [0, 1].map((index) =>
@@ -426,6 +499,12 @@ export class Combat extends Phaser.Scene {
         .setOrigin(0.5)
         .setDepth(DEPTH.hudText);
       this.weaponLabels.push(label);
+      // A generated weapon icon replaces the name in the tile (ART_PROMPTS.md).
+      const iconKey = weapon ? assetKey('weapon', weapon.resolved.def.name) : '';
+      if (weapon && hasImage(iconKey)) {
+        this.inHud(fitImage(this.add.image(label.x, label.y, iconKey), tile.size - 10)).setDepth(DEPTH.hudText);
+        label.setVisible(false);
+      }
     }
 
     // Gold sits top right, left of the pause button on touch devices (GDD 15.7).
@@ -600,16 +679,30 @@ export class Combat extends Phaser.Scene {
       wrapWidth: panelWidth - 60,
     });
 
-    const resume = new Button(this, centreX - 180 * s, centreY + panelHeight / 2 - 50 * s, {
+    // Three buttons share the panel width, so they fit on a phone too.
+    const step = panelWidth / 3;
+    const buttonWidth = step - 24;
+    const resume = new Button(this, centreX - step, centreY + panelHeight / 2 - 50 * s, {
       label: STRINGS.pause.resume,
-      width: 320 * s,
+      width: buttonWidth,
       height: 64 * s,
       textSize: 28 * s,
       onClick: () => this.setPaused(false),
     });
-    const quit = new Button(this, centreX + 180 * s, centreY + panelHeight / 2 - 50 * s, {
+    // Settings open over the paused round and return to it (GDD 15.9).
+    const options = new Button(this, centreX, centreY + panelHeight / 2 - 50 * s, {
+      label: STRINGS.pause.settings,
+      width: buttonWidth,
+      height: 64 * s,
+      textSize: 28 * s,
+      onClick: () => {
+        this.scene.launch('Settings', { tab: 'options' });
+        this.scene.pause();
+      },
+    });
+    const quit = new Button(this, centreX + step, centreY + panelHeight / 2 - 50 * s, {
       label: STRINGS.pause.quit,
-      width: 320 * s,
+      width: buttonWidth,
       height: 64 * s,
       textSize: 28 * s,
       // The run stays saved at its last preparation phase (GDD 15.13).
@@ -617,7 +710,7 @@ export class Combat extends Phaser.Scene {
     });
 
     this.pauseObjects = [dim, panel, title, seed, synergies];
-    this.pauseButtons = [resume, quit];
+    this.pauseButtons = [resume, options, quit];
     [dim, panel, title, seed, synergies].forEach((object, index) => {
       this.inHud(object).setDepth(DEPTH.overlay + index);
     });
@@ -723,6 +816,8 @@ export class Combat extends Phaser.Scene {
         this.accumulator -= STEP_SECONDS;
       }
       this.playEvents();
+      this.audio.frame(this.sim);
+      this.followMusic();
       this.clock += frame;
     }
 
@@ -758,7 +853,7 @@ export class Combat extends Phaser.Scene {
   }
 
   /** Damage numbers rise from hits, when the setting is on (GDD 3.10). */
-  private showDamage(amount: number, x: number, y: number, critical: boolean): void {
+  private showDamage(amount: number, x: number, y: number, critical: boolean, type: DamageTypeName): void {
     if (!this.prefs.damageNumbers || amount < 1) return;
     let entry = this.damageNumbers.find((item) => item.life <= 0);
     if (!entry) {
@@ -772,7 +867,13 @@ export class Combat extends Phaser.Scene {
     }
     entry.life = 0.6;
     entry.text.setText(`${Math.round(amount)}`).setPosition(x + (Math.random() - 0.5) * 16, y - 16);
-    entry.text.setColor(critical ? PALETTE.danger : PALETTE.ink).setScale(critical ? 1.25 : 1).setVisible(true).setAlpha(1);
+    // Ink numbers edged in the damage type colour, so light colours stay readable (GDD 15.1).
+    entry.text
+      .setColor(critical ? PALETTE.danger : PALETTE.ink)
+      .setStroke(DAMAGE_TYPE_COLOURS[type], 4)
+      .setScale(critical ? 1.25 : 1)
+      .setVisible(true)
+      .setAlpha(1);
   }
 
   private drawDamageNumbers(frame: number): void {
@@ -791,6 +892,7 @@ export class Combat extends Phaser.Scene {
     this.controls.releaseAll();
     this.focusPoint = undefined;
     const cleared = this.sim.phase === 'cleared';
+    this.audio.roundEnd();
     this.bannerText.setText(cleared ? STRINGS.hud.roundCleared : STRINGS.hud.defeated);
     this.bannerText.setColor(cleared ? PALETTE.ink : PALETTE.danger);
     this.bannerText.setVisible(true);
@@ -805,22 +907,19 @@ export class Combat extends Phaser.Scene {
   /** Turns simulation events into effects, then clears the list. */
   private playEvents(): void {
     for (const event of this.sim.events) {
+      this.audio.event(this.sim, event);
       switch (event.type) {
         case 'enemyHit':
-          this.showDamage(event.amount, event.x, event.y, event.critical);
-          this.effects.burst(
-            event.x,
-            event.y,
-            hexToNumber(DAMAGE_TYPE_COLOURS[event.damageType]),
-            event.critical ? 7 : 3,
-            event.critical ? 190 : 130,
-            event.critical ? 3.5 : 2.5,
-            0.28,
-          );
+          this.showDamage(event.amount, event.x, event.y, event.critical, event.damageType);
+          this.effects.hit(event.x, event.y, event.damageType, event.critical);
           break;
-        case 'enemyKilled':
-          this.effects.burst(event.x, event.y, INK, 10, 170, 3.5, 0.5);
+        case 'enemyKilled': {
+          // The sprite shrinks and fades while ink splatters out (GDD 15.3).
+          const def = ENEMIES[event.enemyId as EnemyId];
+          this.effects.splatter(event.x, event.y, def?.radius ?? 14);
+          if (def) this.fadeOut(enemyKey(def), event.x, event.y, this.spriteSize(enemyKey(def), enemyTextureSize(def)));
           break;
+        }
         case 'projectileBlocked':
           this.effects.burst(event.x, event.y, GOLD, 3, 90, 2, 0.2);
           break;
@@ -881,8 +980,8 @@ export class Combat extends Phaser.Scene {
           );
           break;
         case 'explosion':
-          this.effects.ring(event.x, event.y, event.radius, hexToNumber(DAMAGE_TYPE_COLOURS[event.damageType]));
-          this.effects.burst(event.x, event.y, hexToNumber(DAMAGE_TYPE_COLOURS[event.damageType]), 8, 220, 3, 0.35);
+          // Three sizes, tinted by damage type. Large blasts shake a little (GDD 15.4).
+          if (this.effects.explosion(event.x, event.y, event.radius, event.damageType) === 2 && event.generation === 0) this.shake(90, 0.003);
           break;
         case 'chain':
           this.effects.lightning(event.points, hexToNumber(DAMAGE_TYPE_COLOURS[event.damageType]));
@@ -891,10 +990,15 @@ export class Combat extends Phaser.Scene {
           this.effects.ring(event.x, event.y, event.radius, GOLD, 0.2);
           break;
         case 'status':
-          this.effects.burst(event.x, event.y, hexToNumber(STATUS_DEFS[event.status].colour), 6, 110, 3, 0.4);
+          {
+            // A triggered status bursts in its damage type's style (GDD 15.4).
+            const type = STATUS_DEFS[event.status].damageType;
+            if (type) this.effects.typeBurst(event.x, event.y, type, 0.7);
+            else this.effects.burst(event.x, event.y, hexToNumber(STATUS_DEFS[event.status].colour), 6, 110, 3, 0.4);
+          }
           break;
         case 'reaction':
-          this.effects.ring(event.x, event.y, 34, hexToNumber(REACTION_DEFS[event.reaction].colour), 0.35);
+          this.effects.reaction(event.x, event.y, event.reaction, hexToNumber(REACTION_DEFS[event.reaction].colour));
           this.showFloater(event.reaction, event.x, event.y);
           break;
         case 'spawnWarning':
@@ -997,9 +1101,110 @@ export class Combat extends Phaser.Scene {
     this.cameras.main.centerOn(player.x + this.lookX, player.y + this.lookY);
   }
 
+  /** Generated sprites draw larger than the collision circle. Placeholders keep their size. */
+  private spriteSize(key: string, size: number): number {
+    return hasImage(key) ? size * SPRITE_IMAGE_SCALE : size;
+  }
+
+  /**
+   * Code animation for one image (GDD 15.3): a gentle bob, a lean toward the
+   * direction of travel and a slight squash on each step. The base scale comes
+   * from fitting the image, so the motion works on placeholders and art alike.
+   */
+  private animate(sprite: Phaser.GameObjects.Image, x: number, y: number, vx: number, vy: number, speed: number, seed: number): void {
+    const moving = Math.min(1, Math.hypot(vx, vy) / Math.max(1, speed));
+    const step = this.clock * STEP_RATE + seed;
+    const bob = moving > 0.1 ? -Math.abs(Math.sin(step)) * BOB_HEIGHT * moving : Math.sin(this.clock * 2 + seed) * 0.8;
+    const squash = moving > 0.1 ? Math.abs(Math.cos(step)) * SQUASH * moving : 0;
+    const baseX = sprite.scaleX;
+    const baseY = sprite.scaleY;
+    sprite.setPosition(x, y + bob);
+    sprite.setRotation((vx / Math.max(1, speed)) * LEAN);
+    sprite.setScale(baseX * (1 + squash * 0.6), baseY * (1 - squash));
+  }
+
+  /** Ink curls grow from each corner of a tile, then fade. Progress runs from 0 to 1. */
+  private drawFlourish(g: Phaser.GameObjects.Graphics, x: number, y: number, size: number, progress: number): void {
+    const grow = Math.min(1, progress * 2);
+    const alpha = progress < 0.6 ? 1 : 1 - (progress - 0.6) / 0.4;
+    g.lineStyle(3, INK, alpha);
+    const corners: Array<[number, number, number]> = [
+      [x - 6, y - 6, Math.PI],
+      [x + size + 6, y - 6, -Math.PI / 2],
+      [x + size + 6, y + size + 6, 0],
+      [x - 6, y + size + 6, Math.PI / 2],
+    ];
+    for (const [cx, cy, start] of corners) {
+      // A short spiral: the radius shrinks as the curl turns inward.
+      g.beginPath();
+      const turns = 1.4 * grow;
+      for (let step = 0; step <= 16; step++) {
+        const t = (step / 16) * turns;
+        const angle = start + t * Math.PI * 2;
+        const radius = 14 * (1 - t / 1.8);
+        const px = cx + Math.cos(angle) * radius;
+        const py = cy + Math.sin(angle) * radius;
+        if (step === 0) g.moveTo(px, py);
+        else g.lineTo(px, py);
+      }
+      g.strokePath();
+    }
+  }
+
+  /** Captions stack up to two lines and fade after a few seconds. */
+  private showCaption(text: string): void {
+    this.captions = [...this.captions.filter((line) => line !== text), text].slice(-2);
+    this.captionText.setText(this.captions.join('\n')).setAlpha(1).setVisible(true);
+    this.tweens.killTweensOf(this.captionText);
+    this.tweens.add({
+      targets: this.captionText,
+      alpha: 0,
+      delay: CAPTION_MS,
+      duration: 500,
+      onComplete: () => {
+        this.captions = [];
+        this.captionText.setVisible(false);
+      },
+    });
+  }
+
+  /** The kingdom's layers, or the boss theme on boss rounds. Convergence has its own theme (GDD 15.10). */
+  private followMusic(): void {
+    const kingdom = kingdomForRound(this.run);
+    const boss = this.sim.bosses.find((body) => body.role === 'boss' && body.bossId);
+    if (boss?.convergence) music.play({ kind: 'boss', id: 'convergence', kingdom });
+    else if (boss?.bossId) music.play({ kind: 'boss', id: boss.bossId, kingdom });
+    else music.play({ kind: 'kingdom', kingdom });
+  }
+
+  /** A dying enemy's image shrinks and fades (GDD 15.3). */
+  private fadeOut(key: string, x: number, y: number, size: number): void {
+    if (!this.textures.exists(key)) return;
+    let ghost = this.ghosts.find((item) => !item.visible);
+    if (!ghost) {
+      if (this.ghosts.length >= MAX_GHOSTS) return;
+      ghost = this.inWorld(this.add.image(0, 0, key)).setDepth(DEPTH.enemy - 0.5);
+      this.ghosts.push(ghost);
+    }
+    ghost.setTexture(key).setPosition(x, y).setAlpha(1).setVisible(true).setRotation(0);
+    fitImage(ghost, size);
+    const target = ghost;
+    this.tweens.killTweensOf(target);
+    this.tweens.add({
+      targets: target,
+      scaleX: target.scaleX * 0.2,
+      scaleY: target.scaleY * 0.2,
+      alpha: 0,
+      duration: 260,
+      ease: 'Quad.easeIn',
+      onComplete: () => target.setVisible(false),
+    });
+  }
+
   private drawPlayer(): void {
     const player = this.sim.player;
-    this.playerSprite.setPosition(player.x, player.y);
+    fitImage(this.playerSprite, this.spriteSize(PLAYER_KEY, PLAYER_TEXTURE_SIZE));
+    this.animate(this.playerSprite, player.x, player.y, player.vx, player.vy, player.stats.moveSpeed, 0);
     // The player blinks during the invulnerability window (GDD 3.7).
     const blink = player.invulnerable > 0 && Math.floor(this.clock * 20) % 2 === 0;
     this.playerSprite.setAlpha(blink ? 0.35 : 1);
@@ -1023,8 +1228,10 @@ export class Combat extends Phaser.Scene {
       }
 
       // Bosses and mini-bosses draw in the kingdom colour with a thick outline. Parts keep the faction circle.
+      // A generated image per phase replaces the circle (GDD 15.3).
       const boss = enemy.boss && (enemy.boss.role !== 'part' || enemy.boss.partId === 'unmaking-copy') ? enemy.boss : undefined;
-      const key = boss ? bossKey(enemy.def) : enemyKey(enemy.def);
+      const art = boss ? bossImageKey(boss) : undefined;
+      const key = art ?? (boss ? bossKey(enemy.def) : enemyKey(enemy.def));
       const ensure = (): void => {
         if (boss) ensureBossTexture(this, enemy.def, bossKingdom(boss));
         else ensureEnemyTexture(this, enemy.def);
@@ -1039,7 +1246,7 @@ export class Combat extends Phaser.Scene {
       }
       // Split copies and the mutated Alchemist draw at their current size.
       const size = (boss ? bossTextureSize(enemy.def) : enemyTextureSize(enemy.def)) * (enemy.radius / enemy.def.radius);
-      sprite.setDisplaySize(size, size);
+      fitImage(sprite, this.spriteSize(key, size));
 
       // Wind-up pull-back, then a quick lunge (GDD 15.3).
       let offset = 0;
@@ -1051,7 +1258,7 @@ export class Combat extends Phaser.Scene {
         const sinceStrike = enemy.actionDuration - enemy.actionTimer;
         offset = 9 * Math.max(0, 1 - sinceStrike / 0.15);
       }
-      sprite.setPosition(enemy.x + enemy.faceX * offset, enemy.y + enemy.faceY * offset);
+      this.animate(sprite, enemy.x + enemy.faceX * offset, enemy.y + enemy.faceY * offset, enemy.vx, enemy.vy, Math.max(40, enemy.baseSpeed), slot * 1.7);
       sprite.setVisible(true);
       // A sleeping Guardian and a stalled Lancer fade. So do The Unmaking's copies once the real body shows.
       const owner = enemy.boss?.owner;
@@ -1091,15 +1298,17 @@ export class Combat extends Phaser.Scene {
         const status = STATUS_EFFECTS[index];
         if (!status) continue;
         const colour = hexToNumber(STATUS_DEFS[status].colour);
-        const pipX = enemy.x - enemy.radius - 2 + pip * (PIP_SIZE + 2);
+        // Status meters show as small icons above the health bar (GDD 15.4): the shape fills in as the meter builds.
+        const pipX = enemy.x - enemy.radius + 4 + pip * (PIP_SIZE * 2 + 3);
         const pipY = enemy.y - enemy.radius - 20;
         const fill = active ? 1 : Math.min(1, meter / meterSize(enemy, status));
-        bars.fillStyle(INK, 1);
-        bars.fillRect(pipX - 1, pipY - 1, PIP_SIZE + 2, PIP_SIZE + 2);
-        bars.fillStyle(PARCHMENT, 1);
-        bars.fillRect(pipX, pipY, PIP_SIZE, PIP_SIZE);
-        bars.fillStyle(colour, 1);
-        bars.fillRect(pipX, pipY + PIP_SIZE * (1 - fill), PIP_SIZE, PIP_SIZE * fill);
+        bars.fillStyle(PARCHMENT, 0.85);
+        bars.fillCircle(pipX, pipY, PIP_SIZE + 1.5);
+        drawStatusIcon(bars, status, pipX, pipY, PIP_SIZE, active ? 1 : 0.3 + 0.7 * fill);
+        if (!active) {
+          bars.fillStyle(INK, 0.8);
+          bars.fillRect(pipX - PIP_SIZE, pipY + PIP_SIZE + 2, PIP_SIZE * 2 * fill, 2);
+        }
         pip++;
         if (active && outlines < 2) {
           bars.lineStyle(3, colour, 0.95);
@@ -1562,6 +1771,9 @@ export class Combat extends Phaser.Scene {
         g.lineStyle(1.5, GOLD, 0.5);
         g.strokeCircle(projectile.targetX, projectile.targetY, Math.max(8, projectile.blastRadius));
       } else {
+        // A trail in the damage type's style follows each shot (GDD 15.4).
+        const trailType = projectile.forcedType ?? sim.weapons[projectile.weaponIndex]?.resolved.damageParts[0]?.type;
+        if (trailType && Math.random() < TRAIL_CHANCE) this.effects.trail(projectile.x - projectile.dx * 10, projectile.y - projectile.dy * 10, trailType);
         // A parasite shows in the Biological colour.
         const colour = projectile.parasite ? hexToNumber(DAMAGE_TYPE_COLOURS.Biological) : GOLD;
         g.lineStyle(Math.max(2, radius * 0.8), colour, 0.45);
@@ -1633,14 +1845,17 @@ export class Combat extends Phaser.Scene {
       if (!value) continue;
       const colour = hexToNumber(DAMAGE_TYPE_COLOURS[type as DamageTypeName]);
       const fill = Math.min(1, value / player.stats.adaptationCap);
+      // The ring fills toward the cap around the damage type's shape (GDD 15.1).
       hud.fillStyle(PARCHMENT, 0.9);
-      hud.fillCircle(iconX, iconY, 9 * s);
-      hud.fillStyle(colour, 1);
-      hud.slice(iconX, iconY, 9 * s, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * fill, false);
-      hud.fillPath();
-      hud.lineStyle(2, INK, 1);
-      hud.strokeCircle(iconX, iconY, 9 * s);
-      iconX += 26 * s;
+      hud.fillCircle(iconX, iconY, 11 * s);
+      hud.lineStyle(3 * s, colour, 1);
+      hud.beginPath();
+      hud.arc(iconX, iconY, 10 * s, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * fill, false);
+      hud.strokePath();
+      hud.lineStyle(1.5, INK, 1);
+      hud.strokeCircle(iconX, iconY, 11.5 * s);
+      drawDamageIcon(hud, type as DamageTypeName, iconX, iconY, 6 * s);
+      iconX += 28 * s;
     }
 
     // Round timer, top centre. At zero the round goes on until every enemy falls (GDD 4.9).
@@ -1677,6 +1892,10 @@ export class Combat extends Phaser.Scene {
       if (weapon && sim.auxiliarySuppressed && weapon.full !== weapon.suppressed) {
         hud.lineStyle(4, DANGER, 0.9);
         hud.strokeRect(x + 3, tile.y + 3, tile.size - 6, tile.size - 6);
+      }
+      // Synergy activation draws a brief ink flourish round the tile when the round starts (GDD 15.4).
+      if (weapon && weapon.resolved.synergies.length > 0 && this.clock < FLOURISH_SECONDS) {
+        this.drawFlourish(hud, x, tile.y, tile.size, this.clock / FLOURISH_SECONDS);
       }
       // Weapon tiles glow when a synergy is active (GDD 15.7).
       if (weapon && weapon.resolved.synergies.length > 0) {
@@ -1736,7 +1955,8 @@ export class Combat extends Phaser.Scene {
       hud.lineStyle(3, INK, 0.35);
       hud.strokeCircle(base.x, base.y, this.controls.radius);
     }
-    this.speedText.setVisible(this.fastForward && this.speedAllowed() && !isTouchPrimary());
+    // Fast-forward greys out on boss rounds (GDD 15.7).
+    this.speedText.setVisible(this.fastForward && !isTouchPrimary()).setAlpha(this.speedAllowed() ? 1 : 0.35);
     // The trial's priority target carries a label (GDD 3.11).
     const target = this.sim.priorityId >= 0 ? this.sim.enemies.items.find((enemy) => enemy.active && enemy.id === this.sim.priorityId) : undefined;
     this.priorityLabel.setVisible(target !== undefined);

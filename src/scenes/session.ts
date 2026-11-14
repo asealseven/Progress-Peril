@@ -12,6 +12,8 @@ import { DAMAGE_PALETTES, TEXT_SCALE } from '../data/modes';
 import type { GameSettings } from '../data/modes';
 import { applyDamagePalette } from '../data/palette';
 import { setTextOptions } from '../ui/text';
+import { music } from '../audio/music';
+import { setSfxVolume } from '../audio/sfx';
 
 const KEY = 'save-session';
 
@@ -77,6 +79,8 @@ export function applySettings(scene: Phaser.Scene): void {
   const current = settings(scene);
   applyDamagePalette(current.colourPalette === 'standard' ? undefined : DAMAGE_PALETTES[current.colourPalette]);
   setTextOptions({ scale: TEXT_SCALE[current.textSize], readable: current.readableFont });
+  setSfxVolume(current.sfxVolume);
+  music.setVolume(current.musicVolume);
 }
 
 export function switchProfile(scene: Phaser.Scene, index: number): void {

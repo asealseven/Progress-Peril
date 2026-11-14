@@ -1,7 +1,9 @@
 import Phaser from 'phaser';
+import { music } from '../audio/music';
 import { PALETTE, hexToNumber } from '../data/palette';
 import { SCREEN } from '../data/screen';
 import { STRINGS } from '../data/strings';
+import { queueImages } from '../render/images';
 import { drawPageFrame } from '../ui/frame';
 import { addText } from '../ui/text';
 import { isTouchPrimary, uiScale } from './platform';
@@ -17,7 +19,14 @@ export class Boot extends Phaser.Scene {
     super('Boot');
   }
 
+  /** Generated images load once, under their manifest keys (CLAUDE.md rule 8). */
+  preload(): void {
+    queueImages(this);
+  }
+
   create(): void {
+    // The quiet Archive theme plays in menus (GDD 15.10).
+    music.play({ kind: 'menu' });
     const { width, height } = SCREEN;
     const centreX = width / 2;
     const touch = isTouchPrimary();

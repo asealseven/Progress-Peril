@@ -1,4 +1,7 @@
 import Phaser from 'phaser';
+import { kingdomForRound } from '../sim/run';
+import { music } from '../audio/music';
+import { playSound } from '../audio/sfx';
 import { saveRun } from './session';
 import { SLOT_TYPES } from '../data/components';
 import type { ComponentDef, SlotType } from '../data/components';
@@ -65,6 +68,7 @@ import {
 import { resolvePlayerStats, revealPending } from '../sim/run';
 import type { RunState } from '../sim/run';
 import { Button } from '../ui/button';
+import { componentIcon, keeperIcon, weaponIcon } from '../ui/icons';
 import { ResearchWeb, fitCamera } from '../ui/researchWeb';
 import type { WebCamera, WebViewport } from '../ui/researchWeb';
 import { addText } from '../ui/text';
@@ -117,6 +121,7 @@ const TRAY_TOP = CARD_TOP + CARD_HEIGHT + 8;
 const TRAY_PER_PAGE = 6;
 const CHIP_WIDTH = 200;
 const CHIP_HEIGHT = 84;
+const CHIP_ICON = 40;
 const CHIP_GAP = 8;
 const SHOP_CARD_WIDTH = 170;
 const SHOP_CARD_GAP = 8;
@@ -128,6 +133,16 @@ const NODE_PANEL_LEFT = 864;
  * bar and a large Start button. Untimed: the round starts when the player
  * presses Start. The Research tab shows the research web (GDD 8, 15.8).
  */
+interface Area {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** Pixels a mouse moves before a press becomes a drag. */
+const DRAG_START = 8;
+
 export class Preparation extends Phaser.Scene {
   private run!: RunState;
   private view!: PrepView;
@@ -138,6 +153,10 @@ export class Preparation extends Phaser.Scene {
 
   /** The run saved when this preparation phase began. Redraws reuse the scene and skip the save. */
   private saved = false;
+  /** Sockets and tray components on screen, for dragging on PC. */
+  private sockets: Array<Area & { weapon: WeaponInstance; slot: SlotType }> = [];
+  private dragSources: Array<Area & { component: ComponentInstance }> = [];
+  private drag: { component: ComponentInstance; startX: number; startY: number; moved: boolean; ghost: Phaser.GameObjects.GameObject[] } | undefined;
 
   init(data: PreparationData): void {
     this.run = data.run;
@@ -152,6 +171,9 @@ export class Preparation extends Phaser.Scene {
   }
 
   create(): void {
+    // Between rounds the kingdom theme falls back to its calm layer (GDD 15.10).
+    music.play({ kind: 'kingdom', kingdom: kingdomForRound(this.run) });
+    music.setThreat(0);
     // The run saves at the start of every preparation phase (GDD 15.13).
     if (this.view.tab !== undefined && !this.saved) {
       this.saved = true;
@@ -161,14 +183,15 @@ export class Preparation extends Phaser.Scene {
     // The Apprentice Trial guides each preparation phase (GDD 3.11).
     const trialHint = this.run.trial ? STRINGS.trial.prep[this.run.round - 2] : undefined;
     if (trialHint) {
-      this.time.delayedCall(0, () => {
-        const text = addText(this, SCREEN.width / 2, SCREEN.height - 8, trialHint, { size: 17, weight: '700', colour: PALETTE.danger, align: 'center', wrapWidth: 1100 })
-          .setOrigin(0.5, 1)
-          .setDepth(90)
-          .setStroke(PALETTE.parchment, 5);
-        void text;
-      });
+      addText(this, SCREEN.width / 2, SCREEN.height - 8, trialHint, { size: 17, weight: '700', colour: PALETTE.danger, align: 'center', wrapWidth: 1100 })
+        .setOrigin(0.5, 1)
+        .setDepth(90)
+        .setStroke(PALETTE.parchment, 5);
     }
+    this.sockets = [];
+    this.dragSources = [];
+    this.drag = undefined;
+    this.listenForDrags();
     // The research web draws first, so the bar and the node card cover its edges.
     if (this.view.tab === 'research') this.drawResearch();
     this.drawBar();
@@ -206,6 +229,8 @@ export class Preparation extends Phaser.Scene {
 
   /** Runs an economy action. A refusal shows as a message. */
   private act(problem: WorkbenchProblem | ShopProblem | undefined, change?: (view: PrepView) => void): void {
+    // Purchases ring the till. Workbench changes scratch the quill (GDD 15.10).
+    if (!problem) playSound(this.view.tab === 'shop' ? 'purchase' : 'quill');
     this.redraw((view) => {
       view.message = problem ? STRINGS.prep.problems[problem] : undefined;
       if (!problem) change?.(view);
@@ -215,6 +240,56 @@ export class Preparation extends Phaser.Scene {
   private startRound(): void {
     // After a boss the next kingdom stays hidden until Start (GDD 5.8).
     this.scene.start(revealPending(this.run) ? 'Transition' : 'Combat', { run: this.run });
+  }
+
+  // --- Dragging on PC (GDD 15.8) --------------------------------------------------------
+
+  /** A mouse drags a tray component onto a socket. Touch keeps tap, then tap the socket. */
+  private listenForDrags(): void {
+    const inside = (area: Area, x: number, y: number): boolean => x >= area.x && x <= area.x + area.w && y >= area.y && y <= area.y + area.h;
+    const down = (pointer: Phaser.Input.Pointer): void => {
+      if (pointer.wasTouch) return;
+      const source = this.dragSources.find((area) => inside(area, pointer.x, pointer.y));
+      this.drag = source ? { component: source.component, startX: pointer.x, startY: pointer.y, moved: false, ghost: [] } : undefined;
+    };
+    const move = (pointer: Phaser.Input.Pointer): void => {
+      const drag = this.drag;
+      if (!drag || !pointer.isDown) return;
+      if (!drag.moved && Math.hypot(pointer.x - drag.startX, pointer.y - drag.startY) > DRAG_START) {
+        drag.moved = true;
+        drag.ghost = componentIcon(this, drag.component.def, pointer.x, pointer.y, 56);
+        for (const part of drag.ghost) (part as unknown as Phaser.GameObjects.Components.Depth).setDepth(100);
+        for (const area of this.sockets) {
+          if (area.slot === drag.component.def.slot && installProblem(area.weapon, drag.component.def) === undefined) {
+            drag.ghost.push(this.add.rectangle(area.x, area.y, area.w, area.h).setOrigin(0).setStrokeStyle(5, GOLD, 1).setDepth(99));
+          }
+        }
+      }
+      if (drag.moved) {
+        for (const part of drag.ghost) {
+          if (part instanceof Phaser.GameObjects.Rectangle) continue;
+          (part as unknown as Phaser.GameObjects.Components.Transform).setPosition(pointer.x, pointer.y);
+        }
+      }
+    };
+    const up = (pointer: Phaser.Input.Pointer): void => {
+      const drag = this.drag;
+      this.drag = undefined;
+      if (!drag?.moved) return;
+      for (const part of drag.ghost) part.destroy();
+      const socket = this.sockets.find((area) => inside(area, pointer.x, pointer.y));
+      if (socket && socket.slot === drag.component.def.slot) {
+        this.act(installFromInventory(this.run, socket.weapon, drag.component), (next) => (next.selected = undefined));
+      }
+    };
+    this.input.on('pointerdown', down);
+    this.input.on('pointermove', move);
+    this.input.on('pointerup', up);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.input.off('pointerdown', down);
+      this.input.off('pointermove', move);
+      this.input.off('pointerup', up);
+    });
   }
 
   /** A clickable panel with an ink border. */
@@ -230,7 +305,10 @@ export class Preparation extends Phaser.Scene {
     const onClick = options.onClick;
     if (onClick) {
       panel.setInteractive({ useHandCursor: true });
-      panel.on('pointerup', onClick);
+      // A finished drag is a drop, never a click on the panel under the pointer.
+      panel.on('pointerup', () => {
+        if (!this.drag?.moved) onClick();
+      });
     }
     return panel;
   }
@@ -259,6 +337,7 @@ export class Preparation extends Phaser.Scene {
         selected: view.tab === tab,
         onClick: () =>
           this.redraw((next) => {
+            if (next.tab !== tab) playSound('page');
             next.tab = tab;
             next.message = undefined;
             next.upgrade = undefined;
@@ -333,6 +412,7 @@ export class Preparation extends Phaser.Scene {
     } else {
       const problem = researchNodeNow(run, node);
       message = problem ? STRINGS.research.problems[problem] : STRINGS.research.researched(node.name);
+      if (!problem) playSound('research');
     }
     // Perfect Information shows the next milestone stock at once (GDD 8.12).
     previewShops(run);
@@ -516,13 +596,16 @@ export class Preparation extends Phaser.Scene {
     }
 
     const def = weapon.def;
-    addText(this, x + CARD_WIDTH / 2, CARD_TOP + 10, def.name, { role: 'heading', size: 25 }).setOrigin(0.5, 0);
+    // Weapons appear as annotated blueprints (GDD 15.1): the icon, then the name and line beside it.
+    weaponIcon(this, def, x + 34, CARD_TOP + 34, 50);
+    const title = addText(this, x + 66, CARD_TOP + 10, def.name, { role: 'heading', size: 23 });
+    if (title.width > CARD_WIDTH - 74) title.setScale((CARD_WIDTH - 74) / title.width);
     const gradeLabel = STRINGS.prep.grade(GRADE_NUMERALS[weapon.grade] ?? '');
-    addText(this, x + CARD_WIDTH / 2, CARD_TOP + 44, STRINGS.prep.weaponLine(weapon.quality, gradeLabel, def.family), {
+    addText(this, x + 66, CARD_TOP + 42, STRINGS.prep.weaponLine(weapon.quality, gradeLabel, def.family), {
       size: 15,
       weight: '700',
       colour: QUALITY_COLOURS[weapon.quality],
-    }).setOrigin(0.5, 0);
+    });
     if (resolved) {
       const stats = STRINGS.prep.stats(
         resolved.damage.toFixed(1),
@@ -624,6 +707,7 @@ export class Preparation extends Phaser.Scene {
       onClick = () => this.act(removeToInventory(run, weapon, slotType), (next) => (next.tray = 'components'));
     }
 
+    if (!locked) this.sockets.push({ x, y, w: width, h: SOCKET_HEIGHT, weapon, slot: slotType });
     this.panel(x, y, width, SOCKET_HEIGHT, {
       fill: PARCHMENT,
       stroke: fits ? GOLD : INK,
@@ -636,7 +720,8 @@ export class Preparation extends Phaser.Scene {
     if (locked) label = STRINGS.prep.socketLocked;
     else if (installed) label = installed.def.name;
     else label = STRINGS.prep.socketEmpty;
-    addText(this, x + width / 2, y + 36, label, {
+    if (installed && !locked) componentIcon(this, installed.def, x + 26, y + 36, 30);
+    addText(this, x + width / 2 + (installed && !locked ? 14 : 0), y + 36, label, {
       size: locked ? 14 : 18,
       weight: installed && !locked ? '700' : '400',
       colour: installed && !locked ? PALETTE.ink : PALETTE.brass,
@@ -865,13 +950,23 @@ export class Preparation extends Phaser.Scene {
         const component = components[first + index];
         if (!component) continue;
         const isSelected = selected?.kind === 'component' && selected.component === component;
-        this.drawChip(x, chipTop, component.def.name, `${component.def.slot}  ·  ${component.def.quality}`, QUALITY_COLOURS[component.def.quality], isSelected, 1, () =>
-          this.redraw((next) => {
-            next.selected = isSelected ? undefined : { kind: 'component', component };
-            next.upgrade = undefined;
-            next.message = undefined;
-          }),
+        this.drawChip(
+          x,
+          chipTop,
+          component.def.name,
+          `${component.def.slot}  ·  ${component.def.quality}`,
+          QUALITY_COLOURS[component.def.quality],
+          isSelected,
+          1,
+          () =>
+            this.redraw((next) => {
+              next.selected = isSelected ? undefined : { kind: 'component', component };
+              next.upgrade = undefined;
+              next.message = undefined;
+            }),
+          (ix, iy, size) => componentIcon(this, component.def, ix, iy, size),
         );
+        this.dragSources.push({ x, y: chipTop, w: CHIP_WIDTH, h: CHIP_HEIGHT, component });
       } else if (view.tray === 'weapons') {
         const weapon = run.reserve[first + index];
         if (!weapon) continue;
@@ -890,6 +985,7 @@ export class Preparation extends Phaser.Scene {
               next.upgrade = undefined;
               next.message = undefined;
             }),
+          (ix, iy, size) => weaponIcon(this, weapon.def, ix, iy, size),
         );
       } else {
         const def = recipes()[first + index];
@@ -911,6 +1007,7 @@ export class Preparation extends Phaser.Scene {
               next.upgrade = undefined;
               next.message = undefined;
             }),
+          (ix, iy, size) => componentIcon(this, def, ix, iy, size),
         );
       }
     }
@@ -929,6 +1026,7 @@ export class Preparation extends Phaser.Scene {
     selected: boolean,
     alpha: number,
     onClick: () => void,
+    icon?: (x: number, y: number, size: number) => Phaser.GameObjects.GameObject[],
   ): void {
     this.panel(x, y, CHIP_WIDTH, CHIP_HEIGHT, {
       stroke: selected ? GOLD : INK,
@@ -936,15 +1034,20 @@ export class Preparation extends Phaser.Scene {
       alpha,
       onClick,
     });
-    addText(this, x + CHIP_WIDTH / 2, y + 8, name, {
+    // The item's icon sits on the left, the name and its line beside it (GDD 15.8).
+    const inset = icon ? CHIP_ICON + 10 : 0;
+    if (icon) {
+      for (const part of icon(x + 8 + CHIP_ICON / 2, y + CHIP_HEIGHT / 2, CHIP_ICON)) (part as unknown as Phaser.GameObjects.Components.Alpha).setAlpha(alpha);
+    }
+    addText(this, x + inset + (CHIP_WIDTH - inset) / 2, y + 8, name, {
       size: 16,
       weight: '700',
       align: 'center',
-      wrapWidth: CHIP_WIDTH - 12,
+      wrapWidth: CHIP_WIDTH - inset - 12,
     })
       .setOrigin(0.5, 0)
       .setAlpha(alpha);
-    addText(this, x + CHIP_WIDTH / 2, y + CHIP_HEIGHT - 8, line, { size: 13, weight: '700', colour: lineColour })
+    addText(this, x + inset + (CHIP_WIDTH - inset) / 2, y + CHIP_HEIGHT - 8, line, { size: 13, weight: '700', colour: lineColour, align: 'center', wrapWidth: CHIP_WIDTH - inset - 6 })
       .setOrigin(0.5, 1)
       .setAlpha(alpha);
   }
@@ -973,14 +1076,16 @@ export class Preparation extends Phaser.Scene {
       const centre = x + width / 2;
       this.panel(x, 190, width, 440, { fill: PANEL, strokeWidth: 3 });
       addText(this, centre, 214, shop.name, { role: 'heading', size: 36 }).setOrigin(0.5, 0);
-      addText(this, centre, 266, shop.keeper, { role: 'hand', size: 26, colour: PALETTE.brass }).setOrigin(0.5, 0);
-      addText(this, centre, 320, shop.stockText, { size: 18, align: 'center', wrapWidth: width - 48 }).setOrigin(0.5, 0);
+      addText(this, centre, 258, shop.keeper, { role: 'hand', size: 24, colour: PALETTE.brass }).setOrigin(0.5, 0);
+      // The keeper's portrait, or a door until the portrait exists (GDD 15.8).
+      keeperIcon(this, id, centre, 352, 150, 110);
+      addText(this, centre, 414, shop.stockText, { size: 16, align: 'center', wrapWidth: width - 48 }).setOrigin(0.5, 0);
       const fee = visitFee(run, id);
       const open = run.shops[id].visit !== undefined;
       if (run.shops[id].previewed && !open) {
         // Perfect Information: the next milestone stock, before the choice of door (GDD 8.12).
         const names = run.shops[id].stock.map((item) => (item ? itemName(item) : '')).filter((name) => name !== '');
-        addText(this, centre, 400, STRINGS.prep.preview(names.join(', ')), {
+        addText(this, centre, 470, STRINGS.prep.preview(names.join(', ')), {
           size: 15,
           weight: '700',
           align: 'center',
@@ -1017,8 +1122,10 @@ export class Preparation extends Phaser.Scene {
     const visit = state.visit;
     if (!visit) return;
 
-    addText(this, MARGIN + 8, 82, shop.name, { role: 'heading', size: 34 });
-    addText(this, MARGIN + 8 + 250, 92, this.view.message ?? STRINGS.prep.keeper[shopId].greet, {
+    // The keeper stands beside the counter (GDD 15.8).
+    keeperIcon(this, shopId, MARGIN + 34, 104, 64, 58);
+    addText(this, MARGIN + 74, 82, shop.name, { role: 'heading', size: 34 });
+    addText(this, MARGIN + 74 + 250, 92, this.view.message ?? STRINGS.prep.keeper[shopId].greet, {
       role: 'hand',
       size: 26,
       colour: PALETTE.brass,
@@ -1080,6 +1187,9 @@ export class Preparation extends Phaser.Scene {
       wrapWidth: width - 12,
     }).setOrigin(0.5, 0);
     cursor += name.height + 6;
+    if (item.kind === 'component') componentIcon(this, item.def, centre, cursor + 26, 52);
+    else weaponIcon(this, item.weapon.def, centre, cursor + 26, 52);
+    cursor += 58;
 
     let kind: string;
     let body: string;

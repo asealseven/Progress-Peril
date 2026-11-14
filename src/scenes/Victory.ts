@@ -1,11 +1,15 @@
 import Phaser from 'phaser';
+import { playSound } from '../audio/sfx';
+import { music } from '../audio/music';
 import { endRun } from './session';
 import { BOSS_BY_KINGDOM } from '../data/bosses';
 import { KINGDOMS } from '../data/kingdoms';
 import { KINGDOM_COLOURS, PALETTE, hexToNumber } from '../data/palette';
 import { RELICS } from '../data/relics';
 import { SCREEN } from '../data/screen';
+import { assetKey } from '../data/assets';
 import { STORY } from '../data/story';
+import { addImageIfPresent } from '../render/images';
 import { STRINGS, formatTime } from '../data/strings';
 import { formatSeed } from '../sim/rng';
 import { continueEndless, kingdomForRound, runTotals } from '../sim/run';
@@ -34,6 +38,9 @@ export class Victory extends Phaser.Scene {
   }
 
   create(): void {
+    // Between rounds the kingdom theme falls back to its calm layer (GDD 15.10).
+    music.play({ kind: 'kingdom', kingdom: kingdomForRound(this.run) });
+    music.setThreat(0);
     const { width, height } = SCREEN;
     const run = this.run;
     const kingdom = kingdomForRound(run, run.round);
@@ -58,8 +65,15 @@ export class Victory extends Phaser.Scene {
     card.strokeRect(cardX, 160, cardW, 420);
     card.fillStyle(hexToNumber(KINGDOM_COLOURS[kingdom]), 1);
     card.fillRect(cardX, 160, cardW, 14);
-    addText(this, cardX + cardW / 2, 196, STRINGS.victory.ending(kingdom), { role: 'heading', size: 30 }).setOrigin(0.5, 0);
-    addText(this, cardX + cardW / 2, 260, STORY.ending[kingdom], { role: 'hand', size: 30, align: 'center', wrapWidth: cardW - 60 }).setOrigin(0.5, 0);
+    addText(this, cardX + cardW / 2, 186, STRINGS.victory.ending(kingdom), { role: 'heading', size: 30 }).setOrigin(0.5, 0);
+    // The ending illustration sits above the text once it exists (ART_PROMPTS.md).
+    const art = addImageIfPresent(this, assetKey('card', `ending-${kingdom}`), cardX + cardW / 2, 330, cardW - 40, 200);
+    addText(this, cardX + cardW / 2, art ? 440 : 250, STORY.ending[kingdom], {
+      role: 'hand',
+      size: art ? 22 : 30,
+      align: 'center',
+      wrapWidth: cardW - 60,
+    }).setOrigin(0.5, 0);
 
     // Campaign statistics and the route.
     const left = 730;
@@ -84,6 +98,27 @@ export class Victory extends Phaser.Scene {
       y += Math.max(30, text.height + 8);
       lines.lineBetween(left, y - 5, right, y - 5);
     }
+
+    // The Archive Point tally counts up (GDD 15.9).
+    const tally = addText(this, (left + right) / 2, y + 12, STRINGS.victory.tally(0, run.archive.points - run.archiveEarned), {
+      role: 'heading',
+      size: 26,
+      colour: PALETTE.brass,
+      align: 'center',
+    }).setOrigin(0.5, 0);
+    const counter = { value: 0 };
+    this.tweens.add({
+      targets: counter,
+      value: run.archiveEarned,
+      delay: 600,
+      duration: 1400,
+      ease: 'Cubic.easeOut',
+      onUpdate: () => {
+        const earned = Math.round(counter.value);
+        tally.setText(STRINGS.victory.tally(earned, run.archive.points - run.archiveEarned + earned));
+        if (earned % 5 === 0) playSound('quill', 0.5);
+      },
+    });
 
     const toTitle = (): void => {
       this.scene.start('Hub');

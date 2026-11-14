@@ -29,9 +29,23 @@ const HAZARD_COLOURS = {
   biological: hexToNumber(DAMAGE_TYPE_COLOURS.Biological),
 } as const;
 
-/** Floor, walls and the shapes that never move. */
-export function drawArenaFloor(floor: Phaser.GameObjects.Graphics, arena: ArenaDef): void {
+/**
+ * Floor, walls and the shapes that never move. Over a generated arena image,
+ * only the walls and thin outlines of solid shapes remain, so collisions stay
+ * readable when the painting and the rules differ a little.
+ */
+export function drawArenaFloor(floor: Phaser.GameObjects.Graphics, arena: ArenaDef, overImage = false): void {
   const kingdom = hexToNumber(KINGDOM_COLOURS[arena.kingdom]);
+  if (overImage) {
+    floor.lineStyle(10, INK, 1);
+    floor.strokeRect(5, 5, arena.width - 10, arena.height - 10);
+    floor.lineStyle(2, INK, 0.35);
+    for (const obstacle of arena.obstacles) {
+      if (obstacle.kind === 'vat' || obstacle.kind === 'arm' || obstacle.kind === 'thorn') continue;
+      floor.strokeCircle(obstacle.x, obstacle.y, obstacle.radius);
+    }
+    return;
+  }
   floor.fillStyle(FLOOR, 1);
   floor.fillRect(0, 0, arena.width, arena.height);
   // A faint wash of the kingdom colour tells arenas apart.

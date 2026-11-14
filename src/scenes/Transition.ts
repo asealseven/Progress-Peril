@@ -1,10 +1,13 @@
 import Phaser from 'phaser';
+import { music } from '../audio/music';
 import { KINGDOMS, KINGDOM_NAMES } from '../data/kingdoms';
 import { KINGDOM_COLOURS, PALETTE, hexToNumber } from '../data/palette';
 import type { KingdomName } from '../data/palette';
 import { territorySlot } from '../data/rounds';
 import { SCREEN } from '../data/screen';
+import { assetKey } from '../data/assets';
 import { STORY } from '../data/story';
+import { addImageIfPresent } from '../render/images';
 import { STRINGS } from '../data/strings';
 import { revealKingdom } from '../sim/run';
 import type { RunState } from '../sim/run';
@@ -81,6 +84,8 @@ export class Transition extends Phaser.Scene {
   /** The opening card, first campaign only (GDD 2.4). */
   private drawOpening(): void {
     const centreX = SCREEN.width / 2;
+    // The opening illustration shows faintly behind the text once it exists (ART_PROMPTS.md).
+    addImageIfPresent(this, assetKey('card', 'opening'), centreX, SCREEN.height / 2, SCREEN.width - 60, SCREEN.height - 60)?.setAlpha(0.3);
     addText(this, centreX, 120, STRINGS.transition.openingTitle, { role: 'heading', size: 54 }).setOrigin(0.5);
     addText(this, centreX, 200, STORY.premise, { size: 20, align: 'center', wrapWidth: 900, colour: PALETTE.brass }).setOrigin(0.5, 0);
     addText(this, centreX, 360, STORY.opening, { role: 'hand', size: 34, align: 'center', wrapWidth: 940 }).setOrigin(0.5, 0);
@@ -99,6 +104,8 @@ export class Transition extends Phaser.Scene {
   private drawReveal(): void {
     const run = this.run;
     const kingdom = revealKingdom(run);
+    music.play({ kind: 'kingdom', kingdom });
+    music.setThreat(0);
     const territory = territorySlot(run.round);
     const centreX = SCREEN.width / 2;
 
@@ -156,9 +163,11 @@ export class Transition extends Phaser.Scene {
     card.strokeRect(cardX - 230, 150, 460, 420);
     card.fillStyle(hexToNumber(KINGDOM_COLOURS[kingdom]), 1);
     card.fillRect(cardX - 230, 150, 460, 14);
-    const parts = [
-      addText(this, cardX, 184, def.title, { role: 'heading', size: 28, align: 'center', wrapWidth: 420 }).setOrigin(0.5, 0),
-      addText(this, cardX, 270, STORY.reveal[kingdom], { role: 'hand', size: 28, align: 'center', wrapWidth: 410 }).setOrigin(0.5, 0),
+    // The reveal illustration heads the card once it exists (ART_PROMPTS.md).
+    const art = addImageIfPresent(this, assetKey('card', `reveal-${kingdom}`), cardX, 255, 430, 170);
+    const parts: Phaser.GameObjects.Components.Alpha[] = [
+      addText(this, cardX, art ? 346 : 184, def.title, { role: 'heading', size: art ? 22 : 28, align: 'center', wrapWidth: 420 }).setOrigin(0.5, 0),
+      addText(this, cardX, art ? 384 : 270, STORY.reveal[kingdom], { role: 'hand', size: art ? 21 : 28, align: 'center', wrapWidth: 410 }).setOrigin(0.5, 0),
       addText(this, cardX, 470, STRINGS.transition.specialisation(def.specialisation), {
         size: 16,
         colour: PALETTE.brass,
@@ -167,6 +176,7 @@ export class Transition extends Phaser.Scene {
         wrapWidth: 410,
       }).setOrigin(0.5, 0),
     ];
+    if (art) parts.push(art);
     for (const part of parts) {
       part.setAlpha(0);
       this.tweens.add({ targets: part, alpha: 1, delay: REVEAL_MS * 0.6, duration: 400 });

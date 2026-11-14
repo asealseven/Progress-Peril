@@ -1,4 +1,5 @@
 import { EVENTS } from '../data/events';
+import { music } from '../audio/music';
 import { endRun, saveNow } from './session';
 import Phaser from 'phaser';
 import { MATERIALS } from '../data/economy';
@@ -10,6 +11,7 @@ import { formatSeed } from '../sim/rng';
 import { kingdomForRound, runTotals, takeComponentChoice, takeRelic } from '../sim/run';
 import type { RoundResult, RunState } from '../sim/run';
 import { Button } from '../ui/button';
+import { componentIcon, relicIcon } from '../ui/icons';
 import { drawPageFrame } from '../ui/frame';
 import { addText } from '../ui/text';
 import { isTouchPrimary, uiScale } from './platform';
@@ -22,6 +24,11 @@ export interface ResultsData {
 }
 
 const GAMEPAD_CONFIRM = 0;
+
+/** The round summary shows for two seconds (GDD 15.9). */
+const SUMMARY_MS = 2000;
+/** A tap or key held over from combat never skips the summary at once. */
+const SKIP_GUARD_MS = 250;
 
 function materialsLabel(result: RoundResult): string {
   const parts = MATERIALS.filter((material) => result.materials[material] > 0).map(
@@ -59,10 +66,14 @@ export class Results extends Phaser.Scene {
     addText(this, width / 2, 90, STRINGS.relics.title, { role: 'heading', size: 54 }).setOrigin(0.5);
     addText(this, width / 2, 140, STRINGS.relics.note(kingdom), { size: 20, colour: PALETTE.brass, weight: '700' }).setOrigin(0.5);
     // When the kingdom has no relic left, three Rare or better components stand in (GDD 5.12).
-    const choices: Array<{ name: string; effect: string }> =
+    const choices: Array<{ name: string; effect: string; icon: (x: number, y: number) => void }> =
       run.relicChoices.length > 0
-        ? run.relicChoices.map((id) => RELICS[id])
-        : run.componentChoices.map((def) => ({ name: def.name, effect: `${def.quality}. ${def.effect}` }));
+        ? run.relicChoices.map((id) => ({ ...RELICS[id], icon: (x: number, y: number) => void relicIcon(this, RELICS[id], x, y, 84) }))
+        : run.componentChoices.map((def) => ({
+            name: def.name,
+            effect: `${def.quality}. ${def.effect}`,
+            icon: (x: number, y: number) => void componentIcon(this, def, x, y, 84),
+          }));
     const cardW = 340;
     const gap = 30;
     const total = choices.length * cardW + (choices.length - 1) * gap;
@@ -78,11 +89,11 @@ export class Results extends Phaser.Scene {
       card.fillRect(x, 190, cardW, 360);
       card.lineStyle(3, hexToNumber(PALETTE.ink), 1);
       card.strokeRect(x, 190, cardW, 360);
+      // Relic cards follow the beaten kingdom's palette (GDD 15.9).
       card.fillStyle(hexToNumber(KINGDOM_COLOURS[kingdom]), 1);
-      card.fillCircle(x + cardW / 2, 260, 40);
-      card.lineStyle(4, hexToNumber(PALETTE.ink), 1);
-      card.strokeCircle(x + cardW / 2, 260, 40);
-      addText(this, x + cardW / 2, 260, `${index + 1}`, { role: 'heading', size: 36 }).setOrigin(0.5);
+      card.fillRect(x, 190, cardW, 12);
+      relic.icon(x + cardW / 2, 260);
+      addText(this, x + 14, 210, `${index + 1}`, { role: 'hand', size: 28, colour: PALETTE.brass });
       addText(this, x + cardW / 2, 320, relic.name, { role: 'heading', size: 28, align: 'center', wrapWidth: cardW - 30 }).setOrigin(0.5, 0);
       addText(this, x + cardW / 2, 380, relic.effect, { size: 19, align: 'center', wrapWidth: cardW - 40 }).setOrigin(0.5, 0);
       new Button(this, x + cardW / 2, 510, { label: STRINGS.relics.take, width: cardW - 40, height: 54, textSize: 22, onClick: () => take(index) });
@@ -98,6 +109,9 @@ export class Results extends Phaser.Scene {
   }
 
   create(): void {
+    // Between rounds the kingdom theme falls back to its calm layer (GDD 15.10).
+    music.play({ kind: 'kingdom', kingdom: kingdomForRound(this.run) });
+    music.setThreat(0);
     if (this.step === 'relics') {
       this.confirm = () => undefined;
       this.drawRelicChoice();
@@ -143,10 +157,14 @@ export class Results extends Phaser.Scene {
       if (run.research.captures.length > 0) note = `${note} ${STRINGS.results.capture}`;
       buttonLabel = STRINGS.results.nextRound;
       // Preparation follows every round (GDD 3.3). After a territory boss the relic choice comes first (GDD 5.8).
-      this.confirm = () =>
-        run.relicChoices.length > 0 || run.componentChoices.length > 0
-          ? this.scene.restart({ run, result, step: 'relics' })
-          : this.scene.start('Preparation', { run });
+      let left = false;
+      this.confirm = () => {
+        // The timer, a tap and a key can all fire: the summary moves on once.
+        if (left) return;
+        left = true;
+        if (run.relicChoices.length > 0 || run.componentChoices.length > 0) this.scene.restart({ run, result, step: 'relics' });
+        else this.scene.start('Preparation', { run });
+      };
     } else {
       const totals = runTotals(run);
       const dead = run.status === 'dead';
@@ -173,7 +191,7 @@ export class Results extends Phaser.Scene {
     }).setOrigin(0.5);
     addText(this, centreX, 146, note, { size: 20 * s, align: 'center', wrapWidth: 820 }).setOrigin(0.5, 0);
 
-    const tableTop = 220 + 24 * s;
+    const tableTop = (run.status === 'active' ? 252 : 220) + 24 * s;
     const rowHeight = (rows.length > 5 ? 24 : 30) * s;
     const tableWidth = 440 * s;
     addText(this, centreX, tableTop - 20, rowsHeading, { role: 'hand', size: 28 * s, colour: PALETTE.brass }).setOrigin(
@@ -209,11 +227,23 @@ export class Results extends Phaser.Scene {
       colour: PALETTE.brass,
     }).setOrigin(1, 1);
 
+    // After a round: a two-second summary that moves on by itself. Any key or tap skips it (GDD 15.9).
+    if (run.status === 'active') {
+      const summary = STRINGS.results.summary(result.stats.kills, result.gold + result.eventGold, Math.round(result.research * 10) / 10);
+      addText(this, centreX, 196, summary, { role: 'heading', size: 30 * s }).setOrigin(0.5);
+      const bar = this.add.rectangle(60, height - 24, 0, 6, hexToNumber(PALETTE.brass), 1).setOrigin(0, 0.5);
+      this.tweens.add({ targets: bar, width: width - 120, duration: SUMMARY_MS });
+      this.time.delayedCall(SUMMARY_MS, () => this.confirm());
+      this.time.delayedCall(SKIP_GUARD_MS, () => this.input.once('pointerup', () => this.confirm()));
+    }
+
     const keyboard = this.input.keyboard;
     const onEnter = (): void => this.confirm();
     keyboard?.on('keydown-ENTER', onEnter);
+    if (run.status === 'active') this.time.delayedCall(SKIP_GUARD_MS, () => keyboard?.on('keydown-SPACE', onEnter));
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       keyboard?.off('keydown-ENTER', onEnter);
+      keyboard?.off('keydown-SPACE', onEnter);
     });
   }
 

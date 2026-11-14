@@ -1,6 +1,12 @@
 import Phaser from 'phaser';
+import { music } from '../audio/music';
 import { CHARACTERS } from '../data/characters';
-import { DAMAGE_TYPE_COLOURS, PALETTE, hexToNumber } from '../data/palette';
+import type { CharacterDef } from '../data/characters';
+import { DISCIPLINES } from '../data/research';
+import { masteryRank } from '../sim/archive';
+import { fitImage, hasImage } from '../render/images';
+import { PLAYER_KEY, ensurePlayerTexture } from '../render/placeholders';
+import { PALETTE, hexToNumber } from '../data/palette';
 import { SCREEN } from '../data/screen';
 import { STRINGS } from '../data/strings';
 import { STARTING_WEAPONS } from '../data/weapons';
@@ -8,7 +14,9 @@ import type { WeaponDef } from '../data/weapons';
 import { newSeed, parseSeed } from '../sim/rng';
 import { archive, saveNow, saveRun, settings } from './session';
 import { ASSIST_RATE, TIER_RATES, leversAt } from '../data/modes';
+import { drawDamageIcon } from '../render/damageIcons';
 import { Button } from '../ui/button';
+import { weaponIcon } from '../ui/icons';
 import { createRun } from '../sim/run';
 import { drawPageFrame } from '../ui/frame';
 import { addText } from '../ui/text';
@@ -38,6 +46,8 @@ export class CharacterSelect extends Phaser.Scene {
   }
 
   create(): void {
+    // The quiet Archive theme plays in menus (GDD 15.10).
+    music.play({ kind: 'menu' });
     const { width, height } = SCREEN;
     const centreX = width / 2;
     const s = uiScale();
@@ -57,6 +67,8 @@ export class CharacterSelect extends Phaser.Scene {
       size: 30,
       colour: PALETTE.brass,
     }).setOrigin(0.5);
+
+    this.drawPortrait(character, 120, 96);
 
     const gridWidth = COLUMNS * CARD_WIDTH + (COLUMNS - 1) * CARD_GAP;
     const left = centreX - gridWidth / 2;
@@ -105,16 +117,15 @@ export class CharacterSelect extends Phaser.Scene {
     card.on('pointerup', () => this.choose(index));
     this.cards.push(card);
 
-    // A swatch in the damage type colour, as on blueprint cards (GDD 15.1).
-    const type = weapon.damageTypes[0] ?? 'Impact';
-    const swatch = this.add.graphics();
-    swatch.fillStyle(hexToNumber(DAMAGE_TYPE_COLOURS[type]), 1);
-    swatch.fillCircle(x + CARD_WIDTH - 30, y + 32, 12);
-    swatch.lineStyle(2, hexToNumber(PALETTE.ink), 1);
-    swatch.strokeCircle(x + CARD_WIDTH - 30, y + 32, 12);
+    // The weapon as a blueprint icon, with one shape per damage type (GDD 15.1).
+    weaponIcon(this, weapon, x + 44, y + 44, 56);
+    const shapes = this.add.graphics();
+    weapon.damageTypes.forEach((type, typeIndex) => drawDamageIcon(shapes, type, x + CARD_WIDTH - 28 - typeIndex * 30, y + 30, 11));
 
-    addText(this, x + 18, y + 14, weapon.name, { role: 'heading', size: 30 });
-    addText(this, x + 18, y + 54, `${weapon.family}  ·  ${weapon.damageTypes.join(' and ')}`, {
+    const title = addText(this, x + 84, y + 14, weapon.name, { role: 'heading', size: 30 });
+    const room = CARD_WIDTH - 84 - 16 - weapon.damageTypes.length * 30;
+    if (title.width > room) title.setScale(room / title.width);
+    addText(this, x + 84, y + 54, `${weapon.family}  ·  ${weapon.damageTypes.join(' and ')}`, {
       size: 16 * s,
       colour: PALETTE.brass,
       weight: '700',
@@ -132,6 +143,25 @@ export class CharacterSelect extends Phaser.Scene {
       size: 26,
       colour: PALETTE.brass,
     }).setOrigin(1, 1);
+  }
+
+  /**
+   * The character's portrait beside the map table (GDD 15.9), with the
+   * highest mastery rank and the endless best. GDD 16.7 lists no traits yet.
+   */
+  private drawPortrait(character: CharacterDef, x: number, y: number): void {
+    const ring = this.add.graphics();
+    ring.fillStyle(hexToNumber(PALETTE.parchment), 1);
+    ring.fillCircle(x, y, 46);
+    ring.lineStyle(3, hexToNumber(PALETTE.brass), 1);
+    ring.strokeCircle(x, y, 46);
+    ensurePlayerTexture(this);
+    fitImage(this.add.image(x, y, PLAYER_KEY), hasImage(PLAYER_KEY) ? 84 : 60);
+    const saved = archive(this);
+    const best = DISCIPLINES.reduce((top, discipline) => Math.max(top, saved.mastery[discipline]), 0);
+    const endless = saved.bests.byCharacter[character.id] ?? 0;
+    addText(this, x, y + 52, STRINGS.select.rank(masteryRank(best)), { size: 13, weight: '700', colour: PALETTE.brass }).setOrigin(0.5, 0);
+    if (endless > 0) addText(this, x, y + 68, STRINGS.select.endlessBest(endless), { size: 13, colour: PALETTE.brass }).setOrigin(0.5, 0);
   }
 
   private highlight(): void {

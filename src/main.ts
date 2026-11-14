@@ -5,6 +5,8 @@ import '@fontsource/alegreya-sans/latin-400.css';
 import '@fontsource/alegreya-sans/latin-500.css';
 import '@fontsource/alegreya-sans/latin-700.css';
 import '@fontsource/caveat/latin-400.css';
+import { music } from './audio/music';
+import { unlockAudio } from './audio/sfx';
 import { FONT_PRELOAD } from './data/fonts';
 import { PALETTE } from './data/palette';
 import { SCREEN } from './data/screen';
@@ -34,7 +36,17 @@ async function loadFonts(): Promise<void> {
   await Promise.race([loads, timeout]);
 }
 
+/** Browsers block sound until the first tap or key press (CLAUDE.md "Audio"). Each input resumes a suspended context. */
+function listenForAudioUnlock(): void {
+  const unlock = (): void => {
+    unlockAudio();
+    music.unlock();
+  };
+  for (const type of ['pointerdown', 'keydown', 'touchend']) window.addEventListener(type, unlock, { capture: true });
+}
+
 async function start(): Promise<void> {
+  listenForAudioUnlock();
   const rotatePrompt = document.getElementById('rotate-prompt');
   if (rotatePrompt) rotatePrompt.textContent = STRINGS.rotatePrompt;
 

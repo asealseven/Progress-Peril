@@ -1,6 +1,7 @@
 import type Phaser from 'phaser';
 import { PALETTE, hexToNumber } from '../data/palette';
 import { addText } from './text';
+import { playSound } from '../audio/sfx';
 
 export interface ButtonOptions {
   label: string;
@@ -36,7 +37,10 @@ export class Button {
     this.panel.on('pointerover', () => this.panel.setFillStyle(HOVER_FILL, 1));
     this.panel.on('pointerout', () => this.panel.setFillStyle(parchment, 1));
     this.panel.on('pointerup', () => {
-      if (this.panel.visible) options.onClick();
+      if (!this.panel.visible) return;
+      // Brass interface clicks (GDD 15.10).
+      playSound('click');
+      options.onClick();
     });
 
     this.text = addText(scene, x, y, options.label, {

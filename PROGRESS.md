@@ -148,6 +148,20 @@
 - Checked in the browser on desktop and an emulated phone: settings survive a reload and reach combat (remapped keys, fast-forward, joystick size and side).
 - 531 tests. New: 19 for tiers, rates, Assist, the revival, tier unlocks, endless rotation, loop scaling, borrowed bosses, component rewards, records, the trial and settings saves.
 
+### Milestone 11: Presentation
+
+- Asset manifest for all 164 images in ART_PROMPTS.md, boss images per phase included. A build step lists the files in public/assets, Boot loads them under their keys, and every missing file keeps its placeholder. A new file reloads the dev server and replaces its placeholder with no code change.
+- Images where they exist: player, enemies, mini-bosses, bosses by phase, arenas, weapon and component icons on cards, chips, sockets and HUD tiles, relic cards, shopkeepers, story and ending cards, and the hub hall. Placeholders: blueprint glyphs per weapon family, socket shapes per slot, wax seals for relics, doors for keepers.
+- The nine damage type icon shapes from GDD 15.1, drawn in code, on status meters, adaptation icons and weapon cards. Damage numbers edged in the damage type colour.
+- Effects library: hit spark, burst and trail per damage type, explosions in three sizes, one effect per status reaction, ink splatters, and an ink flourish on synergy tiles at round start.
+- Code animation: bob, lean and squash while moving, wind-up and lunge, white hit flash, shrink and fade on death, boss image swap per phase.
+- ZzFX sounds: hits per damage type, attacks per weapon family, voices per faction, deaths, pickups, clicks, page turns, quill, purchases, research, telegraphs, boss attacks and phases, explosions, reactions, round start and end. A mixer keeps 8 copies per sound with priority for telegraphs and boss attacks. Audio starts on the first input.
+- Music hooks: three layers per kingdom fading with the threat on screen, boss themes, a Convergence theme and the Archive menu theme. Music ducks under boss telegraphs. Missing files stay silent.
+- Audio cues for elite arrivals, boss attacks and low health, with captions when subtitles are on. Sound effect and music volume settings.
+- Screens: event seal beside the round, endless loop counter and personal best, fast-forward greyed on boss rounds, Settings from the pause screen, a two-second skippable round summary, the Archive Point tally on Victory, the character portrait with mastery rank, keeper portraits in the shop, drag-and-drop components on PC, notebook dialogs for save codes.
+- Checked in the browser on desktop and an emulated phone. Eight test images replaced their placeholders with no code change, then came out again.
+- 545 tests. New: 14 for the manifest against ART_PROMPTS.md, the mixer limits, music layers, icon shapes, effect styles and explosion sizes.
+
 ### Asset folders
 
 - ART_PROMPTS.md sits in the repo root.
@@ -158,35 +172,34 @@
 - Phone checks ran in an emulated phone viewport with touch events. No test on a physical phone yet.
 - Controller input has no automated test. The preparation screen has no controller navigation yet.
 - Absolute Precision and The Philosopher's Engine can be found, but their effects wait for Milestones 8 and 9.
-- Node labels on the research web overlap at middle zoom. Milestone 11 revisits the layout.
 - Cross nodes for disciplines with no shared border sit inside a third sector.
 - Scrap limits weapon grades. Orthelyn and Nymora drop Crystals and Specimens, so the test bot ends a run with about 75 Crystals and 100 Specimens unused and no weapon at Grade IV. Dismantling and Scrap recipes help a player. Milestone 12 tunes this.
 - Economy against GDD 14.3: Territory 1 earns about 200 gold against 337, with no mini-boss and no boss. Territories 2 and 3 earn about 750 and 830 against 544 and 753.
 - Rounds run long. The test bot plays the campaign in 25 minutes of combat. Territory 3 rounds take 80 to 148 seconds against targets of 50 to 75.
 - Boss balance is untuned. The test bot needs 90 to 150 seconds for a boss round. Milestone 12 tunes this.
-- Bosses have no generated images yet: the phase swap shows as a flash and a shake.
-- Boss bars and labels sit large on a phone screen. Milestone 11 revisits the HUD.
 - The hub is a placeholder of coloured boxes until the hub illustration exists. On phones the side list covers part of the hall.
-- Import and code copy use the browser's prompt and confirm boxes. Milestone 11 replaces them with notebook dialogs.
 - Challenge cosmetics and the Grandmaster decoration have no design yet.
 - Melee swings do not break volatile vats. Projectiles, explosions and blasts do.
-- Preparation uses pick-then-place for components. Dragging on PC waits for Milestone 11.
 - Preparation text runs 13 to 19 pixels on a 1280 pixel screen. A phone shows this small. Milestone 11 revisits the layout.
 - Guards in a Protect squad hold next to their ward. A player with one short weapon has to walk in to finish the round.
 - No Cold weapon exists in GDD 7.17. Frozen comes from Frost Salts alone.
 - A standing player gains nothing from the Spring Trap Layer.
 - Weapons fire at targets behind pillars, and the pillar blocks Straight shots.
 - The HUD covers the player in the top left arena corner.
-- Status pips and modifier markers are small on a phone screen. Milestone 11 replaces them with icon shapes.
 - The debug menu uses small arrow buttons on a phone.
 - Headless Chromium draws about 30 frames per second with software rendering. The simulation step takes about 0.14 milliseconds. Frame rate on real hardware waits for Milestone 12.
-- The asset manifest lists keys and paths. File loading with fallback arrives in Milestone 11. The app icon is the exception.
-- No sound yet. ZzFX arrives in Milestone 11. Audio cues and subtitles settings are stored and wait for sound.
 - Colour-blind palettes recolour damage types only. Faction and kingdom colours stay.
-- Text size and the readable font cover the research web and item cards. Milestone 11 extends them to every screen.
+- Text size and the readable font cover the research web, item cards and tooltips, as GDD 3.10 lists. Other screens keep fixed sizes.
+- Node labels on the research web overlap at middle zoom.
+- Boss bars and labels sit large on a phone screen.
+- Sound presets are untuned. Headless checks cannot hear them: the first listen on a real device decides Milestone 12 tuning.
+- Boss images by phase, music files and the hub illustration are untested with real art. Boss and menu music paths are a gap decision (NOTES.md).
+- Boot loads every image found at once. With all 164 images the first load grows. Milestone 12 measures it on the phone.
+- The round summary moves on after two seconds, so the detailed table is brief. Campaign totals stay on the final results and Victory screens.
+- Character traits: GDD 16.7 has none, so the portrait shows the highest mastery rank and the endless best.
 - Controller remapping has no automated test. Remapped keys must not clash: the game does not check.
 - The pause screen has no Codex button. The Codex lives in the Grand Archive.
 
 ## Next step
 
-Milestone 11: Presentation. Read GDD 15.1 to 15.10.
+Milestone 12: Balance and polish. Read GDD 5.1, 14.3, 15.11 and 16.

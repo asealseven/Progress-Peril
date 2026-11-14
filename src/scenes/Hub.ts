@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { music } from '../audio/music';
 import { CHALLENGES, CHALLENGE_IDS, GRANDMASTER_TITLE, MASTER_MECHANICS, MASTERY_OPENS, PERMANENT_UPGRADES, SPECIALISATION_COST, UPGRADE_IDS } from '../data/archive';
 import { ENEMY_LIST } from '../data/enemies';
 import { KINGDOMS, KINGDOM_NAMES } from '../data/kingdoms';
@@ -28,6 +29,8 @@ import {
   toggleSpecialisation,
   upgradeStepCost,
 } from '../sim/archive';
+import { assetKey } from '../data/assets';
+import { hasImage } from '../render/images';
 import { Button } from '../ui/button';
 import { drawPageFrame } from '../ui/frame';
 import { addText } from '../ui/text';
@@ -54,6 +57,7 @@ export interface HubData {
 }
 
 const INK = hexToNumber(PALETTE.ink);
+const HALL_KEY = assetKey('hub', 'grand-archive');
 const BRASS = hexToNumber(PALETTE.brass);
 const PANEL = 0xe9dfc8;
 const ROWS = 7;
@@ -77,6 +81,8 @@ export class Hub extends Phaser.Scene {
   }
 
   create(): void {
+    // The quiet Archive theme plays in menus (GDD 15.10).
+    music.play({ kind: 'menu' });
     this.cameras.main.setBackgroundColor(PALETTE.parchment);
     drawPageFrame(this.add.graphics(), SCREEN.width, SCREEN.height, 14);
     if (this.state.view === 'hall') this.drawHall();
@@ -114,11 +120,16 @@ export class Hub extends Phaser.Scene {
     const g = this.add.graphics();
     const saved = profile(this);
     const hasRun = saved.run !== undefined && saved.run.status === 'active';
-    // A placeholder of the library hall (ART_PROMPTS.md: hub/grand-archive.png).
-    g.fillStyle(0xe2d4b6, 1);
-    g.fillRect(40, 110, SCREEN.width - 80, 560);
-    g.fillStyle(0xcdb98f, 1);
-    g.fillTriangle(140, 110, 640, 40, 1140, 110);
+    // The library hall illustration (ART_PROMPTS.md: hub/grand-archive.png), or a placeholder of boxes.
+    const painted = hasImage(HALL_KEY);
+    if (painted) {
+      this.add.image(SCREEN.width / 2, SCREEN.height / 2, HALL_KEY).setDisplaySize(SCREEN.width, SCREEN.height);
+    } else {
+      g.fillStyle(0xe2d4b6, 1);
+      g.fillRect(40, 110, SCREEN.width - 80, 560);
+      g.fillStyle(0xcdb98f, 1);
+      g.fillTriangle(140, 110, 640, 40, 1140, 110);
+    }
 
     addText(this, SCREEN.width / 2, 58, STRINGS.title, { role: 'heading', size: 48 }).setOrigin(0.5);
     addText(this, 60, 30, `${saved.name}  ·  ${STRINGS.hub.points(archive(this).points)}`, { size: 17, weight: '700', colour: PALETTE.brass });
@@ -133,11 +144,13 @@ export class Hub extends Phaser.Scene {
     ];
     for (const spot of hotspots) {
       if (!spot.show) continue;
-      const zone = this.add.rectangle(spot.x, spot.y, spot.w, spot.h, spot.colour, 0.85).setOrigin(0);
-      zone.setStrokeStyle(4, INK, 1);
+      // Over the illustration, hotspots are clear until the pointer finds them (GDD 15.6).
+      const zone = this.add.rectangle(spot.x, spot.y, spot.w, spot.h, spot.colour, painted ? 0.001 : 0.85).setOrigin(0);
+      const rest = painted ? 0 : 1;
+      zone.setStrokeStyle(4, INK, rest);
       zone.setInteractive({ useHandCursor: true });
       zone.on('pointerover', () => zone.setStrokeStyle(6, hexToNumber(PALETTE.playerEffects), 1));
-      zone.on('pointerout', () => zone.setStrokeStyle(4, INK, 1));
+      zone.on('pointerout', () => zone.setStrokeStyle(4, INK, rest));
       zone.on('pointerup', spot.open);
       addText(this, spot.x + spot.w / 2, spot.y + spot.h / 2, spot.label, {
         role: 'heading',

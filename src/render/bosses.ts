@@ -5,7 +5,9 @@
 // original boss's kingdom colour.
 
 import type Phaser from 'phaser';
+import { bossAssetKey, miniBossAssetKey } from '../data/assets';
 import { BOSSES, BOSS_RULES } from '../data/bosses';
+import { hasImage } from './images';
 import type { EnemyDef } from '../data/enemies';
 import { FONTS } from '../data/fonts';
 import { MINI_BOSSES } from '../data/miniBosses';
@@ -25,6 +27,25 @@ export function bossKingdom(body: BossBody): KingdomName {
   if (owner.bossId) return BOSSES[owner.bossId].kingdom;
   if (owner.miniId) return MINI_BOSSES[owner.miniId].kingdom;
   return 'Keldrath';
+}
+
+/**
+ * The generated image for a boss body in its current phase (ART_PROMPTS.md,
+ * GDD 15.3). A missing phase image falls back to the latest earlier phase.
+ * Undefined when no image exists, so the placeholder circle draws.
+ */
+export function bossImageKey(body: BossBody): string | undefined {
+  if (body.miniId) {
+    const key = miniBossAssetKey(body.miniId);
+    return hasImage(key) ? key : undefined;
+  }
+  const owner = body.partId === 'unmaking-copy' ? body.owner : body;
+  if (!owner?.bossId) return undefined;
+  for (let phase = Math.max(1, owner.phase); phase >= 1; phase--) {
+    const key = bossAssetKey(owner.bossId, phase);
+    if (hasImage(key)) return key;
+  }
+  return undefined;
 }
 
 export function bossKey(def: EnemyDef): string {
