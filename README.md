@@ -112,6 +112,7 @@ The game is built with TypeScript, Phaser 4 and Vite, with sound from ZzFX.
 - `GDD.md`: the design document and source of truth
 - `CLAUDE.md`: the build guide and milestone plan
 - `ART_PROMPTS.md`: one prompt per image, with the file name and folder in `public/assets/`
+- `MIDJOURNEY.md`: the same images as ready-to-paste Midjourney prompts
 - `PROGRESS.md` and `NOTES.md`: milestone status and design decisions
 
 ```bash

@@ -18,6 +18,16 @@ describe('asset manifest against ART_PROMPTS.md (CLAUDE.md rule 8)', () => {
     expect(files.sort()).toEqual([...listed].sort());
   });
 
+  it('keeps MIDJOURNEY.md to the same files, in the same order', () => {
+    const midjourney = readFileSync('MIDJOURNEY.md', 'utf8');
+    const files = [...midjourney.matchAll(/^`([a-z0-9-]+\.png)`$/gm)].map((match) => match[1]);
+    expect(files).toEqual(listed);
+    // Every prompt carries an aspect ratio and a negative list.
+    const prompts = [...midjourney.matchAll(/^```\n(.+)\n```$/gm)].map((match) => match[1] ?? '');
+    expect(prompts).toHaveLength(listed.length);
+    for (const prompt of prompts) expect(prompt).toMatch(/--ar \d+:\d+ --no /);
+  });
+
   it('puts every file in the folder ART_PROMPTS.md names', () => {
     for (const entry of IMAGE_ASSETS) expect(entry.path).toMatch(/^assets\/(sprites|icons|portraits|arenas|cards|hub)\//);
   });
