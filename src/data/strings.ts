@@ -27,6 +27,21 @@ export const STRINGS = {
     emptySlot: 'Empty',
     research: (points: number) => `Research ${points}`,
     event: (name: string) => `Territory event: ${name}`,
+    boss: (name: string, phase: string) => (phase ? `${name}: ${phase}` : name),
+    escort: (name: string) => `Escort: ${name}`,
+    repaired: 'Armour repaired',
+    nulled: 'Null Field: synergies and Auxiliary off',
+    flask: (stat: string) => `Mutagen Flask: ${stat} up one step this round`,
+    flaskStats: {
+      maxHealth: 'Max Health',
+      armour: 'Armour',
+      regeneration: 'Regeneration',
+      evasion: 'Evasion',
+      moveSpeed: 'Move Speed',
+      pickupRadius: 'Pickup Radius',
+      criticalChance: 'Critical Chance',
+      criticalDamage: 'Critical Damage',
+    },
     invader: (faction: string) => `Another kingdom sends reinforcements: ${faction} join the fight. Gold pays 25 per cent extra.`,
   },
 
@@ -181,6 +196,22 @@ export const STRINGS = {
         poor: 'Genius has a price. Return when you hold the sum.',
       },
     },
+  },
+
+  victory: {
+    title: 'Campaign complete',
+    subtitle: (boss: string, kingdom: string) => `${boss} has fallen. ${kingdom} opens its archives.`,
+    ending: (kingdom: string) => `The ending: ${kingdom}`,
+    route: 'Route',
+    statsHeading: 'The campaign',
+    relics: 'Kingdom Relics',
+  },
+
+  relics: {
+    title: 'Kingdom Relic',
+    note: (kingdom: string) => `Choose one of three relics from ${kingdom}. Relics last for the rest of the run.`,
+    take: 'Take this relic',
+    hint: 'Press 1, 2 or 3, or pick a card',
   },
 
   transition: {

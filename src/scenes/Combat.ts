@@ -1,11 +1,15 @@
 import Phaser from 'phaser';
-import { DAMAGE_TYPE_COLOURS, PALETTE, hexToNumber } from '../data/palette';
+import { DAMAGE_TYPE_COLOURS, KINGDOM_COLOURS, PALETTE, hexToNumber } from '../data/palette';
 import type { DamageTypeName } from '../data/palette';
 import { SCREEN } from '../data/screen';
 import { STRINGS, formatTime } from '../data/strings';
 import { ENEMY_RULES, PERFORMANCE_LIMITS } from '../data/tiers';
 import { Effects } from '../render/effects';
 import { drawArenaFloor, drawEnvironment } from '../render/environment';
+import { bossKey, bossKingdom, bossTextureSize, drawBossMarks, drawBossTelegraphs, ensureBossTexture } from '../render/bosses';
+import { mainBoss } from '../sim/world/bosses';
+import type { BossBody } from '../sim/world/bosses';
+import { roundKind } from '../data/rounds';
 import { EVENTS } from '../data/events';
 import { HAZARDS } from '../data/hazards';
 import {
@@ -84,6 +88,8 @@ const LOOK_AHEAD = 70;
 const LOOK_SMOOTHING = 4;
 /** Mobile uses a slightly wider view than PC (GDD 15.2). */
 const TOUCH_ZOOM = 0.85;
+/** Boss rounds zoom out this far (GDD 15.2). */
+const BOSS_ZOOM = 0.85;
 const LOW_HEALTH = 0.3;
 const END_DELAY_MS = 1100;
 const PIP_SIZE = 6;
@@ -146,6 +152,8 @@ export class Combat extends Phaser.Scene {
   private researchText!: Phaser.GameObjects.Text;
   private lastResearch = -1;
   private hazardLayer!: Phaser.GameObjects.Graphics;
+  private bossHud!: Phaser.GameObjects.Graphics;
+  private bossLabels: Phaser.GameObjects.Text[] = [];
 
   constructor() {
     super('Combat');
@@ -186,7 +194,9 @@ export class Combat extends Phaser.Scene {
     const main = this.cameras.main;
     main.setBackgroundColor(PALETTE.ink);
     main.setBounds(0, 0, arena.width, arena.height);
-    main.setZoom(isTouchPrimary() ? TOUCH_ZOOM : 1);
+    // Boss rounds widen the view so every telegraph stays on screen (GDD 15.2).
+    const bossRound = roundKind(this.sim.round) !== 'encounter';
+    main.setZoom((isTouchPrimary() ? TOUCH_ZOOM : 1) * (bossRound ? BOSS_ZOOM : 1));
     main.centerOn(this.sim.player.x, this.sim.player.y);
     // A second camera draws the HUD, so world zoom and scroll never move it.
     this.uiCamera = this.cameras.add(0, 0, SCREEN.width, SCREEN.height);
@@ -258,6 +268,46 @@ export class Combat extends Phaser.Scene {
     this.hazardLayer = this.inWorld(this.add.graphics()).setDepth(DEPTH.floor + 1);
   }
 
+  /** Boss and escort bars under the round, with phase marks (GDD 15.7). */
+  private drawBossBars(): void {
+    const s = this.scale1;
+    const g = this.bossHud;
+    g.clear();
+    const bodies: BossBody[] = [];
+    const main = mainBoss(this.sim);
+    if (main) bodies.push(main);
+    for (const body of this.sim.bosses) if (body.role === 'escort') bodies.push(body);
+    this.bossLabels.forEach((label, index) => {
+      const body = bodies[index];
+      if (!body) {
+        label.setVisible(false);
+        return;
+      }
+      const escort = body.role === 'escort';
+      const width = (escort ? 260 : 420) * s;
+      const height = (escort ? 10 : 16) * s;
+      const x = SCREEN.width / 2 - width / 2;
+      const y = (index === 0 ? 172 : 214) * s;
+      const enemy = body.enemy;
+      const share = Math.max(0, enemy.health / enemy.maxHealth);
+      g.fillStyle(PARCHMENT, 0.9);
+      g.fillRect(x, y, width, height);
+      g.fillStyle(hexToNumber(KINGDOM_COLOURS[bossKingdom(body)]), 1);
+      g.fillRect(x, y, width * share, height);
+      g.lineStyle(escort ? 2 : 3, INK, 1);
+      g.strokeRect(x, y, width, height);
+      // Phase marks at 70 and 30 per cent, or 50 for mini-bosses.
+      for (const mark of body.thresholds) {
+        g.lineStyle(2, INK, 1);
+        g.lineBetween(x + width * mark, y - 3, x + width * mark, y + height + 3);
+      }
+      const phase = body.phases[body.phase - 1]?.name ?? '';
+      const text = escort ? STRINGS.hud.escort(body.name) : STRINGS.hud.boss(body.name, phase);
+      if (label.text !== text) label.setText(text);
+      label.setPosition(SCREEN.width / 2, y - 3).setVisible(true);
+    });
+  }
+
   /** HUD layout from GDD 15.7. */
   private createHud(): void {
     const s = this.scale1;
@@ -289,6 +339,24 @@ export class Combat extends Phaser.Scene {
     )
       .setOrigin(0.5, 0)
       .setDepth(DEPTH.hudText);
+
+    // Boss and escort bars (GDD 15.7).
+    this.bossHud = this.inHud(this.add.graphics()).setDepth(DEPTH.hud);
+    this.bossLabels = [0, 1].map((index) =>
+      this.inHud(addText(this, centreX, 0, '', { role: index === 0 ? 'heading' : 'body', size: (index === 0 ? 20 : 14) * s, weight: '700' }))
+        .setOrigin(0.5, 1)
+        .setDepth(DEPTH.hudText)
+        .setStroke(PALETTE.parchment, 4)
+        .setVisible(false),
+    );
+    // The Mutagen Flask names the stat it raised this round (GDD 5.12).
+    if (this.run.flaskStat) {
+      const flask = this.inHud(addText(this, centreX, 132 * s, STRINGS.hud.flask(STRINGS.hud.flaskStats[this.run.flaskStat]), { size: 16 * s, weight: '700', colour: PALETTE.brass }))
+        .setOrigin(0.5, 0)
+        .setDepth(DEPTH.hudText)
+        .setStroke(PALETTE.parchment, 4);
+      this.tweens.add({ targets: flask, alpha: 0, delay: 4000, duration: 900 });
+    }
 
     // A territory event announces itself at the start of the round (GDD 5.11).
     const event = eventForRound(this.run);
@@ -599,7 +667,9 @@ export class Combat extends Phaser.Scene {
     this.bannerText.setVisible(true);
     this.time.delayedCall(END_DELAY_MS, () => {
       const result = finishRound(this.run, this.sim);
-      this.scene.start('Results', { run: this.run, result });
+      // The campaign ends with the final kingdom's ending (GDD 2.4).
+      if (this.run.status === 'complete') this.scene.start('Victory', { run: this.run });
+      else this.scene.start('Results', { run: this.run, result });
     });
   }
 
@@ -633,6 +703,30 @@ export class Combat extends Phaser.Scene {
           if (event.hazard === 'slag-wave' || event.hazard === 'stamping-press') this.cameras.main.shake(140, 0.005);
           break;
         }
+        case 'bossPhase':
+          // A phase change flashes and shakes (GDD 15.3).
+          this.cameras.main.flash(180, 255, 255, 255);
+          this.cameras.main.shake(260, 0.008);
+          if (event.name) this.showFloater(event.name, event.x, event.y - 70);
+          break;
+        case 'bossStrike':
+          this.effects.ring(event.x, event.y, event.radius, hexToNumber(DAMAGE_TYPE_COLOURS[event.damageType]), 0.3);
+          this.effects.burst(event.x, event.y, hexToNumber(DAMAGE_TYPE_COLOURS[event.damageType]), 10, 240, 3, 0.35);
+          break;
+        case 'bossWave':
+          this.effects.line([event.x1, event.y1, event.x2, event.y2], 8, hexToNumber(DAMAGE_TYPE_COLOURS[event.damageType]), 0.3);
+          this.cameras.main.shake(120, 0.004);
+          break;
+        case 'bossNull':
+          this.effects.ring(event.x, event.y, event.radius, INK, 0.5);
+          break;
+        case 'bossRepair':
+          this.showFloater(STRINGS.hud.repaired, event.x, event.y - 70);
+          break;
+        case 'bossDefeated':
+          this.cameras.main.shake(500, 0.012);
+          this.cameras.main.flash(300, 255, 255, 255);
+          break;
         case 'hazardArc':
           this.effects.line([event.fromX, event.fromY, event.toX, event.toY], 3, hexToNumber(DAMAGE_TYPE_COLOURS.Electric));
           break;
@@ -792,17 +886,23 @@ export class Combat extends Phaser.Scene {
         continue;
       }
 
-      const key = enemyKey(enemy.def);
+      // Bosses and mini-bosses draw in the kingdom colour with a thick outline. Parts keep the faction circle.
+      const boss = enemy.boss && (enemy.boss.role !== 'part' || enemy.boss.partId === 'unmaking-copy') ? enemy.boss : undefined;
+      const key = boss ? bossKey(enemy.def) : enemyKey(enemy.def);
+      const ensure = (): void => {
+        if (boss) ensureBossTexture(this, enemy.def, bossKingdom(boss));
+        else ensureEnemyTexture(this, enemy.def);
+      };
       if (!sprite) {
-        ensureEnemyTexture(this, enemy.def);
+        ensure();
         sprite = this.inWorld(this.add.image(0, 0, key)).setDepth(DEPTH.enemy);
         this.enemySprites[slot] = sprite;
       } else if (sprite.texture.key !== key) {
-        ensureEnemyTexture(this, enemy.def);
+        ensure();
         sprite.setTexture(key);
       }
-      // Split copies draw smaller than their definition.
-      const size = enemyTextureSize(enemy.def) * (enemy.radius / enemy.def.radius);
+      // Split copies and the mutated Alchemist draw at their current size.
+      const size = (boss ? bossTextureSize(enemy.def) : enemyTextureSize(enemy.def)) * (enemy.radius / enemy.def.radius);
       sprite.setDisplaySize(size, size);
 
       // Wind-up pull-back, then a quick lunge (GDD 15.3).
@@ -817,8 +917,10 @@ export class Combat extends Phaser.Scene {
       }
       sprite.setPosition(enemy.x + enemy.faceX * offset, enemy.y + enemy.faceY * offset);
       sprite.setVisible(true);
-      // A sleeping Guardian and a stalled Lancer fade.
-      sprite.setAlpha(enemy.action === 'dormant' ? 0.55 : enemy.action === 'stall' ? 0.7 : 1);
+      // A sleeping Guardian and a stalled Lancer fade. So do The Unmaking's copies once the real body shows.
+      const owner = enemy.boss?.owner;
+      const revealedCopy = enemy.boss?.partId === 'unmaking-copy' && owner !== undefined && owner.timers.reveal > 0;
+      sprite.setAlpha(enemy.action === 'dormant' ? 0.55 : enemy.action === 'stall' || revealedCopy ? 0.4 : 1);
 
       // White flash on hit (GDD 15.3).
       if (enemy.hitFlash > 0) {
@@ -831,7 +933,8 @@ export class Combat extends Phaser.Scene {
 
       this.drawRank(enemy);
 
-      if (enemy.health < enemy.maxHealth) {
+      // Bosses show their health in the HUD bars (GDD 15.7).
+      if (enemy.health < enemy.maxHealth && !boss) {
         const width = enemy.radius * 2 + 4;
         const left = enemy.x - width / 2;
         const top = enemy.y - enemy.radius - 10;
@@ -886,6 +989,9 @@ export class Combat extends Phaser.Scene {
       }
     }
     for (let index = labels; index < this.championLabels.length; index++) this.championLabels[index]?.setVisible(false);
+
+    for (const body of this.sim.bosses) drawBossMarks(bars, body, this.sim.elapsed);
+    drawBossTelegraphs(telegraphs, this.sim.bossTelegraphs);
   }
 
   /** Every enemy attack telegraph uses one crimson outline (GDD 15.1). The shape follows the attack. */
@@ -1442,9 +1548,12 @@ export class Combat extends Phaser.Scene {
       this.researchText.setText(STRINGS.hud.research(research));
     }
 
-    this.suppressedText.setVisible(
-      sim.auxiliarySuppressed && sim.weapons.some((weapon) => weapon.full !== weapon.suppressed),
-    );
+    // A Null Field switches off synergies and Auxiliary components (GDD 10.3).
+    const nulled = sim.nullTimer > 0;
+    const suppressedLabel = nulled ? STRINGS.hud.nulled : STRINGS.hud.suppressed;
+    if (this.suppressedText.text !== suppressedLabel) this.suppressedText.setText(suppressedLabel);
+    this.suppressedText.setVisible(nulled || (sim.auxiliarySuppressed && sim.weapons.some((weapon) => weapon.full !== weapon.suppressed)));
+    this.drawBossBars();
 
     // Pause button on touch devices.
     if (this.pauseZone) {

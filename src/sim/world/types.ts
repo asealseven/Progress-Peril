@@ -2,6 +2,8 @@
 
 import type { ResearchRule } from '../../data/research';
 import type { EventId } from '../../data/events';
+import type { RelicRule } from '../../data/relics';
+import type { BossBody, BossPlan } from './bosses';
 import type { HazardId } from '../../data/hazards';
 import type { ArenaDef } from '../../data/arenas';
 import type { ChampionTraitId } from '../../data/champions';
@@ -37,6 +39,8 @@ export interface PlayerStats {
   readonly researchYield: number;
   /** Added share for drop chances (GDD 3.6). 0 at the base tier. */
   readonly fortune: number;
+  /** Multiplier for construct health and damage (GDD 3.6). 1 at the base tier. */
+  readonly constructStrength: number;
 }
 
 export type AdaptationMap = Partial<Record<DamageType, number>>;
@@ -69,6 +73,8 @@ export interface WeaponState {
   readonly full: ResolvedWeapon;
   /** The weapon with its Auxiliary component switched off. */
   readonly suppressed: ResolvedWeapon;
+  /** The weapon inside a Null Field: no synergies, no Auxiliary component (GDD 10.3). */
+  readonly nulled: ResolvedWeapon;
   /** Seconds until the next attack. */
   cooldown: number;
   /** Held target (GDD 7.15). -1 means none. */
@@ -248,6 +254,15 @@ export interface Enemy extends Poolable {
   plateType: DamageType | undefined;
   /** Damage taken per type since the last Reactive Plating check, in DAMAGE_TYPES order. */
   readonly typeTaken: number[];
+
+  // Boss state (GDD 10.4, 10.5). Undefined for every other enemy.
+  boss: BossBody | undefined;
+  /** Damage taken as a multiplier: 0 during a phase transition or for a decoy copy, more for an exposed core. */
+  takenFactor: number;
+  /** Weaknesses added by a boss phase: Glowing Plate, Overload, an exposed core. */
+  extraWeak: readonly DamageType[];
+  /** The Thornback Matriarch's thorn shell: the front resists all but Fire, the rear is weak. */
+  thornShell: boolean;
   thresholdIndex: number;
   overclocked: boolean;
 
@@ -525,6 +540,12 @@ export type WorldEvent =
   | { readonly type: 'hazardBurst'; readonly hazard: HazardId; readonly x: number; readonly y: number; readonly radius: number }
   | { readonly type: 'hazardArc'; readonly fromX: number; readonly fromY: number; readonly toX: number; readonly toY: number }
   | { readonly type: 'tilesErased'; readonly stage: number }
+  | { readonly type: 'bossPhase'; readonly x: number; readonly y: number; readonly name: string; readonly phase: number; readonly role: string }
+  | { readonly type: 'bossStrike'; readonly x: number; readonly y: number; readonly radius: number; readonly damageType: DamageType }
+  | { readonly type: 'bossWave'; readonly x1: number; readonly y1: number; readonly x2: number; readonly y2: number; readonly damageType: DamageType }
+  | { readonly type: 'bossNull'; readonly x: number; readonly y: number; readonly radius: number }
+  | { readonly type: 'bossRepair'; readonly x: number; readonly y: number }
+  | { readonly type: 'bossDefeated'; readonly x: number; readonly y: number; readonly name: string }
   | { readonly type: 'playerHit'; readonly amount: number; readonly damageType: DamageType }
   | { readonly type: 'playerEvaded' }
   | { readonly type: 'playerHealed'; readonly amount: number }
@@ -618,4 +639,10 @@ export interface WorldConfig {
   readonly localRound?: number;
   /** The territory event running this round (GDD 5.11). */
   readonly event?: EventId;
+  /** Relic rules held, with their summed amounts (GDD 5.12). */
+  readonly relicRules?: ReadonlyMap<RelicRule, number>;
+  /** The round's mini-boss, or boss and escort (GDD 4.10). */
+  readonly bosses?: BossPlan;
+  /** The weapons with synergies and Auxiliary components switched off, for the Null Field (GDD 10.3). */
+  readonly nulledWeapons?: readonly ResolvedWeapon[];
 }

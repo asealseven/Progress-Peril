@@ -2,6 +2,7 @@
 // an enemy dies. The player collects them through Pickup Radius. Everything
 // left flies to the player when the round ends.
 
+import { RELIC_RULES } from '../../data/relics';
 import { COMPONENT_LIST, QUALITIES } from '../../data/components';
 import type { ComponentDef } from '../../data/components';
 import { ECONOMY_RULES, FACTION_MATERIALS, GOLD_DROPS, MATERIAL_DROPS, emptyMaterials } from '../../data/economy';
@@ -109,10 +110,15 @@ export function rollDroppedComponent(territory: number, rng: Rng, atLeast = 0): 
   return undefined;
 }
 
+/** A mini-boss drops a Rare component one time in four (GDD 14.2). */
+const MINI_BOSS_RARE_CHANCE = 0.25;
+
 /** Drops for a defeated enemy (GDD 14.1, 14.2). Split copies and sprouted Thornlings drop nothing. */
 export function dropLoot(world: World, enemy: Enemy, weaponIndex: number): void {
   if (enemy.noLegacy) return;
   const { x, y } = enemy;
+  // Bloom Crown: kills sometimes drop healing blooms (GDD 5.12).
+  if (world.relic('bloomDrops') > 0 && world.luck(RELIC_RULES.bloomChance)) world.environment.addBloom(x, y, RELIC_RULES.bloomSeconds);
   const rng = world.rng;
   const types = FACTION_MATERIALS[enemy.def.faction];
   const material = (): Material => rng.pick(types);
@@ -124,16 +130,40 @@ export function dropLoot(world: World, enemy: Enemy, weaponIndex: number): void 
     addPickup(world, 'material', x, y, amount + extra, type);
   };
 
+  const notebookShare = world.weapons[weaponIndex]?.resolved.triggers.researchOnKill
+    ? tierValue('modifierSize', ECONOMY_RULES.resourceOnKillChance)
+    : 0;
+  // Bosses (GDD 4.10, 5.5, 14.1, 14.2). Parts and engineers' bosses drop nothing of their own.
+  const boss = enemy.boss;
+  if (boss) {
+    if (boss.role === 'part') return;
+    const research = boss.role === 'boss' ? RESEARCH_REWARDS.boss : boss.role === 'mini' ? RESEARCH_REWARDS.miniBoss : RESEARCH_REWARDS.escort;
+    world.loot.research += research * (world.player.stats.researchYield + notebookShare);
+    if (boss.role === 'boss') {
+      addPickup(world, 'gold', x, y, GOLD_DROPS.boss);
+      drop(MATERIAL_DROPS.boss, material());
+    } else if (boss.role === 'mini') {
+      addPickup(world, 'gold', x, y, GOLD_DROPS.miniBoss);
+      drop(MATERIAL_DROPS.miniBoss, material());
+      // A 25 per cent chance of a Rare component (GDD 14.2).
+      if (world.luck(MINI_BOSS_RARE_CHANCE * odds)) {
+        const component = rollDroppedComponent(world.territory, rng, QUALITIES.indexOf('Rare'));
+        if (component) addPickup(world, 'component', x, y, 1, 'Scrap', component);
+      }
+    } else {
+      // Escorts: bonus materials and Research Points only (GDD 4.10).
+      drop(MATERIAL_DROPS.miniBoss, material());
+    }
+    return;
+  }
+
   // A champion drops a Rare component or a large Research Point reward, at even odds (GDD 9.13).
   const championComponent = enemy.rank === 'champion' && rng.chance(0.5);
   // Research Points go straight to the notebook (GDD 8.5). Research Notebook adds to kills with its weapon.
   let reward: number = RESEARCH_REWARDS.normal;
   if (enemy.rank === 'elite') reward = RESEARCH_REWARDS.elite;
   else if (enemy.rank === 'champion') reward = championComponent ? RESEARCH_REWARDS.normal : RESEARCH_REWARDS.champion;
-  const notebook = world.weapons[weaponIndex]?.resolved.triggers.researchOnKill
-    ? tierValue('modifierSize', ECONOMY_RULES.resourceOnKillChance)
-    : 0;
-  world.loot.research += reward * (world.player.stats.researchYield + notebook);
+  world.loot.research += reward * (world.player.stats.researchYield + notebookShare);
 
   if (enemy.rank === 'champion') {
     addPickup(world, 'gold', x, y, GOLD_DROPS.champion);

@@ -9,16 +9,21 @@ import type { PerformanceLimits } from '../../data/tiers';
 import { attackTokens } from '../ai';
 import type { ResolvedWeapon } from '../loadout';
 import type { ResearchRule } from '../../data/research';
+import { RELIC_RULES } from '../../data/relics';
+import type { RelicRule } from '../../data/relics';
 import { RESEARCH_RULES } from '../../data/research';
 import { emptyFindings } from '../research';
 import type { RoundFindings } from '../research';
 import { Rng } from '../rng';
 import { updateWeapons } from './attacks';
 import { createConstruct, updateConstructs } from './constructs';
+import { BOSS_RULES } from '../../data/bosses';
+import { spawnBosses, updateBosses } from './bosses';
+import type { BossBody, BossPlan, BossTelegraph } from './bosses';
 import { explode } from './damage';
 import { Environment, createRoundArena } from './environment';
 import type { RoundArena } from './environment';
-import { createEnemy, prepareWave, spawnFromWave, updateEnemies } from './enemies';
+import { createEnemy, enemyDied, prepareWave, spawnFromWave, updateEnemies } from './enemies';
 import type { Wave } from './enemies';
 import { SpatialGrid } from './grid';
 import { createEnemyShot, createHazard, enemyBlast, updateEnemyShots, updateHazards } from './hazards';
@@ -54,15 +59,22 @@ import { createTrap, createZone, updateTraps, updateZones } from './zones';
 /** Seconds per simulation step. */
 export const STEP_SECONDS = 1 / COMBAT.stepsPerSecond;
 
+const NO_SYNERGIES: ReadonlySet<string> = new Set();
+
 const ENEMY_CAPACITY = 400;
 const GRID_CELL = 64;
 const MAX_QUEUED_EVENTS = 4096;
 
-function createWeaponState(resolved: ResolvedWeapon, suppressed: ResolvedWeapon | undefined): WeaponState {
+function createWeaponState(
+  resolved: ResolvedWeapon,
+  suppressed: ResolvedWeapon | undefined,
+  nulled: ResolvedWeapon | undefined,
+): WeaponState {
   return {
     resolved,
     full: resolved,
     suppressed: suppressed ?? resolved,
+    nulled: nulled ?? suppressed ?? resolved,
     cooldown: COMBAT.weaponStartDelay,
     targetSlot: -1,
     targetId: -1,
@@ -104,7 +116,22 @@ export class World {
   readonly player: PlayerState;
   readonly weapons: WeaponState[];
   /** Ids of every active synergy (GDD 7.19). */
-  readonly synergies: ReadonlySet<string>;
+  /** Ids of the active synergies. A Null Field switches them off (GDD 10.3). */
+  get synergies(): ReadonlySet<string> {
+    return this.nullTimer > 0 ? NO_SYNERGIES : this.allSynergies;
+  }
+  private readonly allSynergies: ReadonlySet<string>;
+  /** Bosses, mini-bosses, escorts and their parts (GDD 10). */
+  readonly bosses: BossBody[] = [];
+  readonly bossTelegraphs: BossTelegraph[] = [];
+  /** Seconds left inside a Null Field's effect (GDD 10.3). */
+  nullTimer = 0;
+  /** The territory boss fell: the round ends (GDD 5.8). */
+  bossFallen = false;
+  private readonly bossPlan: BossPlan | undefined;
+  private bossesIn = false;
+  /** Which weapon set is in use: full, suppressed or nulled. */
+  private weaponMode: 'full' | 'suppressed' | 'nulled' = 'full';
   readonly enemies: Pool<Enemy>;
   readonly projectiles: Pool<Projectile>;
   readonly constructs: Pool<Construct>;
@@ -151,6 +178,7 @@ export class World {
   };
   /** Named research rules (GDD 8.12). */
   readonly research: ReadonlyMap<ResearchRule, number>;
+  private readonly relicRules: ReadonlyMap<RelicRule, number>;
   /** What the round showed for the hidden node conditions (GDD 8.12). */
   readonly findings: RoundFindings = emptyFindings();
   /** Times of recent critical hits, for Probability Storm. */
@@ -190,6 +218,7 @@ export class World {
     this.tokenLimit = attackTokens(this.territory);
     this.gold = config.gold ?? 0;
     this.research = config.research ?? new Map();
+    this.relicRules = config.relicRules ?? new Map();
     this.spawns = [...config.spawns].sort((a, b) => a.time - b.time);
 
     this.player = {
@@ -208,8 +237,11 @@ export class World {
       slowFactor: 1,
     };
 
-    this.weapons = config.weapons.map((weapon, index) => createWeaponState(weapon, config.suppressedWeapons?.[index]));
-    this.synergies = new Set(config.synergies ?? []);
+    this.weapons = config.weapons.map((weapon, index) =>
+      createWeaponState(weapon, config.suppressedWeapons?.[index], config.nulledWeapons?.[index]),
+    );
+    this.allSynergies = new Set(config.synergies ?? []);
+    this.bossPlan = config.bosses;
 
     const fallbackEnemy = ENEMIES['royal-footman'];
     this.enemies = new Pool<Enemy>((slot) => createEnemy(slot, fallbackEnemy), ENEMY_CAPACITY);
@@ -246,6 +278,11 @@ export class World {
   /** Threat units the director has not sent in yet. */
   get spawnsLeft(): number {
     return this.spawns.length - this.nextSpawn + (this.wave ? 1 : 0);
+  }
+
+  /** The summed amount of a relic rule held. 0 means the rule is off (GDD 5.12). */
+  relic(rule: RelicRule): number {
+    return this.relicRules.get(rule) ?? 0;
   }
 
   /** How many researched nodes carry a rule. 0 means the rule is off. */
@@ -315,6 +352,23 @@ export class World {
     this.runSpawns();
     this.movePlayer(input, dt);
     updateEnemies(this, dt);
+    // Bosses enter a moment after the round starts. Escorts come with them (GDD 10.6).
+    if (this.bossPlan && !this.bossesIn && this.elapsed >= BOSS_RULES.entrySeconds) {
+      this.bossesIn = true;
+      spawnBosses(this, this.bossPlan);
+    }
+    if (this.bosses.length > 0 || this.bossTelegraphs.length > 0) updateBosses(this, dt);
+    if (this.nullTimer > 0) this.nullTimer = Math.max(0, this.nullTimer - dt);
+    // Gravity Anchor: enemies near the player slow down (GDD 5.12).
+    if (this.relic('gravitySlow') > 0) {
+      const reach = RELIC_RULES.gravityRadius;
+      for (const enemy of this.enemies.items) {
+        if (!enemy.active || enemy.championTrait === 'juggernaut') continue;
+        if ((enemy.x - this.player.x) ** 2 + (enemy.y - this.player.y) ** 2 > reach * reach) continue;
+        enemy.slowFactor = Math.min(enemy.slowFactor, RELIC_RULES.gravitySlow);
+        enemy.slowTimer = Math.max(enemy.slowTimer, 0.1);
+      }
+    }
     this.applySuppression();
     this.rebuildGrid();
     updateStatuses(this, dt);
@@ -334,7 +388,11 @@ export class World {
 
     if (this.player.health <= 0) {
       this.phase = 'defeat';
+    } else if (this.bossFallen) {
+      // The boss falls: remaining enemies flee and the round ends (GDD 5.8 step 1).
+      this.endBossRound();
     } else if (
+      (this.bossPlan === undefined || this.bossesIn) &&
       this.spawningFinished &&
       this.enemies.activeCount === 0 &&
       this.seedCount === 0 &&
@@ -398,14 +456,42 @@ export class World {
     this.wave = undefined;
   }
 
-  /** The Unstable switches Auxiliary components off on nearby player weapons (GDD 9.11). */
+  /**
+   * The Unstable switches Auxiliary components off on nearby player weapons (GDD 9.11).
+   * A Null Field switches off synergies and Auxiliary components (GDD 10.3).
+   */
   private applySuppression(): void {
-    if (this.suppressing === this.auxiliarySuppressed) return;
-    this.auxiliarySuppressed = this.suppressing;
     // Anomalous Physics: Auxiliary components ignore suppression.
-    if (this.rule('ignoreSuppression') > 0) return;
-    for (const weapon of this.weapons) weapon.resolved = this.suppressing ? weapon.suppressed : weapon.full;
-    this.emit({ type: 'suppressed', active: this.suppressing });
+    const auxiliaryOff = this.suppressing && this.rule('ignoreSuppression') === 0;
+    const mode = this.nullTimer > 0 ? 'nulled' : auxiliaryOff ? 'suppressed' : 'full';
+    if (this.suppressing !== this.auxiliarySuppressed) {
+      this.auxiliarySuppressed = this.suppressing;
+      if (this.rule('ignoreSuppression') === 0) this.emit({ type: 'suppressed', active: this.suppressing });
+    }
+    if (mode === this.weaponMode) return;
+    this.weaponMode = mode;
+    for (const weapon of this.weapons) weapon.resolved = weapon[mode];
+  }
+
+  /** Remaining enemies flee: they leave with no loot and no death effects. */
+  private endBossRound(): void {
+    for (const enemy of this.enemies.items) {
+      if (!enemy.active) continue;
+      enemy.noLegacy = true;
+      enemy.carriedGold = 0;
+      enemyDied(this, enemy, false);
+      this.enemies.release(enemy);
+    }
+    for (const hazard of this.hazards.items) if (hazard.active && hazard.kind === 'seed') this.hazards.release(hazard);
+    this.seedCount = 0;
+    this.nextSpawn = this.spawns.length;
+    this.wave = undefined;
+    this.pendingBlasts.length = 0;
+    this.pendingExplosions.length = 0;
+    this.bossTelegraphs.length = 0;
+    this.bosses.length = 0;
+    this.phase = 'cleared';
+    collectAll(this);
   }
 
   /** Resolves queued chain explosions, up to the per-step cap (GDD 7.20, 7.21). */

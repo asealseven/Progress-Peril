@@ -2,6 +2,7 @@
 // src/sim/ai.ts scores the six actions. This file gathers the inputs, carries
 // out the chosen action and runs wind-up, strike and recovery for each attack.
 
+import { bannerFactor } from './bosses';
 import { CHAMPION_MODIFIER_COUNT, CHAMPION_TRAIT_IDS } from '../../data/champions';
 import type { ChampionTraitId } from '../../data/champions';
 import { DAMAGE_TYPES } from '../../data/damageTypes';
@@ -123,6 +124,10 @@ export function createEnemy(slot: number, def: EnemyDef): Enemy {
     plateTimer: 0,
     plateType: undefined,
     typeTaken: DAMAGE_TYPES.map(() => 0),
+    boss: undefined,
+    takenFactor: 1,
+    extraWeak: [],
+    thornShell: false,
     thresholdIndex: 0,
     overclocked: false,
     hitFlash: 0,
@@ -208,6 +213,8 @@ function rollModifiers(world: World, enemy: Enemy, count: number): void {
   }
 }
 
+const NO_TYPES: readonly DamageType[] = [];
+
 export interface SpawnOptions {
   readonly rank?: EnemyRank;
   /** Elite modifiers to apply. Default: a random set of the size GDD 9.12 gives. */
@@ -280,6 +287,10 @@ export function spawnEnemy(world: World, def: EnemyDef, x: number, y: number, op
   enemy.plateTimer = ENEMY_RULES.platingSeconds;
   enemy.plateType = undefined;
   enemy.typeTaken.fill(0);
+  enemy.boss = undefined;
+  enemy.takenFactor = 1;
+  enemy.extraWeak = NO_TYPES;
+  enemy.thornShell = false;
   enemy.thresholdIndex = 0;
   enemy.overclocked = false;
   enemy.hitFlash = 0;
@@ -905,7 +916,8 @@ function commandFactor(world: World, enemy: Enemy): number {
 
 /** Damage of this enemy's next strike, with command bonuses. */
 export function strikeDamage(world: World, enemy: Enemy): number {
-  return enemy.damage * commandFactor(world, enemy);
+  // The Forge Marshal's war banner raises ally damage nearby (GDD 10.5).
+  return enemy.damage * commandFactor(world, enemy) * (world.bosses.length > 0 ? bannerFactor(world, enemy.x, enemy.y) : 1);
 }
 
 /** A direct hit on the player, with the on-hit traits. Returns true when the hit landed. */
@@ -1238,7 +1250,7 @@ function performAbility(world: World, enemy: Enemy, kind: AbilityKind): void {
 // --- Movement ----------------------------------------------------------------------
 
 /** Turns the facing toward a direction at a limited rate, so shield carriers leave an opening. */
-function turnToward(enemy: Enemy, dirX: number, dirY: number, rate: number, dt: number): void {
+export function turnToward(enemy: Enemy, dirX: number, dirY: number, rate: number, dt: number): void {
   const current = Math.atan2(enemy.faceY, enemy.faceX);
   let difference = Math.atan2(dirY, dirX) - current;
   while (difference > Math.PI) difference -= Math.PI * 2;
@@ -1564,6 +1576,9 @@ export function updateEnemies(world: World, dt: number): void {
     const near = distance <= AI_RULES.nearDistance;
     const thinking = near || (world.steps + enemy.id) % thinkInterval(distance) === 0;
     const pace = currentSpeed(enemy, distance, magneticSlow) / (enemy.speed || 1);
+
+    // Bosses follow their own controller (src/sim/world/bosses.ts).
+    if (enemy.boss) continue;
 
     switch (enemy.action) {
       case 'chase': {

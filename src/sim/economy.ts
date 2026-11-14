@@ -2,6 +2,8 @@
 // merging (GDD 6.1 to 6.6, 7.8 to 7.10, 7.22, 7.23). Plain rules on the run
 // state. The Preparation scene calls these and draws the result.
 
+import { relicRuleTotal } from '../data/relics';
+import type { RelicId } from '../data/relics';
 import { COMPONENT_LIST, QUALITIES, SCRAP_RETURN, componentFitsFamily } from '../data/components';
 import type { ComponentDef, Quality, SlotType } from '../data/components';
 import {
@@ -73,10 +75,21 @@ export function dismantleReturn(component: ComponentInstance): { material: Mater
   };
 }
 
-export function recipeCost(def: ComponentDef): { gold: number; material: Material; amount: number } | undefined {
+/** Recipe gold and materials. Assembly Blueprints halve the gold (GDD 5.12). */
+export function recipeCost(
+  def: ComponentDef,
+  relics: readonly RelicId[] = [],
+): { gold: number; material: Material; amount: number } | undefined {
   const cost = RECIPE_COSTS[def.quality];
   if (!cost) return undefined;
-  return { gold: cost.gold, material: materialFor(def.tags), amount: cost.materials };
+  const half = relicRuleTotal(relics, 'recipeHalfGold');
+  return { gold: Math.round(cost.gold * (1 - half)), material: materialFor(def.tags), amount: cost.materials };
+}
+
+/** Shop prices after the Royal Writ (GDD 5.12). */
+function relicPrice(run: RunState, price: number): number {
+  const discount = relicRuleTotal(run.relics, 'shopDiscount');
+  return discount > 0 ? Math.round(price * (1 - discount)) : price;
 }
 
 // --- Research gates ----------------------------------------------------------------
@@ -221,11 +234,11 @@ function rollItem(
       components.length > 0 &&
       (weapons.length === 0 || rolled === 'Extraordinary' || rng.chance(ECONOMY_RULES.componentShare));
     if (wantComponent) {
-      return { kind: 'component', def: rng.pick(components), quality: rolled, price: shopPrice('component', rolled, territory) };
+      return { kind: 'component', def: rng.pick(components), quality: rolled, price: relicPrice(run, shopPrice('component', rolled, territory)) };
     }
     if (weapons.length > 0) {
       const weapon = createShopWeapon(rng.pick(weapons), rolled, rng);
-      return { kind: 'weapon', weapon, quality: rolled, price: shopPrice('weapon', rolled, territory) };
+      return { kind: 'weapon', weapon, quality: rolled, price: relicPrice(run, shopPrice('weapon', rolled, territory)) };
     }
   }
   return undefined;
@@ -471,7 +484,7 @@ export function dismantleComponent(run: RunState, component: ComponentInstance):
 }
 
 export function buildProblem(run: RunState, def: ComponentDef): WorkbenchProblem | undefined {
-  const cost = recipeCost(def);
+  const cost = recipeCost(def, run.relics);
   if (!cost) return 'not-buildable';
   if (lockedBy(run, def)) return 'locked';
   if (run.gold < cost.gold) return 'no-gold';
@@ -483,7 +496,7 @@ export function buildProblem(run: RunState, def: ComponentDef): WorkbenchProblem
 export function buildComponent(run: RunState, def: ComponentDef): WorkbenchProblem | undefined {
   const problem = buildProblem(run, def);
   if (problem) return problem;
-  const cost = recipeCost(def);
+  const cost = recipeCost(def, run.relics);
   if (!cost) return 'not-buildable';
   spendGold(run, cost.gold);
   spendMaterial(run, cost.material, cost.amount);

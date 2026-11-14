@@ -705,7 +705,7 @@ export class Preparation extends Phaser.Scene {
           wrapWidth: width - 24,
         }).setOrigin(0.5, 0);
       } else if (selected.kind === 'recipe') {
-        const recipe = recipeCost(selected.def);
+        const recipe = recipeCost(selected.def, run.relics);
         const problem = buildProblem(run, selected.def);
         const node = lockedBy(run, selected.def);
         if (recipe) {
@@ -872,7 +872,7 @@ export class Preparation extends Phaser.Scene {
       } else {
         const def = recipes()[first + index];
         if (!def) continue;
-        const cost = recipeCost(def);
+        const cost = recipeCost(def, run.relics);
         const isSelected = selected?.kind === 'recipe' && selected.def === def;
         const affordable = buildProblem(run, def) === undefined;
         this.drawChip(

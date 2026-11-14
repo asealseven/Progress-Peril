@@ -45,6 +45,14 @@ export function addModifierFlag(enemy: Enemy, id: EliteModifierId): boolean {
   return true;
 }
 
+/** Removes an elite modifier's flag, for boss phases that drop a shield (GDD 10.4). */
+export function removeModifierFlag(enemy: Enemy, id: EliteModifierId): void {
+  if (!hasModifier(enemy, id)) return;
+  enemy.modifierBits &= ~MODIFIER_BIT[id];
+  const index = enemy.modifiers.indexOf(id);
+  if (index >= 0) enemy.modifiers.splice(index, 1);
+}
+
 /** Juggernaut champions ignore Stun, knockback and slows (GDD 9.13). */
 export function isJuggernaut(enemy: Enemy): boolean {
   return enemy.championTrait === 'juggernaut';

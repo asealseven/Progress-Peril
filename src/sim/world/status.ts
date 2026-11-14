@@ -114,7 +114,9 @@ export function typeMultiplier(enemy: Enemy, type: DamageType): number {
   if ((type === 'Electric' || type === 'Cold') && hasStatus(enemy, 'Overheated')) {
     multiplier *= 1 + tierValue('modifierSize', STATUS_RULES.overheated.extraDamage);
   }
-  return multiplier;
+  // Boss phases: added weaknesses, invulnerable transitions, decoys and exposed cores (GDD 10.4).
+  if (enemy.extraWeak.includes(type)) multiplier *= DAMAGE_STEP.weak;
+  return multiplier * enemy.takenFactor;
 }
 
 /** Target Armour after Corroded and Piercing (GDD 7.14 step 6). */
@@ -225,6 +227,8 @@ export function reactionScale(world: World, reaction: Reaction): number {
   // Reaction Theory: status reaction damage up, Low.
   let bonus = tierValue('modifierSize', 'Low') * world.rule('reactionDamage');
   if (world.synergies.has('catalytic-mix')) bonus += tierValue('modifierSize', 'Medium');
+  // Catalyst Stone: status reaction damage up, High (GDD 5.12).
+  bonus += tierValue('modifierSize', 'High') * world.relic('reactionDamage');
   if (world.synergies.has('thermal-shock') && (reaction === 'Shatter' || reaction === 'Steam Burst')) {
     bonus += tierValue('modifierSize', 'High');
   }

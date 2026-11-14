@@ -336,6 +336,14 @@ export class DebugMenu extends Phaser.Scene {
     this.run.round = this.round;
     const territory = territoryIndex(this.round);
     this.run.kingdoms[territory] = this.kingdom;
+    // Earlier territories need kingdoms too, so escorts and Convergence have a route (GDD 10.6).
+    for (let index = 0; index < territory; index++) {
+      if (this.run.kingdoms[index]) continue;
+      const spare = KINGDOM_NAMES.find((name) => !this.run.kingdoms.includes(name));
+      if (spare) this.run.kingdoms[index] = spare;
+    }
+    // A jump past a boss drops the relic choice that boss would have offered.
+    this.run.relicChoices = [];
     if (this.event === 'none') {
       this.run.events[territory] = undefined;
     } else {

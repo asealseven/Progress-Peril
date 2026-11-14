@@ -65,8 +65,9 @@ function spawnConstruct(
   construct.x = x;
   construct.y = y;
   construct.radius = kind === 'turret' ? TURRET_RADIUS : WEAPON_RULES.companionRadius;
-  construct.maxHealth = health;
-  construct.health = health;
+  // Construct Strength raises construct health (GDD 3.6).
+  construct.maxHealth = health * world.player.stats.constructStrength;
+  construct.health = construct.maxHealth;
   construct.cooldown = 0.2;
   construct.targetSlot = -1;
   construct.targetId = -1;

@@ -1,6 +1,7 @@
 import { ARENAS } from '../src/data/arenas';
 import type { ArenaDef } from '../src/data/arenas';
 import type { EventId } from '../src/data/events';
+import type { BossPlan } from '../src/sim/world/bosses';
 import { CHARACTERS } from '../src/data/characters';
 import { componentByName } from '../src/data/components';
 import { ENEMIES, enemyByName } from '../src/data/enemies';
@@ -74,6 +75,7 @@ export interface TestWorldOptions {
   /** Round within the territory for arena changes. Default 1: no hazards. */
   localRound?: number;
   event?: EventId;
+  bosses?: BossPlan;
 }
 
 export function makeWorld(options: TestWorldOptions = {}): World {
@@ -98,6 +100,7 @@ export function makeWorld(options: TestWorldOptions = {}): World {
     invincible: options.invincible,
     localRound: options.localRound ?? 1,
     ...(options.event ? { event: options.event } : {}),
+    ...(options.bosses ? { bosses: options.bosses } : {}),
   });
 }
 

@@ -108,6 +108,19 @@
 - Asset manifest entries for the five arenas and eleven story cards.
 - 465 tests. New: 26 for kingdom data, selection, events, arenas, every hazard type and a 21-round campaign through three random kingdoms.
 
+### Milestone 8: Bosses, relics and endings
+
+- Five territory bosses with three phases each: Iron Regent, Abomination, Grand Automaton, The Unmaking and Spore Sovereign, with their signature attacks and phase mechanics from GDD 10.4.
+- Five mini-bosses with two phases on Rounds 4, 11 and 18: Forge Marshal, Mad Alchemist, Siege Spider, Tesla Warden and Thornback Matriarch.
+- Escorts from the start of every boss round: the previous territory's mini-boss, or the kingdom's own in Territory 1.
+- Boss parts: engineers, arm turrets, belt motors, a war banner, pylons and The Unmaking's copies.
+- Convergence on Round 21: the final boss borrows the signature attacks of the bosses beaten earlier, drawn in their kingdom colours.
+- Telegraphs before every boss attack: crimson for bosses, dashed for escorts. Boss and escort bars with phase marks. Boss rounds zoom out.
+- Boss rewards, the boss ending the round, and the Absolute Precision hidden node.
+- All 15 Kingdom Relics with their effects, and the relic choice after each territory boss.
+- Victory scene with the five endings from GDD 2.4.
+- 486 tests. New: 21 for boss data, round plans, entry, phases, telegraphs, rewards, Convergence, The Unmaking's copies, the Automaton's arms, the Null Field, every boss beatable, Absolute Precision and relics.
+
 ### Asset folders
 
 - ART_PROMPTS.md sits in the repo root.
@@ -124,11 +137,12 @@
 - Scrap limits weapon grades. Orthelyn and Nymora drop Crystals and Specimens, so the test bot ends a run with about 75 Crystals and 100 Specimens unused and no weapon at Grade IV. Dismantling and Scrap recipes help a player. Milestone 12 tunes this.
 - Economy against GDD 14.3: Territory 1 earns about 200 gold against 337, with no mini-boss and no boss. Territories 2 and 3 earn about 750 and 830 against 544 and 753.
 - Rounds run long. The test bot plays the campaign in 25 minutes of combat. Territory 3 rounds take 80 to 148 seconds against targets of 50 to 75.
-- Boss and mini-boss arena parts wait for Milestone 8: the throne platform, the Abomination's vat, belts carrying parts, the Spore Sovereign and the Round 4 mini-boss actions.
-- The relic choice in the territory transition waits for Milestone 8.
+- Boss balance is untuned. The test bot needs 90 to 150 seconds for a boss round. Milestone 12 tunes this.
+- Bosses have no generated images yet: the phase swap shows as a flash and a shake.
+- The final boss offers no relic. Endless mode in Milestone 10 needs one.
+- Boss bars and labels sit large on a phone screen. Milestone 11 revisits the HUD.
 - Melee swings do not break volatile vats. Projectiles, explosions and blasts do.
 - The campaign count for the first-campaign rule lives in memory until Milestone 9 adds saves.
-- Rounds 4, 7, 11, 14, 18 and 21 hold no mini-boss or boss until Milestone 8. The free shop visits after those rounds already work.
 - Preparation uses pick-then-place for components. Dragging on PC waits for Milestone 11.
 - Preparation text runs 13 to 19 pixels on a 1280 pixel screen. A phone shows this small. Milestone 11 revisits the layout.
 - Guards in a Protect squad hold next to their ward. A player with one short weapon has to walk in to finish the round.
@@ -144,4 +158,4 @@
 
 ## Next step
 
-Milestone 8: Bosses, relics and endings. Read GDD 4.10, 5.12, 10.1 to 10.6 and 2.4.
+Milestone 9: Grand Archive and saves. Read GDD 3.8, 8.13, 11.1 to 11.14, 15.6 and 15.13.

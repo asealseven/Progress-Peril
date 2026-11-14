@@ -441,3 +441,59 @@ Every choice below is mine and easy to reverse. Each names its GDD section.
 - **Transition order.** Steps 1 to 5 run through the results and preparation screens. The relic choice in step 3 waits for Milestone 8. Step 6 is the Transition scene: the map with the route so far, beaten kingdoms crossed out, a ring closing on the new kingdom, and its reveal card.
 - **Map.** Kingdom positions on the map are mine. The GDD gives no geography.
 - **Folder layout.** New files from the layout: `src/data/hazards.ts`, `src/data/events.ts`, `src/data/story.ts` and the `Transition` scene. Two files outside it: `src/sim/world/environment.ts` (arena changes and hazards) and `src/render/environment.ts` (their placeholders).
+
+## Milestone 8
+
+Every choice below is mine and easy to reverse. Each names its GDD section.
+
+### Boss bodies (GDD 10.3 to 10.5)
+
+- **Health.** The CLAUDE.md numbers: bosses 4000, 8000 and 14000. Mini-bosses 1200, 2400 and 4200. Escorts 70 per cent of a mini-boss.
+- **Damage.** Bosses on the High row, mini-bosses on the Medium row, both shifted one step per territory. Heavy attacks deal 1.6 times the row value.
+- **Body stats.** Weaknesses and resistances follow the GDD counters: the Iron Regent is weak to Corrosive and Cold, the Grand Automaton to Electric and Impact, the Spore Sovereign and the Thornback Matriarch to Fire, the Siege Spider to Electric. The Abomination and The Unmaking start with none.
+- **Status meters.** Bosses use the Boss size, five times Normal. Mini-bosses and escorts use the Champion size. Bosses ignore knockback but not Stunned, since bosses resist through larger meters (GDD 9.14).
+- **Entry.** Bosses and escorts enter 2 seconds into the round, the boss above the arena centre and the escort to one side. The Spore Sovereign takes the central fountain's place, so every weapon reaches it.
+- **Attacks.** Every boss attack warns for 1.5 seconds, the same length as the hazard warnings. Attacks come every 3.2, 2.6 and 2 seconds by phase. Escorts attack 1.4 times slower.
+- **Phases.** 70 and 30 per cent for bosses, 50 for mini-bosses. A 1.5-second transition takes no damage. Absolute Precision makes the first hit after each transition a critical hit.
+
+### Boss mechanics (GDD 10.4)
+
+- **Iron Regent.** The engineers are Mechanists. While one lives, the Regent sheds Corroded every 4 seconds. Glowing Plate opens six molten circles around the throne. Unbound drops Armour to 0, moves 1.5 times faster and brings 3 Forgeguard Knights.
+- **Abomination.** Every 4 seconds it resists the type it took most since the last check. Overgrowth sends 3 Chemical Crawlers from the vats every 9 seconds. In Meltdown the core stays exposed for 3 seconds after each Mutagenic Spew: 1.5 times damage taken, Fire weak.
+- **Grand Automaton.** The frontal shield turns slowly, like a Royal Bastion's. Two arm turrets ride on the body. Two belt motors stand at the belt ends. A destroyed motor stops its belt. Emergency protocol sends 6 Clockwork Crawlers every 8 seconds and repairs 0.3 per cent of health per second per living motor.
+- **The Unmaking.** Displacement teleports to a plaza point at least 320 pixels from the player. The Null Field switches synergies and Auxiliary components off for 4 seconds when the ring catches the player. Gravity flips every 4 seconds in phase 2. In Probability two copies take no damage. Every 7 seconds the real body swaps places with a copy. Marked or a critical hit on the real body shows a gold ring for 4 seconds.
+- **Spore Sovereign.** Spore Burst rings the boss with 6 Thornling seeds, which Fire burns. Full Bloom heals 0.02 per cent of health per second for each fungal patch.
+- **Convergence.** Phase 3 of the Round 21 boss adds the signature attacks of the bosses beaten earlier to the rotation. Each keeps its original attack shape, cast from the final boss.
+
+### Mini-bosses (GDD 10.5)
+
+- **Forge Marshal.** One war banner at a time, with 10 per cent of the Marshal's health. Allies within 420 pixels deal 25 per cent more damage.
+- **Mad Alchemist.** Flasks leave burning ground, acid or a toxic pool. Shatter Vat breaks the vat nearest the player, volatile or not, and two Chemical Crawlers climb out. Away from Myrathis the crawlers appear beside the Alchemist. The potion makes it 1.35 times faster, 1.25 times stronger and 1.2 times larger.
+- **Siege Spider.** Lays 3 mines. Climbs the nearest wall for 6 seconds and bombards twice as often.
+- **Tesla Warden.** Up to 3 pylons. Lightning chains from the Warden through each pylon. Overload strikes every rod in Orthelyn, or four circles around the player elsewhere.
+- **Thornback Matriarch.** The hedge charge passes through solid shapes. The thorn shell turns every frontal hit but Fire, and rear hits count as weak.
+
+### Rewards and round end (GDD 4.10, 5.5, 14.1, 14.2)
+
+- **Round end.** When the boss falls, other enemies leave with no loot, unspent spawns are dropped and the round ends.
+- **Rewards.** As written: boss 40 gold, 8 materials, 50 Research Points. Mini-boss 20 gold, 4 materials, 20 Research Points and a 25 per cent chance of a Rare component. Escort 4 materials and 20 Research Points. Parts drop nothing.
+- **Absolute Precision.** "Without taking damage" means no damage taken between the mini-boss's entry and its death. Escorts do not count.
+
+### Relics (GDD 5.12)
+
+- **When.** After the Round 7 and Round 14 bosses, on the results screen before preparation. The final boss offers none until endless mode exists.
+- **Steps.** "Up two steps" moves the base tier along its row. Fortune and Construct Strength have no number row, so each step adds 20 per cent.
+- **Construct Strength.** Multiplies construct health and construct hit damage.
+- **Mutagen Flask.** One of Max Health, Armour, Regeneration, Evasion, Move Speed, Pickup Radius, Critical Chance and Critical Damage gains a step for the round. The HUD names it.
+- **Shard of the Unmaking.** A random tag the weapon lacks, for the round only. Synergies count it.
+- **Gravity Anchor.** Enemies within 180 pixels move at 75 per cent speed.
+- **Bloom Crown.** "Sometimes" means 4 per cent of kills. Each bloom lasts 6 seconds.
+- **Royal Writ.** Takes 15 per cent off item prices rolled after the relic. Reroll and visit fees stay.
+- **Typed damage.** Crucible Heart raises the Fire and Impact share of a weapon's damage, like the typed research nodes.
+
+### Screens (GDD 10.6, 15.2, 15.7)
+
+- **Telegraphs.** Boss crimson, escort crimson and dashed, borrowed attacks in the original boss's kingdom colour.
+- **Bars.** The boss bar sits under the round with phase marks, the escort bar under it. Boss rounds zoom out to 85 per cent.
+- **Victory.** A new scene after Round 21: the ending of the final kingdom, the route, the campaign statistics and the relics.
+- **Folder layout.** New files from the layout: `src/data/bosses.ts`, `src/data/miniBosses.ts`, `src/data/relics.ts` and the `Victory` scene. Two files outside it: `src/sim/world/bosses.ts` (the boss controller) and `src/render/bosses.ts` (boss placeholders and telegraphs).

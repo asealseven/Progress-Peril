@@ -1,11 +1,12 @@
 import { EVENTS } from '../data/events';
 import Phaser from 'phaser';
 import { MATERIALS } from '../data/economy';
-import { PALETTE, hexToNumber } from '../data/palette';
+import { KINGDOM_COLOURS, PALETTE, hexToNumber } from '../data/palette';
+import { RELICS } from '../data/relics';
 import { SCREEN } from '../data/screen';
 import { STRINGS, formatTime } from '../data/strings';
 import { formatSeed } from '../sim/rng';
-import { runTotals } from '../sim/run';
+import { kingdomForRound, runTotals, takeRelic } from '../sim/run';
 import type { RoundResult, RunState } from '../sim/run';
 import { Button } from '../ui/button';
 import { drawPageFrame } from '../ui/frame';
@@ -15,6 +16,8 @@ import { isTouchPrimary, uiScale } from './platform';
 export interface ResultsData {
   run: RunState;
   result: RoundResult;
+  /** The relic choice follows the summary after a territory boss (GDD 5.8 step 3). */
+  step?: 'summary' | 'relics';
 }
 
 const GAMEPAD_CONFIRM = 0;
@@ -37,12 +40,63 @@ export class Results extends Phaser.Scene {
     super('Results');
   }
 
+  private step: 'summary' | 'relics' = 'summary';
+
   init(data: ResultsData): void {
     this.run = data.run;
     this.result = data.result;
+    this.step = data.step ?? 'summary';
+  }
+
+  /** Three relic cards from the beaten kingdom (GDD 5.12). */
+  private drawRelicChoice(): void {
+    const { width, height } = SCREEN;
+    const run = this.run;
+    const kingdom = kingdomForRound(run, this.result.round);
+    this.cameras.main.setBackgroundColor(PALETTE.parchment);
+    drawPageFrame(this.add.graphics(), width, height);
+    addText(this, width / 2, 90, STRINGS.relics.title, { role: 'heading', size: 54 }).setOrigin(0.5);
+    addText(this, width / 2, 140, STRINGS.relics.note(kingdom), { size: 20, colour: PALETTE.brass, weight: '700' }).setOrigin(0.5);
+    const choices = run.relicChoices.map((id) => RELICS[id]);
+    const cardW = 340;
+    const gap = 30;
+    const total = choices.length * cardW + (choices.length - 1) * gap;
+    const take = (index: number): void => {
+      const relic = choices[index];
+      if (relic && takeRelic(run, relic.id)) this.scene.start('Preparation', { run });
+    };
+    choices.forEach((relic, index) => {
+      const x = width / 2 - total / 2 + index * (cardW + gap);
+      const card = this.add.graphics();
+      card.fillStyle(0xe9dfc8, 1);
+      card.fillRect(x, 190, cardW, 360);
+      card.lineStyle(3, hexToNumber(PALETTE.ink), 1);
+      card.strokeRect(x, 190, cardW, 360);
+      card.fillStyle(hexToNumber(KINGDOM_COLOURS[kingdom]), 1);
+      card.fillCircle(x + cardW / 2, 260, 40);
+      card.lineStyle(4, hexToNumber(PALETTE.ink), 1);
+      card.strokeCircle(x + cardW / 2, 260, 40);
+      addText(this, x + cardW / 2, 260, `${index + 1}`, { role: 'heading', size: 36 }).setOrigin(0.5);
+      addText(this, x + cardW / 2, 320, relic.name, { role: 'heading', size: 28, align: 'center', wrapWidth: cardW - 30 }).setOrigin(0.5, 0);
+      addText(this, x + cardW / 2, 380, relic.effect, { size: 19, align: 'center', wrapWidth: cardW - 40 }).setOrigin(0.5, 0);
+      new Button(this, x + cardW / 2, 510, { label: STRINGS.relics.take, width: cardW - 40, height: 54, textSize: 22, onClick: () => take(index) });
+    });
+    addText(this, width / 2, height - 60, STRINGS.relics.hint, { size: 16, colour: PALETTE.brass }).setOrigin(0.5);
+    const keyboard = this.input.keyboard;
+    const onKey = (event: KeyboardEvent): void => {
+      const index = Number(event.key) - 1;
+      if (index >= 0 && index < choices.length) take(index);
+    };
+    keyboard?.on('keydown', onKey);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => keyboard?.off('keydown', onKey));
   }
 
   create(): void {
+    if (this.step === 'relics') {
+      this.confirm = () => undefined;
+      this.drawRelicChoice();
+      return;
+    }
     const { width, height } = SCREEN;
     const centreX = width / 2;
     const s = uiScale();
@@ -78,8 +132,11 @@ export class Results extends Phaser.Scene {
       if (result.discoveries.length > 0) rows.push([STRINGS.results.discoveries, result.discoveries.join(', ')]);
       if (run.research.captures.length > 0) note = `${note} ${STRINGS.results.capture}`;
       buttonLabel = STRINGS.results.nextRound;
-      // Preparation follows every round (GDD 3.3).
-      this.confirm = () => this.scene.start('Preparation', { run });
+      // Preparation follows every round (GDD 3.3). After a territory boss the relic choice comes first (GDD 5.8).
+      this.confirm = () =>
+        run.relicChoices.length > 0
+          ? this.scene.restart({ run, result, step: 'relics' })
+          : this.scene.start('Preparation', { run });
     } else {
       const totals = runTotals(run);
       const dead = run.status === 'dead';

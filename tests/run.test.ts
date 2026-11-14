@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { CHARACTERS } from '../src/data/characters';
+import { roundKind } from '../src/data/rounds';
 import { RESEARCH_NODES } from '../src/data/research';
 import { STARTING_WEAPONS, WEAPONS } from '../src/data/weapons';
 import type { WeaponDef } from '../src/data/weapons';
@@ -231,6 +232,8 @@ describe('headless run', () => {
         totalMs += performance.now() - started;
         totalSteps += steps;
         expect(world.phase).toBe('cleared');
+        // A boss round ends when the boss falls (GDD 5.8 step 1).
+        if (roundKind(run.round) === 'boss') expect(world.bossFallen).toBe(true);
         const result = finishRound(run, world);
         if (run.status === 'active') prepare(run);
         const entry = run.ledger[run.ledger.length - 1]!;

@@ -22,7 +22,7 @@ import { masteryRank } from './archive';
 import type { ArchiveState } from './archive';
 
 /** The milestone the build has reached. Rules for later milestones stay inert. */
-export const RESEARCH_MILESTONE = 7;
+export const RESEARCH_MILESTONE = 8;
 
 export interface Payment {
   readonly points: number;
@@ -348,6 +348,9 @@ export interface RoundFindings {
   sporeMotherKilled: boolean;
   unstableSuppressedKill: boolean;
   unstableKilled: boolean;
+  /** A mini-boss died, and whether the player took no damage while it fought (GDD 8.12). */
+  miniBossKilled: boolean;
+  miniBossFlawless: boolean;
 }
 
 export function emptyFindings(): RoundFindings {
@@ -362,6 +365,8 @@ export function emptyFindings(): RoundFindings {
     sporeMotherKilled: false,
     unstableSuppressedKill: false,
     unstableKilled: false,
+    miniBossKilled: false,
+    miniBossFlawless: false,
   };
 }
 
@@ -404,5 +409,7 @@ export function applyFindings(holder: ResearchHolder, findings: RoundFindings, c
   );
   check('Fungal Machinery', findings.sporeMotherByConstruct, findings.sporeMotherKilled);
   check('Anomalous Physics', findings.unstableSuppressedKill, findings.unstableKilled);
+  // No halfway point: the hint follows the first failed attempt (GDD 8.12).
+  check('Absolute Precision', findings.miniBossFlawless, findings.miniBossKilled);
   return found;
 }

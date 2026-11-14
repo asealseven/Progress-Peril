@@ -1,6 +1,7 @@
 // Applies damage to enemies and to the player, with on-hit and on-kill
 // effects, status build-up and status reactions.
 
+import { bossDefeated, forcedBossCritical, noteBossCritical } from './bosses';
 import { DAMAGE_TYPES } from '../../data/damageTypes';
 import type { DamageType } from '../../data/damageTypes';
 import { STATUS_INDEX } from '../../data/statusEffects';
@@ -68,8 +69,8 @@ export interface HitOptions {
 
 /** Moves an enemy by a push, respecting walls and obstacles. Returns the distance moved. */
 function push(world: World, enemy: Enemy, dx: number, dy: number): number {
-  // Juggernaut champions ignore knockback (GDD 9.13).
-  if (isJuggernaut(enemy)) return 0;
+  // Juggernaut champions ignore knockback (GDD 9.13). So do bosses and their parts (NOTES.md).
+  if (isJuggernaut(enemy) || enemy.boss) return 0;
   const startX = enemy.x;
   const startY = enemy.y;
   enemy.x += dx;
@@ -111,7 +112,7 @@ function hitMultiplier(
 ): number {
   let multiplier = 1;
   if (magnetic && hasTrait(enemy, 'magnetic-weak') && !enemy.def.weakTo.includes(type)) multiplier *= DAMAGE_STEP.weak;
-  if (hasTrait(enemy, 'shell')) {
+  if (hasTrait(enemy, 'shell') || enemy.thornShell) {
     // The hit direction defaults to the line from the player to the enemy.
     let hx = dirX;
     let hy = dirY;
@@ -124,7 +125,9 @@ function hitMultiplier(
     }
     // A hit travelling against the facing strikes the front. One travelling with the facing strikes the rear.
     const along = hx * enemy.faceX + hy * enemy.faceY;
-    if (along <= -ENEMY_RULES.frontCos && type === 'Piercing') multiplier *= DAMAGE_STEP.resist;
+    // The thorn shell turns every frontal hit but Fire (GDD 10.5).
+    const shellType = enemy.thornShell ? type !== 'Fire' : type === 'Piercing';
+    if (along <= -ENEMY_RULES.frontCos && shellType) multiplier *= DAMAGE_STEP.resist;
     else if (along >= ENEMY_RULES.frontCos) multiplier *= DAMAGE_STEP.weak;
   }
   return multiplier;
@@ -138,7 +141,8 @@ export function hitEnemy(world: World, enemy: Enemy, weaponIndex: number, option
   const weapon = world.weapons[weaponIndex];
   if (!weapon || !enemy.active) return false;
   const resolved = weapon.resolved;
-  const scale = options.scale ?? 1;
+  // Construct Strength raises the damage of turrets, traps and companions (GDD 3.6).
+  const scale = (options.scale ?? 1) * (options.fromConstruct ? world.player.stats.constructStrength : 1);
   const primary = options.primary ?? true;
   const generation = options.generation ?? 0;
   const parts: readonly DamagePart[] =
@@ -156,7 +160,7 @@ export function hitEnemy(world: World, enemy: Enemy, weaponIndex: number, option
       if (hasStatus(enemy, 'Marked')) chance += tierValue('criticalChance', 'Medium');
       // Steady Hand: the first hit on each enemy is a critical hit.
       const first = hasSynergy(resolved, 'steady-hand') && !weapon.firstHits.has(enemy.id);
-      critical = first || world.luck(chance);
+      critical = first || forcedBossCritical(world, enemy) || world.luck(chance);
     }
     weapon.firstHits.add(enemy.id);
   }
@@ -198,7 +202,7 @@ export function hitEnemy(world: World, enemy: Enemy, weaponIndex: number, option
   let amount = 0;
   let electric = 0;
   const magnetic = resolved.tags.includes('Magnetic');
-  const directional = magnetic || hasTrait(enemy, 'shell');
+  const directional = magnetic || hasTrait(enemy, 'shell') || enemy.thornShell;
   for (const part of parts) {
     const dealt = computeDamage({
       base: part.amount * scale * componentFactor,
@@ -224,6 +228,7 @@ export function hitEnemy(world: World, enemy: Enemy, weaponIndex: number, option
   if (critical) {
     world.stats.criticalHits++;
     world.noteCritical();
+    if (enemy.boss) noteBossCritical(enemy);
   }
   if (generation > 0) world.noteChain(generation, resolved.chainDepthLimit);
   noteDamage(world, enemy, amount, mainType);
@@ -544,6 +549,7 @@ export function killEnemy(
   how: { readonly fromConstruct?: boolean; readonly poisoned?: boolean } = {},
 ): void {
   if (!enemy.active) return;
+  if (enemy.boss) bossDefeated(world, enemy.boss);
   // Hidden node conditions (GDD 8.12).
   if (enemy.def.id === 'spore-mother') {
     world.findings.sporeMotherKilled = true;
@@ -583,7 +589,7 @@ export function killEnemy(
     const source = world.weapons[infectionSource]?.resolved;
     // Contagion: Infected spreads to one extra enemy on death.
     const count =
-      (source && hasSynergy(source, 'overgrowth') ? SYNERGY_RULES.overgrowthSpreads : 1) + world.rule('infectedExtraSpread');
+      (source && hasSynergy(source, 'overgrowth') ? SYNERGY_RULES.overgrowthSpreads : 1) + world.rule('infectedExtraSpread') + world.relic('infectedSpread');
     spreadInfection(world, enemy, infectionSource, infectionGeneration, count);
     // Parasite Larvae: Infected enemies release a parasite on death, which seeks a new host.
     if (source?.triggers.parasite) spawnParasite(world, x, y, infectionSource);

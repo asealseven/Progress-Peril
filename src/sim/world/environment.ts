@@ -129,6 +129,10 @@ export class Environment {
   private readonly pendingVats: Array<{ vat: LiveObstacle; step: number }> = [];
   /** Player Armour share this step. Acid lowers it (GDD 5.10). */
   armourShare = 1;
+  /** Gravity wells pull at 1 and push at -1. The Unmaking flips them (GDD 10.4). */
+  gravitySign: 1 | -1 = 1;
+  /** Elapsed seconds at the last update. */
+  private now = 0;
   private beltTimer = HAZARD_RULES.beltReverseSeconds;
   private readonly timers: Record<TimerKey, number> = { slag: 8, ingot: 3, press: 3, lightning: 3, erase: HAZARD_RULES.eraseIntervalSeconds, acid: 1, bloom: 2, fungal: 1, wells: HAZARD_RULES.gravityMoveSeconds };
   private acidCount = 0;
@@ -226,10 +230,28 @@ export class Environment {
   }
 
   /** Marks a vat to burst next step, so chains spread one step at a time (GDD 7.20). */
-  breakVat(world: World, vat: LiveObstacle): void {
-    if (!this.flags.volatileVats || vat.kind !== 'vat') return;
+  breakVat(world: World, vat: LiveObstacle, force = false): void {
+    if ((!this.flags.volatileVats && !force) || vat.kind !== 'vat') return;
     if (this.pendingVats.some((entry) => entry.vat === vat)) return;
     this.pendingVats.push({ vat, step: world.steps + 1 });
+  }
+
+  /** The Mad Alchemist shatters a vat on purpose, volatile or not (GDD 5.9). */
+  shatterVat(world: World, vat: LiveObstacle): void {
+    this.breakVat(world, vat, true);
+  }
+
+  /** Bloom Crown: a healing bloom where an enemy fell (GDD 5.12). */
+  addBloom(x: number, y: number, seconds: number): void {
+    this.addCircle('healing-bloom', x, y, HAZARD_RULES.bloomRadius, 0, seconds, this.now);
+  }
+
+  /** Glowing Plate: molten channels open around the throne (GDD 10.4). */
+  openMoltenRing(x: number, y: number): void {
+    for (let index = 0; index < 6; index++) {
+      const angle = (index / 6) * Math.PI * 2;
+      this.addCircle('molten-channel', x + Math.cos(angle) * 300, y + Math.sin(angle) * 220, 70, HAZARD_RULES.warningSeconds, Infinity, this.now);
+    }
   }
 
   /** Breaks every vat touching a circle: blasts and explosions join the chain. */
@@ -260,6 +282,7 @@ export class Environment {
 
   update(world: World, dt: number): void {
     const now = world.elapsed;
+    this.now = now;
     const flags = this.flags;
     const rules = HAZARD_RULES;
     this.armourShare = 1;
@@ -509,7 +532,7 @@ export class Environment {
             const dy = zone.y - body.y;
             const distance = Math.hypot(dx, dy);
             if (distance > zone.radius || distance < 8) return;
-            const speed = rules.gravityPull * (1 - distance / zone.radius) * scale;
+            const speed = rules.gravityPull * (1 - distance / zone.radius) * scale * this.gravitySign;
             body.x += (dx / distance) * speed * dt;
             body.y += (dy / distance) * speed * dt;
           };

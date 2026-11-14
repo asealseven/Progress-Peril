@@ -12,7 +12,10 @@ import type { MaterialStock } from '../data/economy';
 import { FIRST_CAMPAIGN_KINGDOM, KINGDOMS, KINGDOM_NAMES } from '../data/kingdoms';
 import type { FactionName, KingdomName } from '../data/palette';
 import { CAMPAIGN_ROUNDS, ROUNDS_PER_TERRITORY, roundDuration, roundInTerritory, roundKind, territoryIndex } from '../data/rounds';
-import { ADAPTATION, PERFORMANCE_LIMITS, tierValue } from '../data/tiers';
+import { ADAPTATION, PERFORMANCE_LIMITS, stepTier, tierValue } from '../data/tiers';
+import { RELICS, RELIC_RULES, relicEffects, relicRuleTotal, relicsOf } from '../data/relics';
+import type { RelicId, RelicRule } from '../data/relics';
+import { TAGS } from '../data/tags';
 import type { PerformanceLimits } from '../data/tiers';
 import type { WeaponDef } from '../data/weapons';
 import type { ShopId } from '../data/shop';
@@ -20,11 +23,14 @@ import { RESEARCH_RULES } from '../data/research';
 import type { UpgradeStat } from '../data/economy';
 import { createArchive } from './archive';
 import type { ArchiveState } from './archive';
+import { BOSS_BY_KINGDOM } from '../data/bosses';
+import { MINI_BOSS_BY_KINGDOM } from '../data/miniBosses';
+import type { BossPlan } from './world/bosses';
 import { planRound } from './director';
 import type { RoundEvent } from './director';
 import { beginPreparation, createShops, recordRound } from './economy';
 import type { RoundLedger, ShopState } from './economy';
-import { WEAPON_SLOTS, cloneWeapon, createComponent, createWeapon, installedComponents, resolveLoadout } from './loadout';
+import { WEAPON_SLOTS, cloneWeapon, createComponent, createWeapon, installedComponents, resolveLoadout, weaponTags } from './loadout';
 import type { ComponentInstance, WeaponInstance } from './loadout';
 import { applyFindings, createResearch, hasRule, queueCapture, resolveResearch } from './research';
 import type { ResearchState } from './research';
@@ -105,6 +111,12 @@ export interface RunState {
   research: ResearchState;
   /** The Grand Archive: discovered nodes and mastery last across runs (GDD 8.13). */
   archive: ArchiveState;
+  /** Kingdom Relics held. They last for the rest of the run (GDD 5.12). */
+  relics: RelicId[];
+  /** Relics on offer after a territory boss. Empty when no choice waits (GDD 5.8 step 3). */
+  relicChoices: RelicId[];
+  /** The stat the Mutagen Flask raised this round, for the HUD. */
+  flaskStat: FlaskStat | undefined;
   readonly history: RoundResult[];
 }
 
@@ -137,29 +149,56 @@ export function createRun(
     researchSynergies: [],
     research: createResearch(),
     archive,
+    relics: [],
+    relicChoices: [],
+    flaskStat: undefined,
     history: [],
   };
 }
 
-/** Player numbers from the character's base tiers (GDD 3.6). */
-export function resolvePlayerStats(character: CharacterDef): PlayerStats {
+/** Base stats the Mutagen Flask can raise for a round (GDD 5.12). */
+export const FLASK_STATS = [
+  'maxHealth',
+  'armour',
+  'regeneration',
+  'evasion',
+  'moveSpeed',
+  'pickupRadius',
+  'criticalChance',
+  'criticalDamage',
+] as const;
+export type FlaskStat = (typeof FLASK_STATS)[number];
+
+/**
+ * Player numbers from the character's base tiers (GDD 3.6). Relics move base
+ * tiers up whole steps (GDD 5.12). The Mutagen Flask adds one step to one stat.
+ */
+export function resolvePlayerStats(character: CharacterDef, relics: readonly RelicId[] = [], flask?: FlaskStat): PlayerStats {
   const base = character.baseStats;
+  const steps = (stat: FlaskStat | 'fortune' | 'constructStrength'): number => {
+    let total = stat === flask ? 1 : 0;
+    for (const effect of relicEffects(relics, 'playerSteps')) if (effect.stat === stat) total += effect.steps;
+    return total;
+  };
+  const tier = (stat: FlaskStat) => stepTier(base[stat], steps(stat));
   return {
-    maxHealth: tierValue('playerMaxHealth', base.maxHealth),
-    armour: tierValue('armour', base.armour),
-    regeneration: tierValue('regeneration', base.regeneration),
-    evasion: tierValue('evasion', base.evasion),
-    moveSpeed: tierValue('playerMoveSpeed', base.moveSpeed),
-    pickupRadius: tierValue('pickupRadius', base.pickupRadius),
-    criticalChance: tierValue('criticalChance', base.criticalChance),
-    criticalDamage: tierValue('criticalDamage', base.criticalDamage),
+    maxHealth: tierValue('playerMaxHealth', tier('maxHealth')),
+    armour: tierValue('armour', tier('armour')),
+    regeneration: tierValue('regeneration', tier('regeneration')),
+    evasion: tierValue('evasion', tier('evasion')),
+    moveSpeed: tierValue('playerMoveSpeed', tier('moveSpeed')),
+    pickupRadius: tierValue('pickupRadius', tier('pickupRadius')),
+    criticalChance: tierValue('criticalChance', tier('criticalChance')),
+    criticalDamage: tierValue('criticalDamage', tier('criticalDamage')),
     adaptationPerHit: ADAPTATION.perHit,
     adaptationCap: ADAPTATION.baseCap,
     // Status Potency has base Low (GDD 3.6): no change at the base tier.
     statusPotency: 1,
     // Research Yield has base Medium and Fortune base Low (GDD 3.6): no change at the base tiers.
     researchYield: 1,
-    fortune: 0,
+    // Fortune and Construct Strength have no number row: each step adds a share (NOTES.md).
+    fortune: RELIC_RULES.stepShare * steps('fortune'),
+    constructStrength: 1 + RELIC_RULES.stepShare * steps('constructStrength'),
   };
 }
 
@@ -216,6 +255,26 @@ export function planEvent(kingdom: KingdomName, territory: number, rng: Rng): Te
   return { id: 'outlaw-ambush', round };
 }
 
+/**
+ * The bosses of a round (GDD 4.10, 10.6): the kingdom's mini-boss on Round 4
+ * of a territory, the boss with an escort on Round 7. The escort is the
+ * mini-boss of the previous territory, or the kingdom's own in Territory 1.
+ * The final boss borrows the signature attacks of the bosses beaten before.
+ */
+export function bossPlanForRound(run: RunState, round: number = run.round): BossPlan | undefined {
+  const kind = roundKind(round);
+  if (kind === 'encounter') return undefined;
+  const kingdom = kingdomForRound(run, round);
+  if (kind === 'mini-boss') return { kind: 'mini', mini: MINI_BOSS_BY_KINGDOM[kingdom].id };
+  const territory = territoryIndex(round);
+  const previous = territory > 0 ? run.kingdoms[territory - 1] : undefined;
+  const final = round >= PLAYABLE_ROUNDS;
+  const borrowed = final
+    ? run.kingdoms.slice(0, territory).filter((name): name is KingdomName => name !== undefined && name !== kingdom).map((name) => BOSS_BY_KINGDOM[name].id)
+    : [];
+  return { kind: 'boss', boss: BOSS_BY_KINGDOM[kingdom].id, escort: MINI_BOSS_BY_KINGDOM[previous ?? kingdom].id, borrowed };
+}
+
 /** The event running in a round, if any. */
 export function eventForRound(run: RunState, round: number = run.round): TerritoryEvent | undefined {
   const event = run.events[territoryIndex(round)];
@@ -237,11 +296,32 @@ export function createWorldForRound(run: RunState, limits: PerformanceLimits = P
   const roundRng = new Rng(run.seed).fork(run.round);
   // Tags and stats only change during preparation, so the loadout resolves once per round.
   // Synergies recalculate here, when the player presses Start (CLAUDE.md rule 7).
-  const equipped = run.weapons.slice(0, WEAPON_SLOTS);
-  const base = resolvePlayerStats(run.character);
+  const relics = run.relics;
+  const relicRng = new Rng(run.seed).fork(9500 + run.round);
+  // Mutagen Flask: one random stat gains a step for the round (GDD 5.12).
+  run.flaskStat = relicRuleTotal(relics, 'mutagenFlask') > 0 ? relicRng.pick(FLASK_STATS) : undefined;
+  // Shard of the Unmaking: every weapon gains one random extra tag for the round (GDD 5.12).
+  const shard = relicRuleTotal(relics, 'shardTags') > 0;
+  const equipped = run.weapons.slice(0, WEAPON_SLOTS).map((weapon) => {
+    if (!shard) return weapon;
+    const copy = cloneWeapon(weapon);
+    const own = weaponTags(weapon);
+    const choices = TAGS.filter((tag) => !own.includes(tag));
+    copy.roundTags = choices.length > 0 ? [relicRng.pick(choices)] : [];
+    return copy;
+  });
+  const base = resolvePlayerStats(run.character, relics, run.flaskStat);
   const research = resolveResearch(run.research.researched);
-  const loadout = resolveLoadout(equipped, base, { research });
-  const suppressed = resolveLoadout(withoutAuxiliary(equipped), base, { research });
+  const loadout = resolveLoadout(equipped, base, { research, relics });
+  const suppressed = resolveLoadout(withoutAuxiliary(equipped), base, { research, relics });
+  const nulled = resolveLoadout(withoutAuxiliary(equipped), base, { research, relics, noSynergies: true });
+  const relicRules = new Map<RelicRule, number>();
+  for (const id of relics) {
+    for (const effect of RELICS[id].effects) {
+      if (effect.kind === 'rule') relicRules.set(effect.rule, (relicRules.get(effect.rule) ?? 0) + effect.amount);
+    }
+  }
+  const bosses = bossPlanForRound(run);
   // A run driven without the scenes reveals its kingdom here.
   const kingdom = revealKingdom(run);
   const event = eventForRound(run);
@@ -259,6 +339,9 @@ export function createWorldForRound(run: RunState, limits: PerformanceLimits = P
     suppressedWeapons: loadout.weapons.map((weapon, index) =>
       equipped[index]?.components.Auxiliary ? (suppressed.weapons[index] ?? weapon) : weapon,
     ),
+    nulledWeapons: nulled.weapons,
+    relicRules,
+    ...(bosses ? { bosses } : {}),
     gold: run.gold,
     synergies: loadout.synergies,
     adaptation: run.adaptation,
@@ -319,8 +402,14 @@ export function finishRound(run: RunState, world: World): RoundResult {
       for (const component of installedComponents(weapon)) component.rounds++;
     }
     if (hasRule(run, 'mutagenics')) mutate(run);
-    // Captured research after each territory except the last (GDD 5.8).
-    if (roundKind(run.round) === 'boss' && run.round < PLAYABLE_ROUNDS) queueCapture(run, kingdomForRound(run));
+    // Relic choice and captured research after each territory except the last (GDD 5.8).
+    if (roundKind(run.round) === 'boss' && run.round < PLAYABLE_ROUNDS) {
+      const kingdom = kingdomForRound(run);
+      run.relicChoices = relicsOf(kingdom)
+        .map((entry) => entry.id)
+        .filter((id) => !run.relics.includes(id));
+      queueCapture(run, kingdom);
+    }
   }
 
   if (!survived) {
@@ -333,6 +422,14 @@ export function finishRound(run: RunState, world: World): RoundResult {
     run.round++;
   }
   return result;
+}
+
+/** Takes one relic from the choice on offer (GDD 5.12). Returns false when the relic is not on offer. */
+export function takeRelic(run: RunState, id: RelicId): boolean {
+  if (!run.relicChoices.includes(id)) return false;
+  run.relics.push(id);
+  run.relicChoices = [];
+  return true;
 }
 
 /** Mutagenics: each round, one Organic component gains a random stat step, up to High (GDD 8.12). */

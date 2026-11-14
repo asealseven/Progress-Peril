@@ -1,6 +1,8 @@
 // Weapon instances, component slot rules (GDD 7.12) and the resolution of a
 // weapon with its components into the numbers the combat simulation uses.
 
+import { relicEffects, relicRuleTotal } from '../data/relics';
+import type { RelicId } from '../data/relics';
 import { SCRAP_RETURN, componentFitsFamily } from '../data/components';
 import type { ComponentDef, Quality, SlotType } from '../data/components';
 import { ECONOMY_RULES } from '../data/economy';
@@ -64,6 +66,8 @@ export interface WeaponInstance {
   /** Rounds completed with the weapon equipped. */
   rounds: number;
   readonly components: Partial<Record<SlotType, ComponentInstance>>;
+  /** Extra tags for one round: the Shard of the Unmaking (GDD 5.12). */
+  roundTags?: Tag[];
 }
 
 /** Weapons a player carries (GDD 7.1). */
@@ -158,6 +162,7 @@ export function installedComponents(weapon: WeaponInstance): ComponentInstance[]
 /** Intrinsic tags, plus every tag from installed components, plus granted tags (GDD 7.5, 7.12). */
 export function weaponTags(weapon: WeaponInstance): Tag[] {
   const tags = new Set<Tag>(weapon.def.tags);
+  for (const tag of weapon.roundTags ?? []) tags.add(tag);
   for (const component of installedComponents(weapon)) {
     for (const tag of component.def.tags) tags.add(tag);
     for (const effect of component.def.effects) {
@@ -170,7 +175,7 @@ export function weaponTags(weapon: WeaponInstance): Tag[] {
 // --- Resolution --------------------------------------------------------------
 
 /** The milestone the build has reached. Effects marked for a later milestone stay inactive. */
-export const CURRENT_MILESTONE = 7;
+export const CURRENT_MILESTONE = 8;
 
 export function isActive(effect: Effect): boolean {
   return (effect.activeFrom ?? 0) <= CURRENT_MILESTONE;
@@ -412,6 +417,7 @@ export function resolveWeapon(
   synergies: readonly string[] = [],
   research: ResolvedResearch = NO_RESEARCH,
   activeSynergies = 0,
+  relics: readonly RelicId[] = [],
 ): ResolvedWeapon {
   const def = weapon.def;
   const components = installedComponents(weapon);
@@ -625,6 +631,13 @@ export function resolveWeapon(
       researchTypeDamage.set(type, (researchTypeDamage.get(type) ?? 0) + size);
     } else stack.addPercent(effect.stat, 'research', size);
   }
+  // Kingdom Relics (GDD 5.12): a separate source, so relic bonuses multiply with the rest.
+  for (const effect of relicEffects(relics, 'weaponStat')) {
+    const size = tierValue('modifierSize', effect.tier);
+    if (effect.stat === 'criticalChance') criticalChanceBonus += tierValue('criticalChance', effect.tier);
+    else if (effect.damageType) researchTypeDamage.set(effect.damageType, (researchTypeDamage.get(effect.damageType) ?? 0) + size);
+    else stack.addPercent(effect.stat, 'relics', size);
+  }
   for (const effect of research.statusDurations) {
     statusDurationFor[effect.status] = (statusDurationFor[effect.status] ?? 1) + tierValue('modifierSize', effect.tier);
   }
@@ -823,6 +836,10 @@ export interface LoadoutOptions {
   readonly researchSynergies?: readonly string[];
   /** Researched nodes (GDD 8.12). Their research synergies join the list above. */
   readonly research?: ResolvedResearch;
+  /** Switches every synergy off, for the Null Field (GDD 10.3). */
+  readonly noSynergies?: boolean;
+  /** Kingdom Relics held (GDD 5.12). */
+  readonly relics?: readonly RelicId[];
 }
 
 /**
@@ -839,9 +856,10 @@ export function resolveLoadout(
     ...(options.researchSynergies ?? []),
     ...research.synergies,
   ]);
-  const synergies = report.active.map((entry) => entry.def.id);
+  const active = options.noSynergies ? [] : report.active;
+  const synergies = active.map((entry) => entry.def.id);
   const forWeapon = (index: number): string[] =>
-    report.active.filter((entry) => entry.weapons.includes(index)).map((entry) => entry.def.id);
+    active.filter((entry) => entry.weapons.includes(index)).map((entry) => entry.def.id);
 
   const armourSources = [base.armour];
   const rules = research.rules;
@@ -849,6 +867,8 @@ export function resolveLoadout(
   let evasion = base.evasion;
   let researchYield = base.researchYield;
   let fortune = base.fortune;
+  const relics = options.relics ?? [];
+  for (const effect of relicEffects(relics, 'playerStat')) percent[effect.stat] += tierValue('modifierSize', effect.tier);
   for (const effect of research.playerStats) {
     const size = tierValue('modifierSize', effect.tier);
     if (effect.stat === 'armour') armourSources.push(tierValue('armour', effect.tier));
@@ -884,11 +904,13 @@ export function resolveLoadout(
     // Immunology raises the gain. Antitoxins raises the cap one step.
     adaptationPerHit:
       base.adaptationPerHit * adaptive * (1 + tierValue('modifierSize', 'Medium') * (rules.get('adaptationGain') ?? 0)),
-    adaptationCap: (base.adaptationCap + ADAPTATION.capStep * (rules.get('adaptationCap') ?? 0)) * adaptive,
+    // Abomination Gland: the cap rises one more step.
+    adaptationCap:
+      (base.adaptationCap + ADAPTATION.capStep * ((rules.get('adaptationCap') ?? 0) + relicRuleTotal(relics, 'adaptationCap'))) * adaptive,
   };
   return {
     playerStats,
-    weapons: weapons.map((weapon, index) => resolveWeapon(weapon, playerStats, forWeapon(index), research, synergies.length)),
+    weapons: weapons.map((weapon, index) => resolveWeapon(weapon, playerStats, forWeapon(index), research, synergies.length, relics)),
     report,
     synergies,
   };
