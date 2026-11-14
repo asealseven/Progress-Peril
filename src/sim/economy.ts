@@ -19,7 +19,7 @@ import {
   UPGRADE_COSTS,
 } from '../data/economy';
 import type { Material, UpgradeStat } from '../data/economy';
-import { roundKind, territoryIndex } from '../data/rounds';
+import { roundKind, territoryIndex, territorySlot } from '../data/rounds';
 import { SHOP_IDS, SHOP_PRICES, SHOP_RULES, STOCK_ODDS, shopForComponent, shopForWeapon } from '../data/shop';
 import type { ShopId } from '../data/shop';
 import { WEAPON_LIST } from '../data/weapons';
@@ -261,20 +261,32 @@ function rollItem(
 
 function stockOdds(run: RunState, free: boolean): readonly number[] {
   // Free milestone visits use the odds of the next territory (GDD 6.6).
-  const territory = Math.min(STOCK_ODDS.length - 1, territoryIndex(run.round) + (free ? 1 : 0));
+  // Endless mode uses Territory 3 odds plus the free-visit bonus (GDD 6.6).
+  const bonus = free || run.endless ? 1 : 0;
+  const territory = Math.min(STOCK_ODDS.length - 1, territoryIndex(run.round) + bonus);
   return STOCK_ODDS[territory] ?? STOCK_ODDS[0] ?? [100, 0, 0, 0, 0];
 }
 
 /** Restocks every slot of a shop. Free visits show six items, with one Rare or better. */
 function rollStock(run: RunState, shop: ShopState, free: boolean): void {
   const rng = new Rng(run.seed).fork(7000 + SHOP_IDS.indexOf(shop.id) * 1000 + shop.rolls++);
-  const territory = territoryIndex(run.round);
+  // Prices rise 20 per cent with each territory, endless territories included (GDD 6.5, 13.3).
+  const territory = territorySlot(run.round);
   const odds = stockOdds(run, free);
   const slots = free ? SHOP_RULES.freeSlots : SHOP_RULES.paidSlots;
   shop.stock = [];
   const names = new Set<string>(shop.specialist ? [itemName(shop.specialist)] : []);
-  for (let slot = 0; slot < slots; slot++) {
-    const guaranteed = free && slot === 0;
+  // Entering endless mode: the free shop holds Extraordinary stock (GDD 4.10).
+  if (free && run.guaranteeExtraordinary) {
+    const extraordinary = COMPONENT_LIST.filter((def) => def.quality === 'Extraordinary' && shopForComponent(def) === shop.id);
+    if (extraordinary.length > 0) {
+      const def = rng.pick(extraordinary);
+      shop.stock.push({ kind: 'component', def, quality: 'Extraordinary', price: relicPrice(run, shopPrice('component', 'Extraordinary', territory)) });
+      names.add(def.name);
+    }
+  }
+  for (let slot = shop.stock.length; slot < slots; slot++) {
+    const guaranteed = (free || run.endless) && slot === 0;
     // A few fresh rolls keep one visit from showing the same item twice.
     let item: ShopItem | undefined;
     for (let attempt = 0; attempt < 6; attempt++) {
@@ -322,6 +334,7 @@ export function openShop(run: RunState, shopId: ShopId): ShopProblem | undefined
   shop.visit = { free, rerolls: 0, purchases: 0, experimental: 0, extraordinary: 0 };
   // Perfect Information showed the stock of all three shops. The chosen shop keeps the stock shown.
   if (!(free && shop.previewed)) rollStock(run, shop, free);
+  if (free) run.guaranteeExtraordinary = false;
   if (free) {
     for (const id of SHOP_IDS) {
       const other = run.shops[id];

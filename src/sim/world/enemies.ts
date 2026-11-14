@@ -236,10 +236,11 @@ export function spawnEnemy(world: World, def: EnemyDef, x: number, y: number, op
   enemy.def = def;
   enemy.radius = def.radius;
   // Territory 2 raises Health and Damage one step, Territory 3 two steps (GDD 9.10).
-  enemy.maxHealth = scaledTierValue('enemyHealth', def.health, territory + healthSteps);
+  // Challenge Tiers, Assist mode and endless loops add whole steps (GDD 3.9, 13.3).
+  enemy.maxHealth = scaledTierValue('enemyHealth', def.health, territory + healthSteps + world.enemySteps.health);
   enemy.health = enemy.maxHealth;
   enemy.armour = tierValue('armour', def.armour);
-  enemy.damage = scaledTierValue('enemyDamage', def.damage, territory);
+  enemy.damage = scaledTierValue('enemyDamage', def.damage, territory + world.enemySteps.damage);
   enemy.baseSpeed = tierValue('enemySpeed', def.speed);
   enemy.speed = enemy.baseSpeed;
   enemy.range = tierValue('enemyRange', def.range);
@@ -337,6 +338,8 @@ export function spawnEnemy(world: World, def: EnemyDef, x: number, y: number, op
   if (options.squad) joinSquad(world, enemy, options.squad);
   world.maxEnemyRadius = Math.max(world.maxEnemyRadius, enemy.radius);
   world.findings.enemies.add(def.id);
+  // The trial marks its priority target for manual focus (GDD 3.11).
+  if (world.priorityTarget === def.id && world.priorityId < 0) world.priorityId = enemy.id;
   world.emit({ type: 'enemySpawned', x: enemy.x, y: enemy.y });
   return enemy;
 }

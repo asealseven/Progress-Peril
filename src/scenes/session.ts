@@ -8,6 +8,10 @@ import type { ArchiveState } from '../sim/archive';
 import type { RunState } from '../sim/run';
 import { browserStorage, loadSave, writeSave } from '../sim/save';
 import type { ProfileSave, SaveFile, SaveStorage } from '../sim/save';
+import { DAMAGE_PALETTES, TEXT_SCALE } from '../data/modes';
+import type { GameSettings } from '../data/modes';
+import { applyDamagePalette } from '../data/palette';
+import { setTextOptions } from '../ui/text';
 
 const KEY = 'save-session';
 
@@ -24,6 +28,7 @@ export function session(scene: Phaser.Scene): Session {
     const loaded = loadSave(storage);
     current = { storage, file: loaded.file, fromBackup: loaded.fromBackup };
     scene.registry.set(KEY, current);
+    applySettings(scene);
   }
   return current;
 }
@@ -60,6 +65,18 @@ export function endRun(scene: Phaser.Scene): void {
 export function replaceSave(scene: Phaser.Scene, file: SaveFile): void {
   session(scene).file = file;
   saveNow(scene);
+}
+
+/** Player settings for this device (GDD 3.10). */
+export function settings(scene: Phaser.Scene): GameSettings {
+  return session(scene).file.settings;
+}
+
+/** Applies the settings that change shared state: the colour palette and text options. */
+export function applySettings(scene: Phaser.Scene): void {
+  const current = settings(scene);
+  applyDamagePalette(current.colourPalette === 'standard' ? undefined : DAMAGE_PALETTES[current.colourPalette]);
+  setTextOptions({ scale: TEXT_SCALE[current.textSize], readable: current.readableFont });
 }
 
 export function switchProfile(scene: Phaser.Scene, index: number): void {

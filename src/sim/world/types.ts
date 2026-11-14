@@ -659,6 +659,10 @@ export interface WorldConfig {
   readonly event?: EventId;
   /** Grand Archive effects (GDD 3.8, 8.13, 11.12). */
   readonly perks?: ArchivePerks;
+  /** Enemy Health and Damage steps from Challenge Tiers, Assist mode and endless loops (GDD 3.9, 13.3). */
+  readonly enemySteps?: { readonly health: number; readonly damage: number };
+  /** Enemy ids to spawn as the trial's priority target (GDD 3.11). */
+  readonly priorityTarget?: string;
   /** Relic rules held, with their summed amounts (GDD 5.12). */
   readonly relicRules?: ReadonlyMap<RelicRule, number>;
   /** The round's mini-boss, or boss and escort (GDD 4.10). */

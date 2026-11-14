@@ -411,6 +411,7 @@ export class ResearchWeb {
 
       const label = add(
         addText(scene, point.x, point.y + radius + 3, state === 'undiscovered' ? '?' : node.name, {
+          scalable: true,
           size: 11,
           weight: '700',
           align: 'center',

@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import { KINGDOMS, KINGDOM_NAMES } from '../data/kingdoms';
 import { KINGDOM_COLOURS, PALETTE, hexToNumber } from '../data/palette';
 import type { KingdomName } from '../data/palette';
-import { territoryIndex } from '../data/rounds';
+import { territorySlot } from '../data/rounds';
 import { SCREEN } from '../data/screen';
 import { STORY } from '../data/story';
 import { STRINGS } from '../data/strings';
@@ -99,11 +99,19 @@ export class Transition extends Phaser.Scene {
   private drawReveal(): void {
     const run = this.run;
     const kingdom = revealKingdom(run);
-    const territory = territoryIndex(run.round);
+    const territory = territorySlot(run.round);
     const centreX = SCREEN.width / 2;
 
     addText(this, centreX, 60, STRINGS.transition.mapTitle, { role: 'heading', size: 40 }).setOrigin(0.5);
-    addText(this, centreX, 104, STRINGS.transition.territory(territory + 1), { size: 18, colour: PALETTE.brass, weight: '700' }).setOrigin(0.5);
+    addText(this, centreX, 104, run.endless ? STRINGS.transition.endlessTerritory(territory + 1) : STRINGS.transition.territory(territory + 1), {
+      size: 18,
+      colour: PALETTE.brass,
+      weight: '700',
+    }).setOrigin(0.5);
+    // Endless mode shows a short card at each new loop (GDD 2.4).
+    if (run.endless && territory % 5 === 0) {
+      addText(this, centreX, 650, `${STRINGS.modes.endlessLoop}: ${STORY.endlessLoop}`, { role: 'hand', size: 24, colour: PALETTE.brass }).setOrigin(0.5);
+    }
 
     // The route so far, in the order visited.
     const map = this.add.graphics();

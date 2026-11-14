@@ -6,7 +6,9 @@ import { STRINGS } from '../data/strings';
 import { STARTING_WEAPONS } from '../data/weapons';
 import type { WeaponDef } from '../data/weapons';
 import { newSeed, parseSeed } from '../sim/rng';
-import { archive, saveRun } from './session';
+import { archive, saveNow, saveRun, settings } from './session';
+import { ASSIST_RATE, TIER_RATES, leversAt } from '../data/modes';
+import { Button } from '../ui/button';
 import { createRun } from '../sim/run';
 import { drawPageFrame } from '../ui/frame';
 import { addText } from '../ui/text';
@@ -14,7 +16,7 @@ import { isTouchPrimary, uiScale } from './platform';
 
 const COLUMNS = 3;
 const CARD_WIDTH = 372;
-const CARD_HEIGHT = 216;
+const CARD_HEIGHT = 190;
 const CARD_GAP = 20;
 const GRID_TOP = 176;
 const HOVER_FILL = 0xe6d9bd;
@@ -66,7 +68,9 @@ export class CharacterSelect extends Phaser.Scene {
       this.addCard(weapon, index, x, y, s);
     });
 
-    addText(this, centreX, height - 50, touch ? STRINGS.select.hintTouch : STRINGS.select.hintKeyboard, {
+    this.drawModeBar(centreX, 612);
+
+    addText(this, centreX, height - 34, touch ? STRINGS.select.hintTouch : STRINGS.select.hintKeyboard, {
       size: 17 * s,
       colour: PALETTE.brass,
       weight: '500',
@@ -146,6 +150,65 @@ export class CharacterSelect extends Phaser.Scene {
     this.highlight();
   }
 
+  /**
+   * Assist mode and the Challenge Tier for this campaign (GDD 3.9), and the
+   * Apprentice Trial on the first campaign (GDD 3.11). The choice stays for the next campaign.
+   */
+  private drawModeBar(centreX: number, y: number): void {
+    const book = archive(this);
+    const mode = book.lastMode;
+    mode.tier = Math.min(mode.tier, book.tierUnlocked);
+    const redraw = (): void => {
+      this.scene.restart();
+    };
+    new Button(this, centreX - 400, y, {
+      label: STRINGS.modes.assist(mode.assist),
+      width: 230,
+      height: 46,
+      textSize: 18,
+      selected: mode.assist,
+      onClick: () => {
+        mode.assist = !mode.assist;
+        redraw();
+      },
+    });
+    const tierLabel = mode.assist ? STRINGS.modes.tier(0) : STRINGS.modes.tier(mode.tier);
+    new Button(this, centreX - 180, y, { label: '<', width: 46, height: 46, textSize: 22, enabled: !mode.assist && mode.tier > 0, onClick: () => ((mode.tier -= 1), redraw()) });
+    addText(this, centreX - 40, y, tierLabel, { role: 'heading', size: 20 }).setOrigin(0.5);
+    new Button(this, centreX + 100, y, {
+      label: '>',
+      width: 46,
+      height: 46,
+      textSize: 22,
+      enabled: !mode.assist && mode.tier < book.tierUnlocked,
+      onClick: () => ((mode.tier += 1), redraw()),
+    });
+    const levers = leversAt(mode.assist ? 0 : mode.tier).map((lever) => STRINGS.modes.lever[lever]).join(', ');
+    const rate = mode.assist ? ASSIST_RATE : (TIER_RATES[mode.tier] ?? 1);
+    addText(this, centreX - 40, y + 32, `${STRINGS.modes.rate(rate)}. ${mode.assist ? STRINGS.modes.assistNote : STRINGS.modes.levers(levers)}`, {
+      size: 13,
+      colour: PALETTE.brass,
+      align: 'center',
+      wrapWidth: 560,
+    }).setOrigin(0.5, 0);
+    // The Apprentice Trial opens the first campaign. Players can skip it (GDD 3.11).
+    if (book.campaigns === 0) {
+      const prefs = settings(this);
+      new Button(this, centreX + 360, y, {
+        label: STRINGS.trial.toggle(prefs.trial),
+        width: 280,
+        height: 46,
+        textSize: 18,
+        selected: prefs.trial,
+        onClick: () => {
+          prefs.trial = !prefs.trial;
+          saveNow(this);
+          redraw();
+        },
+      });
+    }
+  }
+
   private choose(index: number): void {
     const weapon = STARTING_WEAPONS[index];
     if (!weapon || !this.scene.isActive()) return;
@@ -153,7 +216,9 @@ export class CharacterSelect extends Phaser.Scene {
     const requested = new URLSearchParams(window.location.search).get('seed');
     const seed = (requested ? parseSeed(requested) : undefined) ?? newSeed();
     // The profile's Grand Archive goes with the run (GDD 15.13). A new campaign replaces a saved run.
-    const run = createRun(seed, CHARACTERS.inventor, weapon, archive(this));
+    const book = archive(this);
+    const mode = book.lastMode.assist ? { assist: true, tier: 0 } : { assist: false, tier: Math.min(book.lastMode.tier, book.tierUnlocked) };
+    const run = createRun(seed, CHARACTERS.inventor, weapon, book, { mode, trial: settings(this).trial });
     saveRun(this, run);
     // The map reveals the first kingdom before Round 1 (GDD 5.7, 5.8).
     this.scene.start('Transition', { run });

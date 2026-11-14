@@ -11,7 +11,7 @@ import type { EventId } from '../data/events';
 import { FACTION_MIX, KINGDOMS } from '../data/kingdoms';
 import type { FactionName, KingdomName } from '../data/palette';
 import { roundDuration, territoryIndex, threatBudget } from '../data/rounds';
-import { DIRECTOR_RULES, THREAT_COST, tierValue } from '../data/tiers';
+import { DIRECTOR_RULES, THREAT_COST, stepTier, tierValue } from '../data/tiers';
 import { isGuard, squadOrder } from './ai';
 import type { Rng } from './rng';
 import type { EnemyRank, Formation, SpawnEntry, SpawnMember } from './world/types';
@@ -82,6 +82,16 @@ export function availableEnemies(kingdom: KingdomName, slot: FactionSlot, round:
 
 // --- Territory events (GDD 5.11) --------------------------------------------------
 
+/** Challenge Tier levers the director reads (GDD 3.9). */
+export interface DirectorDifficulty {
+  readonly budgetFactor: number;
+  readonly eliteSteps: number;
+  /** Formations, flanking and coordinated assaults start this many rounds earlier. */
+  readonly tacticsRounds: number;
+}
+
+export const NORMAL_DIRECTOR: DirectorDifficulty = { budgetFactor: 1, eliteSteps: 0, tacticsRounds: 0 };
+
 /** The event a round hosts. Military Invasion names the invading faction. */
 export interface RoundEvent {
   readonly id: EventId;
@@ -110,6 +120,7 @@ class Planner {
     readonly rng: Rng,
     budget: number,
     event?: RoundEvent,
+    readonly difficulty: DirectorDifficulty = NORMAL_DIRECTOR,
   ) {
     const shares = factionShares(round);
     this.purse = { home: budget * shares.home, guest: budget * shares.guest, incursion: budget * shares.incursion };
@@ -138,7 +149,7 @@ class Planner {
         incursion: [],
       };
     }
-    const tier = DIRECTOR_RULES.eliteOdds[territoryIndex(round)] ?? 'Medium';
+    const tier = stepTier(DIRECTOR_RULES.eliteOdds[territoryIndex(round)] ?? 'Medium', difficulty.eliteSteps);
     this.eliteOdds = round >= DIRECTOR_RULES.eliteFirstRound ? tierValue('criticalChance', tier) : 0;
   }
 
@@ -176,7 +187,7 @@ class Planner {
    */
   buyChampion(slot: FactionSlot, remaining: number): Purchase | undefined {
     if (this.champion || this.round < CHAMPION_FIRST_ROUND) return undefined;
-    if (!this.rng.chance(tierValue('criticalChance', DIRECTOR_RULES.championOdds))) return undefined;
+    if (!this.rng.chance(tierValue('criticalChance', stepTier(DIRECTOR_RULES.championOdds, this.difficulty.eliteSteps)))) return undefined;
     // Swarmers make poor champions: the director picks from enemies of Low threat or above.
     const choices = this.roster[slot].filter(
       (enemy) => THREAT_COST[enemy.threat] >= THREAT_COST.Low && threatCost(enemy, 'champion') <= remaining,
@@ -247,7 +258,7 @@ class Planner {
 
     // Complexity: other enemy types join the core (GDD 4.5).
     if (mixed) {
-      const types = this.round >= DIRECTOR_RULES.formationFirstRound ? 2 : 1;
+      const types = this.round + this.difficulty.tacticsRounds >= DIRECTOR_RULES.formationFirstRound ? 2 : 1;
       for (let i = 0; i < types; i++) {
         const choices = this.affordable(slot, remaining).filter((enemy) => enemy !== core);
         if (choices.length === 0) break;
@@ -273,9 +284,10 @@ class Planner {
   /** How a group enters: shield lines from Round 5, flanking from Round 12 (GDD 4.11). */
   formationFor(purchases: readonly Purchase[]): Formation | undefined {
     if (this.eventFormation && purchases.length >= 2) return this.eventFormation;
-    if (purchases.length < 3 || this.round < DIRECTOR_RULES.formationFirstRound) return undefined;
+    const round = this.round + this.difficulty.tacticsRounds;
+    if (purchases.length < 3 || round < DIRECTOR_RULES.formationFirstRound) return undefined;
     if (purchases.some((purchase) => isGuard(purchase.enemy))) return 'line';
-    if (this.round >= DIRECTOR_RULES.flankFirstRound && purchases.length >= 4 && this.rng.chance(0.4)) return 'pincer';
+    if (round >= DIRECTOR_RULES.flankFirstRound && purchases.length >= 4 && this.rng.chance(0.4)) return 'pincer';
     return undefined;
   }
 }
@@ -285,12 +297,19 @@ class Planner {
  * share moves to the next share, so the plan spends as much of the budget as
  * whole enemies allow. Unspent budget never carries over to the next round.
  */
-export function planRound(round: number, kingdom: KingdomName, rng: Rng, event?: RoundEvent): SpawnEntry[] {
+export function planRound(
+  round: number,
+  kingdom: KingdomName,
+  rng: Rng,
+  event?: RoundEvent,
+  difficulty: DirectorDifficulty = NORMAL_DIRECTOR,
+): SpawnEntry[] {
   const duration = roundDuration(round);
-  const budget = threatBudget(round);
+  // The threat budget lever raises every round's budget (GDD 3.9).
+  const budget = Math.round(threatBudget(round) * difficulty.budgetFactor);
   const split = splitBudget(budget);
   const territory = territoryIndex(round);
-  const planner = new Planner(round, kingdom, rng, budget, event);
+  const planner = new Planner(round, kingdom, rng, budget, event, difficulty);
 
   // Outlaw Ambush: a Mercenary Captain leads the first group (GDD 5.11).
   const leaderId = event ? EVENTS[event.id].leader : undefined;
@@ -352,8 +371,9 @@ export function planRound(round: number, kingdom: KingdomName, rng: Rng, event?:
   remaining += split.assault;
   const assaultTime = duration * DIRECTOR_RULES.assaultTime;
   let assaultFormation: Formation | undefined;
-  if (round >= DIRECTOR_RULES.coordinatedFirstRound) assaultFormation = 'ring';
-  else if (round >= DIRECTOR_RULES.flankFirstRound) assaultFormation = 'pincer';
+  const tactical = round + difficulty.tacticsRounds;
+  if (tactical >= DIRECTOR_RULES.coordinatedFirstRound) assaultFormation = 'ring';
+  else if (tactical >= DIRECTOR_RULES.flankFirstRound) assaultFormation = 'pincer';
   for (let i = 0; i < 12 && remaining >= 1; i++) {
     const { purchases, cost } = planner.buildGroup(remaining, 4 + territory * 4);
     if (purchases.length === 0) break;

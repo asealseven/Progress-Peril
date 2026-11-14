@@ -7,7 +7,7 @@ import { RELICS } from '../data/relics';
 import { SCREEN } from '../data/screen';
 import { STRINGS, formatTime } from '../data/strings';
 import { formatSeed } from '../sim/rng';
-import { kingdomForRound, runTotals, takeRelic } from '../sim/run';
+import { kingdomForRound, runTotals, takeComponentChoice, takeRelic } from '../sim/run';
 import type { RoundResult, RunState } from '../sim/run';
 import { Button } from '../ui/button';
 import { drawPageFrame } from '../ui/frame';
@@ -58,13 +58,18 @@ export class Results extends Phaser.Scene {
     drawPageFrame(this.add.graphics(), width, height);
     addText(this, width / 2, 90, STRINGS.relics.title, { role: 'heading', size: 54 }).setOrigin(0.5);
     addText(this, width / 2, 140, STRINGS.relics.note(kingdom), { size: 20, colour: PALETTE.brass, weight: '700' }).setOrigin(0.5);
-    const choices = run.relicChoices.map((id) => RELICS[id]);
+    // When the kingdom has no relic left, three Rare or better components stand in (GDD 5.12).
+    const choices: Array<{ name: string; effect: string }> =
+      run.relicChoices.length > 0
+        ? run.relicChoices.map((id) => RELICS[id])
+        : run.componentChoices.map((def) => ({ name: def.name, effect: `${def.quality}. ${def.effect}` }));
     const cardW = 340;
     const gap = 30;
     const total = choices.length * cardW + (choices.length - 1) * gap;
     const take = (index: number): void => {
-      const relic = choices[index];
-      if (relic && takeRelic(run, relic.id)) this.scene.start('Preparation', { run });
+      const relic = run.relicChoices[index];
+      const done = relic ? takeRelic(run, relic) : takeComponentChoice(run, index);
+      if (done) this.scene.start('Preparation', { run });
     };
     choices.forEach((relic, index) => {
       const x = width / 2 - total / 2 + index * (cardW + gap);
@@ -139,7 +144,7 @@ export class Results extends Phaser.Scene {
       buttonLabel = STRINGS.results.nextRound;
       // Preparation follows every round (GDD 3.3). After a territory boss the relic choice comes first (GDD 5.8).
       this.confirm = () =>
-        run.relicChoices.length > 0
+        run.relicChoices.length > 0 || run.componentChoices.length > 0
           ? this.scene.restart({ run, result, step: 'relics' })
           : this.scene.start('Preparation', { run });
     } else {

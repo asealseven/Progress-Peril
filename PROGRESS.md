@@ -134,6 +134,20 @@
 - Checked in the browser: progress survives a reload, and an exported code moves the save to a second browser.
 - 512 tests. New: 26 for the catalogue totals, discovery conditions, upgrades and respec, specialisations, Archive Points, the revival, mastery, challenges, the Codex and saves.
 
+### Milestone 10: Modes, options and tutorial
+
+- Challenge Tiers 1 to 5 with the five GDD levers in order, Archive Point rates from 1.2 to 2, a new tier on each win, no revival from Tier 3.
+- Assist mode: enemy Damage one step lower, game speed at 0.8, half Archive Points, no tier unlock.
+- Mode bar on the character screen: Assist toggle, tier arrows, rate and levers.
+- Endless mode after a won campaign: the two unseen kingdoms first, then loops of five with no repeat at the joins, Health and Damage up a step per loop, Territory 3 shop odds plus the free-visit bonus, an Extraordinary component in the entry shop, bosses borrowing two attacks, relics then three Rare or better components, records per character.
+- Fast-forward at 1.5 times on Tab, controller Select or a touch button, encounter rounds only, remembered between rounds.
+- Pause screen with the seed, weapons and components, synergies, research, relics and mode.
+- Settings in three tabs. Options: screen shake, flashes, damage numbers, low health warning, effect density, colour-blind palettes, text size, readable font, enemy shot outline, audio cues, subtitles, trial. Controls: hold or toggle focus, handedness, joystick size, fixed or floating joystick, keyboard and controller remapping. Saves: profiles and transfer.
+- Settings save at once in save version 2, with a migration from version 1.
+- The Apprentice Trial on the first campaign: Swarmers in Round 1, a free Incendiary Oil, weak enemies and an elite priority target in Round 2, Research Points and a synergy weapon for Round 3, then a fixed free shop visit.
+- Checked in the browser on desktop and an emulated phone: settings survive a reload and reach combat (remapped keys, fast-forward, joystick size and side).
+- 531 tests. New: 19 for tiers, rates, Assist, the revival, tier unlocks, endless rotation, loop scaling, borrowed bosses, component rewards, records, the trial and settings saves.
+
 ### Asset folders
 
 - ART_PROMPTS.md sits in the repo root.
@@ -143,7 +157,6 @@
 
 - Phone checks ran in an emulated phone viewport with touch events. No test on a physical phone yet.
 - Controller input has no automated test. The preparation screen has no controller navigation yet.
-- The Archive lives in memory. A reload resets mastery and hidden nodes until Milestone 9 adds saves.
 - Absolute Precision and The Philosopher's Engine can be found, but their effects wait for Milestones 8 and 9.
 - Node labels on the research web overlap at middle zoom. Milestone 11 revisits the layout.
 - Cross nodes for disciplines with no shared border sit inside a third sector.
@@ -152,13 +165,11 @@
 - Rounds run long. The test bot plays the campaign in 25 minutes of combat. Territory 3 rounds take 80 to 148 seconds against targets of 50 to 75.
 - Boss balance is untuned. The test bot needs 90 to 150 seconds for a boss round. Milestone 12 tunes this.
 - Bosses have no generated images yet: the phase swap shows as a flash and a shake.
-- The final boss offers no relic. Endless mode in Milestone 10 needs one.
 - Boss bars and labels sit large on a phone screen. Milestone 11 revisits the HUD.
 - The hub is a placeholder of coloured boxes until the hub illustration exists. On phones the side list covers part of the hall.
 - Import and code copy use the browser's prompt and confirm boxes. Milestone 11 replaces them with notebook dialogs.
 - Challenge cosmetics and the Grandmaster decoration have no design yet.
 - Melee swings do not break volatile vats. Projectiles, explosions and blasts do.
-- The campaign count for the first-campaign rule lives in memory until Milestone 9 adds saves.
 - Preparation uses pick-then-place for components. Dragging on PC waits for Milestone 11.
 - Preparation text runs 13 to 19 pixels on a 1280 pixel screen. A phone shows this small. Milestone 11 revisits the layout.
 - Guards in a Protect squad hold next to their ward. A player with one short weapon has to walk in to finish the round.
@@ -170,8 +181,12 @@
 - The debug menu uses small arrow buttons on a phone.
 - Headless Chromium draws about 30 frames per second with software rendering. The simulation step takes about 0.14 milliseconds. Frame rate on real hardware waits for Milestone 12.
 - The asset manifest lists keys and paths. File loading with fallback arrives in Milestone 11. The app icon is the exception.
-- No sound yet. ZzFX arrives in Milestone 11.
+- No sound yet. ZzFX arrives in Milestone 11. Audio cues and subtitles settings are stored and wait for sound.
+- Colour-blind palettes recolour damage types only. Faction and kingdom colours stay.
+- Text size and the readable font cover the research web and item cards. Milestone 11 extends them to every screen.
+- Controller remapping has no automated test. Remapped keys must not clash: the game does not check.
+- The pause screen has no Codex button. The Codex lives in the Grand Archive.
 
 ## Next step
 
-Milestone 10: Modes, options and tutorial. Read GDD 3.9 to 3.12 and 13.1 to 13.3.
+Milestone 11: Presentation. Read GDD 15.1 to 15.10.

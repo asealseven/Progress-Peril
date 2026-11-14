@@ -547,3 +547,15 @@ Every choice below is mine and easy to reverse. Each names its GDD section.
 - **When.** The run saves when each preparation phase opens and when a campaign starts. The Archive saves after every round, at the end of every run and after every Archive purchase. Continue returns to the last preparation phase, or to the first kingdom reveal before Round 1.
 - **Export and import.** A file holds the save text. A code is the same text in base64 with a "PP1:" prefix. Importing replaces all three profiles after a confirmation.
 - **Folder layout.** New files from the layout: `src/data/archive.ts`, `src/data/specialisations.ts`, `src/sim/save.ts`, and the `Hub` and `Settings` scenes. One file outside it: `src/scenes/session.ts`, the save file shared by the scenes. The Archive, Codex and trophy cabinet are panels of the Hub scene.
+
+## Milestone 10
+
+- **Tier levers (GDD 3.9).** Each tier adds one lever in GDD order: enemy Damage one step, threat budget times 1.25, elite and champion odds one step, enemy Health one step, enemy tactics 3 rounds earlier (formations, flanking and coordination gates). Bosses gain 1.5 times Health per Health step.
+- **Assist (GDD 3.9).** Enemy Damage one step lower and game speed 0.8. Assist ignores the tier.
+- **Endless kingdoms (GDD 13.3).** Territories 4 and 5 use the two unvisited kingdoms. Each later loop of five reshuffles all kingdoms from the run seed, and the first of a loop never repeats the last of the one before. Each completed loop adds one Health and one Damage step.
+- **Endless shops (GDD 4.10, 13.3).** Endless uses Territory 3 prices and odds plus the free-visit bonus. The first free shop holds one Extraordinary component, ignoring research locks, in shops that stock one.
+- **Endless rewards (GDD 5.12).** When a beaten kingdom has no relic left, the reward is a choice of three Rare or better components. The final boss bonus and endings apply on Round 21 only.
+- **Endless bosses (GDD 13.3).** Boss rounds past 21 borrow attacks from the bosses of the two previous territories.
+- **Trial (GDD 3.11).** Runs on Rounds 1 to 3 of the first campaign, with a setting to skip it. Round 1 sends Clockwork Crawlers. Preparation 1 gives Incendiary Oil. Round 2 sends Chemical Crawlers and Hunting Hounds plus an elite Regenerator marked as the focus target. Preparation 2 raises Research Points to at least 15, fits the Oil to the first weapon when it still sits in the tray, and adds a second weapon that triggers a cross-weapon synergy. When no bare weapon does, the weapon arrives with one Common or Uncommon component that completes one. Preparation 3 is a free visit with fixed Common stock in every shop.
+- **Settings (GDD 3.10).** Colour-blind palettes recolour the nine damage types. Toggle focus switches on with the focus key, a click or a tap on the free side, and follows the pointer. Handedness swaps the stick and focus sides. A fixed joystick sits near the bottom corner. Settings apply to every profile on the device.
+- **Fast-forward (GDD 3.12).** Encounter rounds only. Mini-boss and boss rounds play at normal speed.

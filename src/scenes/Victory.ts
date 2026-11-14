@@ -8,7 +8,7 @@ import { SCREEN } from '../data/screen';
 import { STORY } from '../data/story';
 import { STRINGS, formatTime } from '../data/strings';
 import { formatSeed } from '../sim/rng';
-import { kingdomForRound, runTotals } from '../sim/run';
+import { continueEndless, kingdomForRound, runTotals } from '../sim/run';
 import type { RunState } from '../sim/run';
 import { Button } from '../ui/button';
 import { drawPageFrame } from '../ui/frame';
@@ -90,7 +90,21 @@ export class Victory extends Phaser.Scene {
     };
     // The run ends: the Archive keeps what it earned (GDD 15.13).
     endRun(this);
-    new Button(this, width / 2, height - 80, { label: STRINGS.results.toTitle, width: 360, height: 60, textSize: 26, onClick: toTitle });
+    // End the campaign, or continue into endless mode with the same build (GDD 13.2).
+    new Button(this, width / 2 - 220, height - 80, { label: STRINGS.modes.endCampaign, width: 400, height: 60, textSize: 24, onClick: toTitle });
+    new Button(this, width / 2 + 220, height - 80, {
+      label: STRINGS.modes.endless,
+      width: 400,
+      height: 60,
+      textSize: 22,
+      onClick: () => {
+        continueEndless(run);
+        const result = run.history[run.history.length - 1];
+        if (result && (run.relicChoices.length > 0 || run.componentChoices.length > 0)) this.scene.start('Results', { run, result, step: 'relics' });
+        else this.scene.start('Preparation', { run });
+      },
+    });
+    addText(this, width / 2 + 220, height - 42, STRINGS.modes.endlessNote, { size: 13, colour: PALETTE.brass, align: 'center', wrapWidth: 400 }).setOrigin(0.5, 0);
     addText(this, width - 48, height - 40, STRINGS.results.seed(formatSeed(run.seed)), { role: 'hand', size: 22, colour: PALETTE.brass }).setOrigin(1, 1);
 
     const keyboard = this.input.keyboard;

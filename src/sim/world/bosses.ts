@@ -105,6 +105,8 @@ export interface BossBody {
 }
 
 const EMPTY: readonly DamageType[] = [];
+/** Boss health per Health step from Challenge Tiers and endless loops. */
+const BOSS_HEALTH_STEP = 1.5;
 
 // --- Health and spawning -----------------------------------------------------
 
@@ -132,7 +134,8 @@ interface BodyOptions {
 function addBody(world: World, x: number, y: number, options: BodyOptions): BossBody | undefined {
   const enemy = spawnEnemy(world, options.def, x, y);
   if (!enemy) return undefined;
-  enemy.maxHealth = options.health;
+  // The Health lever and endless loops raise boss health by half per step (NOTES.md).
+  enemy.maxHealth = options.role === 'part' ? options.health : options.health * BOSS_HEALTH_STEP ** Math.max(0, world.enemySteps.health);
   enemy.health = options.health;
   // Bosses resist statuses through larger meters (GDD 9.14). Mini-bosses use the champion size.
   enemy.meterScale = options.role === 'boss' ? STATUS_METER.boss : options.role === 'part' ? 1 : STATUS_METER.champion;

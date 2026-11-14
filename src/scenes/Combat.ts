@@ -28,7 +28,7 @@ import { hasShield, shieldBlocks, spawnGroup } from '../sim/world/enemies';
 import { CHAMPION_TRAITS } from '../data/champions';
 import { ELITE_MODIFIERS } from '../data/eliteModifiers';
 import { ENEMY_LIST } from '../data/enemies';
-import { territoryIndex } from '../data/rounds';
+import { territorySlot } from '../data/rounds';
 import { REACTION_DEFS, STATUS_DEFS, STATUS_EFFECTS } from '../data/statusEffects';
 import { SYNERGIES } from '../data/synergies';
 import { meterSize, trailStatuses } from '../sim/world/status';
@@ -37,7 +37,13 @@ import type { World } from '../sim/world/world';
 import { STEP_SECONDS } from '../sim/world/world';
 import { Button } from '../ui/button';
 import { addText } from '../ui/text';
-import { CombatInput, JOYSTICK_RADIUS } from './input';
+import { CombatInput } from './input';
+import { settings } from './session';
+import { MODE_RULES } from '../data/modes';
+import type { GameSettings } from '../data/modes';
+import { RESEARCH_NODES } from '../data/research';
+import { RELICS } from '../data/relics';
+import { installedComponents } from '../sim/loadout';
 import { isTouchPrimary, uiScale } from './platform';
 
 export interface CombatData {
@@ -91,6 +97,7 @@ const TOUCH_ZOOM = 0.85;
 /** Boss rounds zoom out this far (GDD 15.2). */
 const BOSS_ZOOM = 0.85;
 const LOW_HEALTH = 0.3;
+const MAX_DAMAGE_NUMBERS = 24;
 const HERB = 0x4fa34a;
 const END_DELAY_MS = 1100;
 const PIP_SIZE = 6;
@@ -153,6 +160,14 @@ export class Combat extends Phaser.Scene {
   private researchText!: Phaser.GameObjects.Text;
   private lastResearch = -1;
   private hazardLayer!: Phaser.GameObjects.Graphics;
+  /** Player settings (GDD 3.10). */
+  private prefs!: GameSettings;
+  /** Fast-forward toggle (GDD 3.12). */
+  private fastForward = false;
+  private speedText!: Phaser.GameObjects.Text;
+  private speedZone?: Phaser.GameObjects.Zone;
+  private damageNumbers: Array<{ text: Phaser.GameObjects.Text; life: number }> = [];
+  private priorityLabel!: Phaser.GameObjects.Text;
   private bossHud!: Phaser.GameObjects.Graphics;
   private bossLabels: Phaser.GameObjects.Text[] = [];
 
@@ -165,6 +180,9 @@ export class Combat extends Phaser.Scene {
   }
 
   create(): void {
+    this.prefs = settings(this);
+    this.fastForward = this.prefs.fastForward;
+    this.damageNumbers = [];
     this.sim = createWorldForRound(this.run, isTouchPrimary() ? PERFORMANCE_LIMITS.mobile : PERFORMANCE_LIMITS.pc);
     this.accumulator = 0;
     this.paused = false;
@@ -218,9 +236,14 @@ export class Combat extends Phaser.Scene {
     this.createPauseOverlay();
     this.setPaused(false);
 
-    this.controls = new CombatInput(this);
+    this.controls = new CombatInput(this, this.prefs);
+    this.effects.density = this.prefs.effectDensity;
     const keyboard = this.input.keyboard;
-    keyboard?.on('keydown-ESC', this.togglePause, this);
+    const pauseKey = `keydown-${this.prefs.keys.pause}`;
+    const speedKey = `keydown-${this.prefs.keys.fastForward}`;
+    keyboard?.on(pauseKey, this.togglePause, this);
+    keyboard?.on(speedKey, this.toggleSpeed, this);
+    keyboard?.addCapture(this.prefs.keys.fastForward);
     keyboard?.on('keydown-F3', this.toggleDebug, this);
     keyboard?.on('keydown-I', this.toggleInvincible, this);
     keyboard?.on('keydown-L', this.openLoadout, this);
@@ -233,7 +256,8 @@ export class Combat extends Phaser.Scene {
 
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.controls.destroy();
-      keyboard?.off('keydown-ESC', this.togglePause, this);
+      keyboard?.off(pauseKey, this.togglePause, this);
+      keyboard?.off(speedKey, this.toggleSpeed, this);
       keyboard?.off('keydown-F3', this.toggleDebug, this);
       keyboard?.off('keydown-I', this.toggleInvincible, this);
       keyboard?.off('keydown-L', this.openLoadout, this);
@@ -313,7 +337,7 @@ export class Combat extends Phaser.Scene {
   private createHud(): void {
     const s = this.scale1;
     const centreX = SCREEN.width / 2;
-    const territory = territoryIndex(this.sim.round) + 1;
+    const territory = territorySlot(this.sim.round) + 1;
 
     this.hud = this.inHud(this.add.graphics()).setDepth(DEPTH.hud);
 
@@ -481,6 +505,32 @@ export class Combat extends Phaser.Scene {
       this.pauseZone.on('pointerup', () => {
         if (!this.paused) this.setPaused(true);
       });
+      const speed = this.speedButtonLayout();
+      this.speedZone = this.inHud(this.add.zone(speed.x + speed.size / 2, speed.y + speed.size / 2, speed.size, speed.size)).setDepth(DEPTH.hudText);
+      this.speedZone.setInteractive();
+      this.speedZone.on('pointerup', () => this.toggleSpeed());
+    }
+    this.speedText = this.inHud(addText(this, SCREEN.width - HUD_MARGIN, HUD_MARGIN + 52 * s, STRINGS.hud.fastForward, { size: 16 * s, weight: '700', colour: PALETTE.brass }))
+      .setOrigin(1, 0)
+      .setDepth(DEPTH.hudText)
+      .setVisible(false);
+    this.priorityLabel = this.inWorld(addText(this, 0, 0, STRINGS.hud.priority, { role: 'hand', size: 22, colour: PALETTE.danger }))
+      .setOrigin(0.5, 1)
+      .setDepth(DEPTH.bars + 1)
+      .setStroke(PALETTE.parchment, 5)
+      .setVisible(false);
+    // The trial explains each round (GDD 3.11).
+    if (this.run.trial && this.run.round <= 3) {
+      const hint = this.inHud(addText(this, SCREEN.width / 2, SCREEN.height - 120 * s, STRINGS.trial.round[this.run.round - 1] ?? '', {
+        size: 18 * s,
+        weight: '700',
+        align: 'center',
+        wrapWidth: 900,
+      }))
+        .setOrigin(0.5, 1)
+        .setDepth(DEPTH.hudText)
+        .setStroke(PALETTE.parchment, 5);
+      this.tweens.add({ targets: hint, alpha: 0, delay: 9000, duration: 1200 });
     }
   }
 
@@ -489,6 +539,11 @@ export class Combat extends Phaser.Scene {
     const gap = 10;
     const total = size * 3 + gap * 2;
     return { x: (SCREEN.width - total) / 2, y: SCREEN.height - 18 - size, size, gap };
+  }
+
+  private speedButtonLayout(): { x: number; y: number; size: number } {
+    const pause = this.pauseButtonLayout();
+    return { x: pause.x, y: pause.y + pause.size + 12, size: pause.size };
   }
 
   private pauseButtonLayout(): { x: number; y: number; size: number } {
@@ -501,8 +556,8 @@ export class Combat extends Phaser.Scene {
     const s = this.scale1;
     const centreX = SCREEN.width / 2;
     const centreY = SCREEN.height / 2;
-    const panelWidth = 520 * s;
-    const panelHeight = 430 * s;
+    const panelWidth = Math.min(SCREEN.width - 40, 1000 * s);
+    const panelHeight = Math.min(SCREEN.height - 30, 640 * s);
 
     const dim = this.add.rectangle(centreX, centreY, SCREEN.width, SCREEN.height, INK, 0.6);
     dim.setInteractive();
@@ -520,23 +575,39 @@ export class Combat extends Phaser.Scene {
       { role: 'hand', size: 28 * s, colour: PALETTE.brass },
     ).setOrigin(0.5);
 
-    // The pause screen shows the active synergies of the build (GDD 3.12).
+    // The pause screen shows the full build: weapons, components, synergies and research (GDD 3.12).
     const names = [...this.sim.synergies].map((id) => SYNERGIES[id]?.name ?? id);
-    const synergies = addText(this, centreX, centreY - panelHeight / 2 + 134 * s, STRINGS.pause.synergies(names), {
-      size: 16 * s,
+    const run = this.run;
+    const weapons = run.weapons
+      .slice(0, 3)
+      .map((weapon) => {
+        const parts = installedComponents(weapon).map((component) => component.def.name);
+        return STRINGS.pause.weapon(weapon.def.name, weapon.grade, parts.length > 0 ? parts.join(', ') : STRINGS.results.none);
+      })
+      .join('\n');
+    const research = run.research.researched.map((id) => RESEARCH_NODES.find((node) => node.id === id)?.name ?? id);
+    const relics = run.relics.map((id) => RELICS[id].name);
+    const lines = [
+      weapons,
+      STRINGS.pause.synergies(names),
+      STRINGS.pause.research(research),
+      STRINGS.pause.relics(relics),
+      STRINGS.pause.mode(run.mode.assist, run.mode.tier, run.endless),
+    ].join('\n\n');
+    const synergies = addText(this, centreX - panelWidth / 2 + 30, centreY - panelHeight / 2 + 134 * s, lines, {
+      size: 14 * s,
       weight: '500',
-      align: 'center',
-      wrapWidth: panelWidth - 40,
-    }).setOrigin(0.5, 0);
+      wrapWidth: panelWidth - 60,
+    });
 
-    const resume = new Button(this, centreX, centreY + 64 * s, {
+    const resume = new Button(this, centreX - 180 * s, centreY + panelHeight / 2 - 50 * s, {
       label: STRINGS.pause.resume,
       width: 320 * s,
       height: 64 * s,
       textSize: 28 * s,
       onClick: () => this.setPaused(false),
     });
-    const quit = new Button(this, centreX, centreY + 146 * s, {
+    const quit = new Button(this, centreX + 180 * s, centreY + panelHeight / 2 - 50 * s, {
       label: STRINGS.pause.quit,
       width: 320 * s,
       height: 64 * s,
@@ -636,11 +707,13 @@ export class Combat extends Phaser.Scene {
 
   override update(_time: number, delta: number): void {
     if (this.controls.pausePressed()) this.togglePause();
+    if (this.controls.speedPressed()) this.toggleSpeed();
 
     const frame = Math.min(delta, MAX_FRAME_MS) / 1000;
     if (!this.paused) {
       // Fixed time step: accumulate frame time and run whole steps (CLAUDE.md rule 2).
-      this.accumulator += frame;
+      // Fast-forward runs 1.5 times the steps. Assist mode runs slower (GDD 3.9, 3.12).
+      this.accumulator += frame * this.gameSpeed();
       const move = this.controls.readMove();
       const player = this.sim.player;
       this.focusPoint = this.ended ? undefined : this.controls.readFocus(this.cameras.main, player.x, player.y);
@@ -656,6 +729,60 @@ export class Combat extends Phaser.Scene {
     this.draw(this.paused ? 0 : frame);
 
     if (!this.ended && this.sim.phase !== 'running') this.endRound();
+  }
+
+  /** Fast-forward switches off for mini-boss and boss rounds (GDD 3.12). */
+  private speedAllowed(): boolean {
+    return roundKind(this.sim.round) === 'encounter';
+  }
+
+  private gameSpeed(): number {
+    const assist = this.run.mode.assist ? MODE_RULES.assistSpeed : 1;
+    const fast = this.fastForward && this.speedAllowed() ? MODE_RULES.fastForward : 1;
+    return assist * fast;
+  }
+
+  private toggleSpeed(): void {
+    if (this.paused || !this.speedAllowed()) return;
+    this.fastForward = !this.fastForward;
+    // The toggle stays as the player left it for the next normal round.
+    this.prefs.fastForward = this.fastForward;
+  }
+
+  private shake(duration: number, intensity: number): void {
+    if (this.prefs.screenShake) this.cameras.main.shake(duration, intensity);
+  }
+
+  private flash(duration: number, red?: number, green?: number, blue?: number): void {
+    if (this.prefs.flashes) this.cameras.main.flash(duration, red, green, blue);
+  }
+
+  /** Damage numbers rise from hits, when the setting is on (GDD 3.10). */
+  private showDamage(amount: number, x: number, y: number, critical: boolean): void {
+    if (!this.prefs.damageNumbers || amount < 1) return;
+    let entry = this.damageNumbers.find((item) => item.life <= 0);
+    if (!entry) {
+      if (this.damageNumbers.length >= MAX_DAMAGE_NUMBERS) return;
+      const text = this.inWorld(addText(this, 0, 0, '', { size: 15, weight: '700' }))
+        .setOrigin(0.5)
+        .setDepth(DEPTH.bars + 2)
+        .setStroke(PALETTE.parchment, 3);
+      entry = { text, life: 0 };
+      this.damageNumbers.push(entry);
+    }
+    entry.life = 0.6;
+    entry.text.setText(`${Math.round(amount)}`).setPosition(x + (Math.random() - 0.5) * 16, y - 16);
+    entry.text.setColor(critical ? PALETTE.danger : PALETTE.ink).setScale(critical ? 1.25 : 1).setVisible(true).setAlpha(1);
+  }
+
+  private drawDamageNumbers(frame: number): void {
+    for (const entry of this.damageNumbers) {
+      if (entry.life <= 0) continue;
+      entry.life -= frame;
+      entry.text.y -= 40 * frame;
+      entry.text.setAlpha(Math.max(0, entry.life / 0.6));
+      if (entry.life <= 0) entry.text.setVisible(false);
+    }
   }
 
   private endRound(): void {
@@ -680,6 +807,7 @@ export class Combat extends Phaser.Scene {
     for (const event of this.sim.events) {
       switch (event.type) {
         case 'enemyHit':
+          this.showDamage(event.amount, event.x, event.y, event.critical);
           this.effects.burst(
             event.x,
             event.y,
@@ -702,13 +830,13 @@ export class Combat extends Phaser.Scene {
           const colour = type ? hexToNumber(DAMAGE_TYPE_COLOURS[type]) : INK;
           if (event.radius > 0) this.effects.ring(event.x, event.y, event.radius, colour, 0.35);
           this.effects.burst(event.x, event.y, colour, 10, 260, 3, 0.4);
-          if (event.hazard === 'slag-wave' || event.hazard === 'stamping-press') this.cameras.main.shake(140, 0.005);
+          if (event.hazard === 'slag-wave' || event.hazard === 'stamping-press') this.shake(140, 0.005);
           break;
         }
         case 'bossPhase':
           // A phase change flashes and shakes (GDD 15.3).
-          this.cameras.main.flash(180, 255, 255, 255);
-          this.cameras.main.shake(260, 0.008);
+          this.flash(180, 255, 255, 255);
+          this.shake(260, 0.008);
           if (event.name) this.showFloater(event.name, event.x, event.y - 70);
           break;
         case 'bossStrike':
@@ -717,7 +845,7 @@ export class Combat extends Phaser.Scene {
           break;
         case 'bossWave':
           this.effects.line([event.x1, event.y1, event.x2, event.y2], 8, hexToNumber(DAMAGE_TYPE_COLOURS[event.damageType]), 0.3);
-          this.cameras.main.shake(120, 0.004);
+          this.shake(120, 0.004);
           break;
         case 'bossNull':
           this.effects.ring(event.x, event.y, event.radius, INK, 0.5);
@@ -726,17 +854,17 @@ export class Combat extends Phaser.Scene {
           this.showFloater(STRINGS.hud.repaired, event.x, event.y - 70);
           break;
         case 'bossDefeated':
-          this.cameras.main.shake(500, 0.012);
-          this.cameras.main.flash(300, 255, 255, 255);
+          this.shake(500, 0.012);
+          this.flash(300, 255, 255, 255);
           break;
         case 'hazardArc':
           this.effects.line([event.fromX, event.fromY, event.toX, event.toY], 3, hexToNumber(DAMAGE_TYPE_COLOURS.Electric));
           break;
         case 'tilesErased':
-          this.cameras.main.shake(260, 0.006);
+          this.shake(260, 0.006);
           break;
         case 'playerHit':
-          this.cameras.main.shake(110, 0.004);
+          this.shake(110, 0.004);
           break;
         case 'sweep':
         case 'cone':
@@ -793,7 +921,7 @@ export class Combat extends Phaser.Scene {
           break;
         case 'revived':
           // The Archive's revival (GDD 3.8).
-          this.cameras.main.flash(400, 255, 255, 255);
+          this.flash(400, 255, 255, 255);
           this.showFloater(STRINGS.results.revived, this.sim.player.x, this.sim.player.y - 60);
           break;
         case 'pickup':
@@ -852,6 +980,7 @@ export class Combat extends Phaser.Scene {
     this.drawUnder();
     this.drawOver();
     this.drawFloaters(frame);
+    this.drawDamageNumbers(frame);
     this.drawWarnings(frame);
     this.effects.update(frame);
     this.drawHud();
@@ -1453,6 +1582,11 @@ export class Combat extends Phaser.Scene {
       g.fillCircle(shot.x, shot.y, shot.radius);
       g.lineStyle(1.5, DANGER, 1);
       g.strokeCircle(shot.x, shot.y, shot.radius + 1);
+      // A high-contrast outline with adjustable brightness (GDD 3.10).
+      if (this.prefs.projectileOutline > 0) {
+        g.lineStyle(2, 0xffffff, this.prefs.projectileOutline);
+        g.strokeCircle(shot.x, shot.y, shot.radius + 3);
+      }
     }
 
     // The focus point shows as a small brass reticle (GDD 15.7).
@@ -1583,15 +1717,38 @@ export class Combat extends Phaser.Scene {
       const barH = button.size * 0.44;
       hud.fillRect(button.x + button.size * 0.32 - barW / 2, button.y + (button.size - barH) / 2, barW, barH);
       hud.fillRect(button.x + button.size * 0.68 - barW / 2, button.y + (button.size - barH) / 2, barW, barH);
+      // The speed button sits under pause. It greys out on boss rounds (GDD 15.7).
+      const speed = this.speedButtonLayout();
+      const allowed = this.speedAllowed();
+      hud.fillStyle(this.fastForward && allowed ? GOLD : PARCHMENT, allowed ? 0.9 : 0.4);
+      hud.fillRect(speed.x, speed.y, speed.size, speed.size);
+      hud.lineStyle(3, INK, allowed ? 1 : 0.4);
+      hud.strokeRect(speed.x, speed.y, speed.size, speed.size);
+      hud.fillStyle(INK, allowed ? 1 : 0.4);
+      for (const offset of [0.22, 0.5]) {
+        const left = speed.x + speed.size * offset;
+        hud.fillTriangle(left, speed.y + speed.size * 0.28, left, speed.y + speed.size * 0.72, left + speed.size * 0.28, speed.y + speed.size * 0.5);
+      }
     }
+    // A fixed joystick shows its ring at rest (GDD 3.10).
+    if (isTouchPrimary() && this.prefs.joystickFixed && !this.controls.joystick.active) {
+      const base = this.controls.fixedBase();
+      hud.lineStyle(3, INK, 0.35);
+      hud.strokeCircle(base.x, base.y, this.controls.radius);
+    }
+    this.speedText.setVisible(this.fastForward && this.speedAllowed() && !isTouchPrimary());
+    // The trial's priority target carries a label (GDD 3.11).
+    const target = this.sim.priorityId >= 0 ? this.sim.enemies.items.find((enemy) => enemy.active && enemy.id === this.sim.priorityId) : undefined;
+    this.priorityLabel.setVisible(target !== undefined);
+    if (target) this.priorityLabel.setPosition(target.x, target.y - target.radius - 22);
 
     // Floating joystick.
     const joystick = this.controls?.joystick;
     if (joystick?.active) {
       hud.fillStyle(PARCHMENT, 0.35);
-      hud.fillCircle(joystick.baseX, joystick.baseY, JOYSTICK_RADIUS);
+      hud.fillCircle(joystick.baseX, joystick.baseY, this.controls.radius);
       hud.lineStyle(3, INK, 0.7);
-      hud.strokeCircle(joystick.baseX, joystick.baseY, JOYSTICK_RADIUS);
+      hud.strokeCircle(joystick.baseX, joystick.baseY, this.controls.radius);
       hud.fillStyle(BRASS, 0.9);
       hud.fillCircle(joystick.knobX, joystick.knobY, 30);
       hud.lineStyle(3, INK, 1);
@@ -1599,7 +1756,7 @@ export class Combat extends Phaser.Scene {
     }
 
     // Screen-edge warning at low health (GDD 15.7).
-    if (low && player.health > 0) {
+    if (low && player.health > 0 && this.prefs.lowHealthWarning) {
       const pulse = 0.35 + 0.3 * (0.5 + 0.5 * Math.sin(this.clock * 6));
       hud.lineStyle(14, DANGER, pulse);
       hud.strokeRect(7, 7, SCREEN.width - 14, SCREEN.height - 14);

@@ -158,6 +158,17 @@ export class Preparation extends Phaser.Scene {
       saveRun(this, this.run);
     }
     this.cameras.main.setBackgroundColor(PALETTE.parchment);
+    // The Apprentice Trial guides each preparation phase (GDD 3.11).
+    const trialHint = this.run.trial ? STRINGS.trial.prep[this.run.round - 2] : undefined;
+    if (trialHint) {
+      this.time.delayedCall(0, () => {
+        const text = addText(this, SCREEN.width / 2, SCREEN.height - 8, trialHint, { size: 17, weight: '700', colour: PALETTE.danger, align: 'center', wrapWidth: 1100 })
+          .setOrigin(0.5, 1)
+          .setDepth(90)
+          .setStroke(PALETTE.parchment, 5);
+        void text;
+      });
+    }
     // The research web draws first, so the bar and the node card cover its edges.
     if (this.view.tab === 'research') this.drawResearch();
     this.drawBar();
@@ -371,7 +382,8 @@ export class Preparation extends Phaser.Scene {
     const x = left + 18;
     let y = BAR_HEIGHT + 16;
     const line = (content: string, options: Parameters<typeof addText>[4] = {}, gap = 6): void => {
-      const text = addText(this, x, y, content, { size: 16, wrapWidth: inner, ...options });
+      // The node card follows the text size and readable font settings (GDD 3.10).
+      const text = addText(this, x, y, content, { size: 16, wrapWidth: inner, ...options, scalable: true });
       y += text.height + gap;
     };
     const materialsLine = (stock: Readonly<Partial<Record<(typeof MATERIALS)[number], number>>>): string =>
@@ -1082,7 +1094,8 @@ export class Preparation extends Phaser.Scene {
     }
     addText(this, centre, cursor, kind, { size: 14, weight: '700', colour: PALETTE.brass }).setOrigin(0.5, 0);
     cursor += 24;
-    addText(this, x + 8, cursor, body, { size: 13, wrapWidth: width - 16 });
+    // The item description follows the text size and readable font settings (GDD 3.10).
+    addText(this, x + 8, cursor, body, { size: 13, wrapWidth: width - 16, scalable: true });
 
     const problem = buyProblem(run, shopId, slot);
     const node = lockedBy(run, item.kind === 'component' ? item.def : item.weapon.def);

@@ -5,6 +5,8 @@
 // No Phaser imports.
 
 import { ARCHIVE_RULES } from '../data/archive';
+import { DEFAULT_SETTINGS } from '../data/modes';
+import type { GameSettings } from '../data/modes';
 import { CHARACTERS } from '../data/characters';
 import { COMPONENT_LIST } from '../data/components';
 import { WEAPON_LIST } from '../data/weapons';
@@ -12,7 +14,7 @@ import { createArchive } from './archive';
 import type { ArchiveState } from './archive';
 import type { RunState } from './run';
 
-export const SAVE_VERSION = 1;
+export const SAVE_VERSION = 2;
 export const SAVE_KEY = 'progress-peril.save';
 export const BACKUP_KEY = 'progress-peril.save.backup';
 
@@ -25,6 +27,8 @@ export interface ProfileSave {
 
 export interface SaveFile {
   version: number;
+  /** Player settings for this device (GDD 3.10). They apply to every profile. */
+  settings: GameSettings;
   /** The profile in use, 0 to 2. */
   active: number;
   profiles: ProfileSave[];
@@ -60,6 +64,7 @@ export function browserStorage(): SaveStorage | undefined {
 export function newSaveFile(): SaveFile {
   return {
     version: SAVE_VERSION,
+    settings: fillSettings(undefined),
     active: 0,
     profiles: Array.from({ length: ARCHIVE_RULES.profiles }, (_, index) => ({
       name: `Profile ${index + 1}`,
@@ -128,7 +133,17 @@ export const MIGRATIONS: readonly Migration[] = [
       profiles: profiles.map((profile) => ({ ...profile, archive: fillArchive(profile.archive) })),
     };
   },
+  // Version 2 adds the settings (Milestone 10).
+  (raw) => ({ ...raw, version: 2, settings: fillSettings(raw.settings) }),
 ];
+
+/** Missing settings take their defaults, so older and partial settings stay valid. */
+export function fillSettings(raw: unknown): GameSettings {
+  const base = DEFAULT_SETTINGS;
+  if (raw === null || typeof raw !== 'object') return { ...base, keys: { ...base.keys }, pad: { ...base.pad } };
+  const partial = raw as Partial<GameSettings>;
+  return { ...base, ...partial, keys: { ...base.keys, ...(partial.keys ?? {}) }, pad: { ...base.pad, ...(partial.pad ?? {}) } };
+}
 
 /** Missing Archive fields take their starting values, so an older Archive keeps what it had. */
 function fillArchive(raw: unknown): ArchiveState {
@@ -169,6 +184,7 @@ export function decodeSave(text: string | null | undefined): DecodeResult {
   const profiles = raw.profiles;
   if (!Array.isArray(profiles) || profiles.length === 0) return { problem: 'shape' };
   const file = raw as unknown as SaveFile;
+  file.settings = fillSettings(file.settings);
   // Each run's Archive is its profile's Archive.
   for (const profile of file.profiles) {
     profile.archive = fillArchive(profile.archive);

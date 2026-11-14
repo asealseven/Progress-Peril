@@ -26,6 +26,16 @@ export function territoryIndex(round: number): number {
   return Math.min(2, Math.floor((round - 1) / ROUNDS_PER_TERRITORY));
 }
 
+/** Territory number from 0 with no upper limit: endless mode runs past the third (GDD 13.3). */
+export function territorySlot(round: number): number {
+  return Math.max(0, Math.floor((round - 1) / ROUNDS_PER_TERRITORY));
+}
+
+/** The campaign round whose budget and length an endless round uses: Territory 3 levels (GDD 13.3). */
+export function scalingRound(round: number): number {
+  return round <= CAMPAIGN_ROUNDS ? round : 2 * ROUNDS_PER_TERRITORY + roundInTerritory(round);
+}
+
 /** Round within the territory, 1 to 7. */
 export function roundInTerritory(round: number): number {
   return ((round - 1) % ROUNDS_PER_TERRITORY) + 1;
@@ -46,7 +56,7 @@ export function roundDuration(round: number): number {
 }
 
 export function budgetMultiplier(round: number): number {
-  const index = Math.min(BUDGET_MULTIPLIERS.length, Math.max(1, round)) - 1;
+  const index = Math.min(BUDGET_MULTIPLIERS.length, Math.max(1, scalingRound(round))) - 1;
   return BUDGET_MULTIPLIERS[index] ?? 1;
 }
 

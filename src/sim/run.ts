@@ -2,6 +2,17 @@
 // revealed one at a time, one event per territory, weapons, the economy and
 // research. Milestone 8 adds bosses, relics and endings.
 
+import { ASSIST_RATE, MAX_TIER, MODE_RULES, NORMAL_MODE, REVIVAL_MAX_TIER, TIER_RATES, TRIAL_RULES, leversAt } from '../data/modes';
+import type { DifficultyMode } from '../data/modes';
+import type { DirectorDifficulty } from './director';
+import { COMPONENT_LIST, QUALITIES, componentByName } from '../data/components';
+import type { ComponentDef } from '../data/components';
+import { ENEMIES } from '../data/enemies';
+import { SHOP_IDS, shopForComponent } from '../data/shop';
+import { STARTING_WEAPONS, WEAPON_LIST } from '../data/weapons';
+import { rollDroppedComponent } from './world/loot';
+import type { SpawnEntry } from './world/types';
+import { shopPrice } from './economy';
 import { ARENA_BY_KINGDOM } from '../data/arenas';
 import type { ArenaDef } from '../data/arenas';
 import { EVENT_RULES, SIGNATURE_EVENT } from '../data/events';
@@ -11,7 +22,7 @@ import { emptyMaterials } from '../data/economy';
 import type { MaterialStock } from '../data/economy';
 import { FIRST_CAMPAIGN_KINGDOM, KINGDOMS, KINGDOM_NAMES } from '../data/kingdoms';
 import type { FactionName, KingdomName } from '../data/palette';
-import { CAMPAIGN_ROUNDS, ROUNDS_PER_TERRITORY, roundDuration, roundInTerritory, roundKind, territoryIndex } from '../data/rounds';
+import { CAMPAIGN_ROUNDS, ROUNDS_PER_TERRITORY, roundDuration, roundInTerritory, roundKind, territorySlot } from '../data/rounds';
 import { ADAPTATION, PERFORMANCE_LIMITS, stepTier, tierValue } from '../data/tiers';
 import { RELICS, RELIC_RULES, relicEffects, relicRuleTotal, relicsOf } from '../data/relics';
 import type { RelicId, RelicRule } from '../data/relics';
@@ -35,7 +46,7 @@ import { planRound } from './director';
 import type { RoundEvent } from './director';
 import { beginPreparation, createShops, recordRound } from './economy';
 import type { RoundLedger, ShopState } from './economy';
-import { WEAPON_SLOTS, cloneWeapon, createComponent, createWeapon, installedComponents, resolveLoadout, weaponTags } from './loadout';
+import { WEAPON_SLOTS, cloneWeapon, createComponent, createWeapon, installProblem, installedComponents, resolveLoadout, weaponTags } from './loadout';
 import type { ComponentInstance, WeaponInstance } from './loadout';
 import { applyFindings, createResearch, grantNode, hasRule, queueCapture, resolveResearch } from './research';
 import type { ResearchState } from './research';
@@ -130,6 +141,21 @@ export interface RunState {
   revivalUsed: boolean;
   /** Archive Points earned this run, for the results screens (GDD 11.3). */
   archiveEarned: number;
+  /** Assist mode and the Challenge Tier, chosen before the campaign (GDD 3.9). */
+  readonly mode: DifficultyMode;
+  /** The run continues past Round 21 (GDD 13.2). */
+  endless: boolean;
+  /** The Apprentice Trial runs in Rounds 1 to 3 of the first campaign (GDD 3.11). */
+  trial: boolean;
+  /** Three Rare or better components on offer when a kingdom has no relic left (GDD 5.12). */
+  componentChoices: ComponentDef[];
+  /** The free shop after entering endless mode holds Extraordinary stock (GDD 4.10). */
+  guaranteeExtraordinary: boolean;
+}
+
+export interface RunOptions {
+  readonly mode?: DifficultyMode;
+  readonly trial?: boolean;
 }
 
 export function createRun(
@@ -137,7 +163,9 @@ export function createRun(
   character: CharacterDef,
   startingWeapon: WeaponDef,
   archive: ArchiveState = createArchive(),
+  options: RunOptions = {},
 ): RunState {
+  const mode = options.mode ?? NORMAL_MODE;
   const firstCampaign = archive.campaigns === 0;
   archive.campaigns++;
   const run: RunState = {
@@ -167,9 +195,15 @@ export function createRun(
     flaskStat: undefined,
     history: [],
     specialisations: [...archive.equipped],
-    revival: archive.upgrades.revival > 0,
+    // Tiers 3 to 5 disable the revival (GDD 3.8).
+    revival: archive.upgrades.revival > 0 && mode.tier <= REVIVAL_MAX_TIER,
     revivalUsed: false,
     archiveEarned: 0,
+    mode,
+    endless: false,
+    trial: (options.trial ?? false) && firstCampaign,
+    componentChoices: [],
+    guaranteeExtraordinary: false,
   };
   run.research.points = upgradeValue(archive, 'starting-research');
   // The Philosopher's Engine: once researched, each campaign starts with one
@@ -232,7 +266,7 @@ export function resolvePlayerStats(character: CharacterDef, relics: readonly Rel
 
 /** The kingdom whose roster a round uses. Unrevealed territories fall back to the last kingdom known. */
 export function kingdomForRound(run: RunState, round: number = run.round): KingdomName {
-  for (let index = territoryIndex(round); index >= 0; index--) {
+  for (let index = territorySlot(round); index >= 0; index--) {
     const kingdom = run.kingdoms[index];
     if (kingdom) return kingdom;
   }
@@ -246,7 +280,7 @@ export function arenaForRound(run: RunState, round: number = run.round): ArenaDe
 
 /** True when the kingdom of the current territory waits for its reveal (GDD 5.8). */
 export function revealPending(run: RunState): boolean {
-  return run.kingdoms[territoryIndex(run.round)] === undefined;
+  return run.kingdoms[territorySlot(run.round)] === undefined;
 }
 
 /**
@@ -255,16 +289,31 @@ export function revealPending(run: RunState): boolean {
  * the territory's one event (GDD 5.11). Returns the kingdom.
  */
 export function revealKingdom(run: RunState): KingdomName {
-  const territory = territoryIndex(run.round);
+  const territory = territorySlot(run.round);
   const known = run.kingdoms[territory];
   if (known) return known;
   const rng = new Rng(run.seed).fork(8000 + territory);
   const unvisited = KINGDOM_NAMES.filter((name) => !run.kingdoms.includes(name));
-  const kingdom =
-    territory === 0 && run.firstCampaign ? FIRST_CAMPAIGN_KINGDOM : rng.pick(unvisited.length > 0 ? unvisited : KINGDOM_NAMES);
+  let kingdom: KingdomName;
+  if (territory === 0 && run.firstCampaign) kingdom = FIRST_CAMPAIGN_KINGDOM;
+  else if (territory >= KINGDOM_NAMES.length) kingdom = endlessKingdom(run, territory);
+  else kingdom = rng.pick(unvisited.length > 0 ? unvisited : KINGDOM_NAMES);
   run.kingdoms[territory] = kingdom;
   run.events[territory] = planEvent(kingdom, territory, rng);
   return kingdom;
+}
+
+/**
+ * Endless rotation past the first five territories (GDD 13.3): all five
+ * kingdoms reshuffled for each loop, and a kingdom never follows itself.
+ * The two unvisited kingdoms fill territories 4 and 5 through the usual pick.
+ */
+export function endlessKingdom(run: RunState, territory: number): KingdomName {
+  const loop = Math.floor(territory / MODE_RULES.loopLength);
+  const order = new Rng(run.seed).fork(8500 + loop).shuffle([...KINGDOM_NAMES]);
+  const previous = run.kingdoms[loop * MODE_RULES.loopLength - 1];
+  if (order[0] === previous) [order[0], order[1]] = [order[1] ?? order[0], order[0]];
+  return order[territory - loop * MODE_RULES.loopLength] ?? order[0] ?? 'Keldrath';
 }
 
 /** One event per territory: a random round from 2, 3, 5 and 6, and the GDD 5.11 odds. */
@@ -294,18 +343,21 @@ export function bossPlanForRound(run: RunState, round: number = run.round): Boss
   if (kind === 'encounter') return undefined;
   const kingdom = kingdomForRound(run, round);
   if (kind === 'mini-boss') return { kind: 'mini', mini: MINI_BOSS_BY_KINGDOM[kingdom].id };
-  const territory = territoryIndex(round);
+  const territory = territorySlot(round);
   const previous = territory > 0 ? run.kingdoms[territory - 1] : undefined;
-  const final = round >= PLAYABLE_ROUNDS;
-  const borrowed = final
-    ? run.kingdoms.slice(0, territory).filter((name): name is KingdomName => name !== undefined && name !== kingdom).map((name) => BOSS_BY_KINGDOM[name].id)
-    : [];
+  // Round 21 borrows from every boss beaten before. Endless bosses borrow from the two most recent (GDD 13.3).
+  let beaten: Array<KingdomName | undefined> = [];
+  if (round === PLAYABLE_ROUNDS) beaten = run.kingdoms.slice(0, territory);
+  else if (round > PLAYABLE_ROUNDS) beaten = run.kingdoms.slice(Math.max(0, territory - 2), territory);
+  const borrowed = beaten
+    .filter((name): name is KingdomName => name !== undefined && name !== kingdom)
+    .map((name) => BOSS_BY_KINGDOM[name].id);
   return { kind: 'boss', boss: BOSS_BY_KINGDOM[kingdom].id, escort: MINI_BOSS_BY_KINGDOM[previous ?? kingdom].id, borrowed };
 }
 
 /** The event running in a round, if any. */
 export function eventForRound(run: RunState, round: number = run.round): TerritoryEvent | undefined {
-  const event = run.events[territoryIndex(round)];
+  const event = run.events[territorySlot(round)];
   return event && event.round === round ? event : undefined;
 }
 
@@ -369,6 +421,20 @@ export function createWorldForRound(run: RunState, limits: PerformanceLimits = P
   // A run driven without the scenes reveals its kingdom here.
   const kingdom = revealKingdom(run);
   const event = eventForRound(run);
+  // Challenge Tier levers and Assist mode (GDD 3.9). Endless loops add steps on top (GDD 13.3).
+  const levers = leversAt(run.mode.tier);
+  const loops = run.endless ? Math.floor(territorySlot(run.round) / MODE_RULES.loopLength) : 0;
+  const enemySteps = {
+    health: (levers.includes('enemyHealth') ? 1 : 0) + loops,
+    damage: (levers.includes('enemyDamage') ? 1 : 0) - (run.mode.assist ? 1 : 0) + loops,
+  };
+  const difficulty: DirectorDifficulty = {
+    budgetFactor: levers.includes('threatBudget') ? MODE_RULES.threatBudgetFactor : 1,
+    eliteSteps: levers.includes('eliteOdds') ? MODE_RULES.eliteOddsSteps : 0,
+    tacticsRounds: levers.includes('enemyTactics') ? MODE_RULES.tacticsRounds : 0,
+  };
+  if (run.trial && run.round > 3) run.trial = false;
+  const trialRound = run.trial ? run.round : 0;
   return new World({
     arena: ARENA_BY_KINGDOM[kingdom],
     localRound: roundInTerritory(run.round),
@@ -376,7 +442,9 @@ export function createWorldForRound(run: RunState, limits: PerformanceLimits = P
     seed: roundRng.int(0, 0xffffffff),
     round: run.round,
     duration: roundDuration(run.round),
-    spawns: planRound(run.round, kingdom, roundRng, event),
+    spawns: trialRound > 0 && trialRound < 3 ? trialPlan(trialRound) : planRound(run.round, kingdom, roundRng, event, difficulty),
+    enemySteps,
+    ...(trialRound === 2 ? { priorityTarget: TRIAL_RULES.priorityTarget } : {}),
     playerStats: loadout.playerStats,
     weapons: loadout.weapons,
     // A weapon with no Auxiliary component keeps its numbers under suppression.
@@ -445,7 +513,7 @@ export function finishRound(run: RunState, world: World): RoundResult {
   }
   recordRound(run, run.round, world.stats.kills, loot.gold + eventGold + interest, materialsEarned, loot.components.length, loot.research);
   // Adaptation lasts for a territory (GDD 3.7).
-  const sameTerritory = territoryIndex(run.round + 1) === territoryIndex(run.round);
+  const sameTerritory = territorySlot(run.round + 1) === territorySlot(run.round);
   run.adaptation = sameTerritory ? { ...world.player.adaptation } : {};
 
   if (survived) {
@@ -456,22 +524,25 @@ export function finishRound(run: RunState, world: World): RoundResult {
     }
     if (hasRule(run, 'mutagenics')) mutate(run);
     // Relic choice and captured research after each territory except the last (GDD 5.8).
-    if (roundKind(run.round) === 'boss' && run.round < PLAYABLE_ROUNDS) {
-      const kingdom = kingdomForRound(run);
-      run.relicChoices = relicsOf(kingdom)
-        .map((entry) => entry.id)
-        .filter((id) => !run.relics.includes(id));
-      queueCapture(run, kingdom);
+    if (roundKind(run.round) === 'boss' && (run.round < PLAYABLE_ROUNDS || run.endless)) {
+      offerRelics(run);
+      queueCapture(run, kingdomForRound(run));
     }
   }
 
   if (!survived) {
     run.status = 'dead';
-  } else if (run.round >= PLAYABLE_ROUNDS) {
+    // Endless mode records the furthest round per character (GDD 13.3).
+    if (run.endless) recordEndless(run);
+  } else if (run.round >= PLAYABLE_ROUNDS && !run.endless) {
     run.status = 'complete';
+    // A win opens the next Challenge Tier. Assist wins do not (GDD 3.9).
+    if (!run.mode.assist) run.archive.tierUnlocked = Math.min(MAX_TIER, Math.max(run.archive.tierUnlocked, run.mode.tier + 1));
   } else {
     // Preparation follows every round. Mini-boss and boss rounds grant a free shop visit (GDD 6.1).
     beginPreparation(run, run.round);
+    // The trial's preparation steps follow the usual reset of the shops (GDD 3.11).
+    if (run.trial) trialAfterRound(run);
     run.round++;
   }
   return result;
@@ -495,16 +566,151 @@ function recordArchive(run: RunState, world: World, survived: boolean): void {
     const kind = roundKind(run.round);
     let points: number = AP_REWARDS.round;
     if (kind === 'mini-boss') points = AP_REWARDS.miniBoss;
-    else if (kind === 'boss') points = run.round >= PLAYABLE_ROUNDS ? AP_REWARDS.finalBoss + AP_REWARDS.campaign : AP_REWARDS.boss;
-    awardPoints(archive, points);
+    else if (kind === 'boss') points = run.round === PLAYABLE_ROUNDS ? AP_REWARDS.finalBoss + AP_REWARDS.campaign : AP_REWARDS.boss;
+    // Mode rates apply to rounds, bosses and campaign completion (GDD 3.9).
+    awardPoints(archive, Math.round(points * modeRate(run.mode)));
     // Against All Odds: a boss beaten with all three weapons at their base grade (GDD 11.7).
     const equipped = run.weapons.slice(0, WEAPON_SLOTS);
     if (kind === 'boss' && world.bossFallen && equipped.length === WEAPON_SLOTS && equipped.every((weapon) => weapon.grade === 0)) {
       progressChallenge(archive, 'against-all-odds', 1);
     }
-    if (kind === 'boss' && run.round >= PLAYABLE_ROUNDS) archive.codex.endings.add(kingdomForRound(run));
+    if (kind === 'boss' && run.round === PLAYABLE_ROUNDS) archive.codex.endings.add(kingdomForRound(run));
   }
   run.archiveEarned += archive.earned - before;
+}
+
+/** The Archive Point rate of a mode (GDD 3.9). */
+export function modeRate(mode: DifficultyMode): number {
+  return mode.assist ? ASSIST_RATE : (TIER_RATES[mode.tier] ?? 1);
+}
+
+/**
+ * Relics of the beaten kingdom not yet taken. When none remain, the reward
+ * becomes a choice of three Rare or better components (GDD 5.12).
+ */
+function offerRelics(run: RunState): void {
+  const kingdom = kingdomForRound(run);
+  run.relicChoices = relicsOf(kingdom)
+    .map((entry) => entry.id)
+    .filter((id) => !run.relics.includes(id));
+  run.componentChoices = [];
+  if (run.relicChoices.length > 0) return;
+  const rng = new Rng(run.seed).fork(9700 + run.round);
+  for (let index = 0; index < 3; index++) {
+    const component = rollDroppedComponent(2, rng, QUALITIES.indexOf('Rare'));
+    if (component) run.componentChoices.push(component);
+  }
+}
+
+/** Takes one of the components on offer instead of a relic. */
+export function takeComponentChoice(run: RunState, index: number): boolean {
+  const component = run.componentChoices[index];
+  if (!component) return false;
+  run.inventory.push(createComponent(component));
+  run.componentChoices = [];
+  return true;
+}
+
+/**
+ * Continues a won campaign into endless mode (GDD 13.2): the build stays, the
+ * final kingdom's relic choice follows, and a free shop with Extraordinary
+ * stock opens (GDD 4.10).
+ */
+export function continueEndless(run: RunState): void {
+  if (run.status !== 'complete') return;
+  run.endless = true;
+  run.status = 'active';
+  offerRelics(run);
+  beginPreparation(run, run.round);
+  run.guaranteeExtraordinary = true;
+  run.round++;
+}
+
+function recordEndless(run: RunState): void {
+  const bests = run.archive.bests;
+  bests.endlessRound = Math.max(bests.endlessRound, run.round);
+  bests.byCharacter[run.character.id] = Math.max(bests.byCharacter[run.character.id] ?? 0, run.round);
+}
+
+// --- The Apprentice Trial (GDD 3.11) ------------------------------------------------
+
+/** Round 1: Swarmers only. Round 2: enemies weak to the free payload, plus one priority target. */
+export function trialPlan(round: number): SpawnEntry[] {
+  const entries: SpawnEntry[] = [];
+  const duration = roundDuration(round);
+  if (round === 1) {
+    const swarmer = ENEMIES[TRIAL_RULES.swarmer];
+    for (let index = 0; index < 8; index++) {
+      entries.push({ time: 2 + (index * (duration * 0.8)) / 8, enemy: swarmer, count: 3, kind: 'group' });
+    }
+    return entries;
+  }
+  TRIAL_RULES.weakEnemies.forEach((id, type) => {
+    for (let index = 0; index < 5; index++) {
+      entries.push({ time: 2 + type * 3 + (index * (duration * 0.75)) / 5, enemy: ENEMIES[id], count: 2, kind: 'group' });
+    }
+  });
+  entries.push({ time: duration * 0.3, enemy: ENEMIES[TRIAL_RULES.priorityTarget], count: 1, rank: 'elite', kind: 'group' });
+  return entries.sort((a, b) => a.time - b.time);
+}
+
+/** The preparation steps of the trial (GDD 3.11). */
+function trialAfterRound(run: RunState): void {
+  if (run.round === 1) {
+    // Preparation 1: one free component to install.
+    const component = componentByName(TRIAL_RULES.freeComponent);
+    if (component) run.inventory.push(createComponent(component));
+  } else if (run.round === 2) {
+    // Preparation 2: Research Points for one centre node. A second weapon arrives for Round 3.
+    run.research.points = Math.max(run.research.points, TRIAL_RULES.researchPoints);
+    // The free payload from Preparation 1 joins the build when it still sits in the tray (NOTES.md).
+    const first = run.weapons[0];
+    const oil = run.inventory.find((item) => item.def.name === TRIAL_RULES.freeComponent);
+    if (first && oil && !first.components[oil.def.slot] && !installProblem(first, oil.def)) {
+      run.inventory.splice(run.inventory.indexOf(oil), 1);
+      first.components[oil.def.slot] = oil;
+    }
+    const weapon = trialWeapon(run);
+    if (weapon) run.weapons.push(weapon);
+  } else if (run.round === 3) {
+    // Preparation 3: one free visit with fixed stock.
+    run.freeVisit = true;
+    for (const id of SHOP_IDS) {
+      const shop = run.shops[id];
+      shop.stock = COMPONENT_LIST.filter((def) => def.quality === 'Common' && shopForComponent(def) === id)
+        .slice(0, 6)
+        .map((def) => ({ kind: 'component' as const, def, quality: 'Common' as const, price: shopPrice('component', 'Common', 0) }));
+      shop.previewed = true;
+    }
+  }
+}
+
+/**
+ * The second weapon of the trial (GDD 3.11): one that triggers a cross-weapon
+ * synergy with the build. When no bare weapon does, the weapon arrives with
+ * one Common or Uncommon component fitted that completes a synergy (NOTES.md).
+ */
+export function trialWeapon(run: RunState): WeaponInstance | undefined {
+  const owned = run.weapons.map((weapon) => weapon.def);
+  const candidates = [...STARTING_WEAPONS, ...WEAPON_LIST].filter((def, index, list) => list.indexOf(def) === index && !owned.includes(def));
+  const stats = resolvePlayerStats(run.character);
+  const crosses = (weapon: WeaponInstance): boolean =>
+    resolveLoadout([...run.weapons, weapon], stats).report.active.some((entry) => entry.def.type === 'Cross-weapon');
+  for (const def of candidates) {
+    const weapon = createWeapon(def);
+    if (crosses(weapon)) return weapon;
+  }
+  const fittings = COMPONENT_LIST.filter((def) => def.quality === 'Common' || def.quality === 'Uncommon');
+  for (const def of candidates) {
+    for (const component of fittings) {
+      const weapon = createWeapon(def);
+      if (installProblem(weapon, component)) continue;
+      weapon.components[component.slot] = createComponent(component);
+      if (crosses(weapon)) return weapon;
+    }
+  }
+  const fallback = candidates[0];
+  return fallback ? createWeapon(fallback) : undefined;
 }
 
 /** Takes one relic from the choice on offer (GDD 5.12). Returns false when the relic is not on offer. */

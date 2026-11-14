@@ -403,7 +403,7 @@ describe('saves (GDD 15.13)', () => {
     const decoded = decodeSave(v0);
     if (!('file' in decoded)) throw new Error(decoded.problem);
     const archive = decoded.file.profiles[0]!.archive;
-    expect(decoded.file.version).toBe(1);
+    expect(decoded.file.version).toBe(SAVE_VERSION);
     expect(archive.discovered.has('thermite')).toBe(true);
     expect(archive.mastery.Chemistry).toBe(70);
     expect(archive.mastery.Physics).toBe(0);

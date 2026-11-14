@@ -58,8 +58,12 @@ export interface ArchiveState {
   codex: CodexState;
   /** The Chemistry Master status, the player's choice (GDD 8.13). */
   masterStatus: StatusEffect;
-  /** Endless mode personal bests (GDD 13.2). Milestone 10 fills these. */
-  bests: { endlessRound: number };
+  /** Endless mode personal bests: the furthest round overall and per character (GDD 13.3). */
+  bests: { endlessRound: number; byCharacter: Record<string, number> };
+  /** The highest Challenge Tier open: winning a campaign opens the next (GDD 3.9). */
+  tierUnlocked: number;
+  /** The mode chosen for the last campaign, offered again for the next. */
+  lastMode: { assist: boolean; tier: number };
 }
 
 function emptyRecord<K extends string>(keys: readonly K[]): Record<K, number> {
@@ -91,7 +95,9 @@ export function createArchive(): ArchiveState {
     researchedEver: new Set(),
     codex: { enemies: new Set(), synergies: new Set(), reactions: new Set(), relics: new Set(), kingdoms: new Set(), endings: new Set() },
     masterStatus: 'Burning',
-    bests: { endlessRound: 0 },
+    bests: { endlessRound: 0, byCharacter: {} },
+    tierUnlocked: 0,
+    lastMode: { assist: false, tier: 0 },
   };
 }
 

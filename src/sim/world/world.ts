@@ -151,6 +151,11 @@ export class World {
   readonly grid: SpatialGrid;
   /** Territory index, 0 to 2. Sets enemy Health and Damage steps (GDD 9.10). */
   readonly territory: number;
+  /** Enemy Health and Damage steps on top of the territory (GDD 3.9, 13.3). */
+  readonly enemySteps: { readonly health: number; readonly damage: number };
+  /** The trial's priority target to focus (GDD 3.11). */
+  readonly priorityTarget: string | undefined;
+  priorityId = -1;
   /** Most enemies alive at once (GDD 4.11). */
   readonly activeLimit: number;
   /** Enemies allowed to attack the player at once (GDD 9.15). */
@@ -226,6 +231,8 @@ export class World {
     this.limits = config.limits ?? PERFORMANCE_LIMITS.pc;
     this.invincible = config.invincible ?? false;
     this.territory = territoryIndex(config.round);
+    this.enemySteps = config.enemySteps ?? { health: 0, damage: 0 };
+    this.priorityTarget = config.priorityTarget;
     this.activeLimit = config.activeLimit ?? activeEnemyLimit(this.limits, config.round);
     this.tokenLimit = attackTokens(this.territory);
     this.gold = config.gold ?? 0;

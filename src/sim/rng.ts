@@ -42,6 +42,17 @@ export class Rng {
     return this.next() < probability;
   }
 
+  /** Shuffles a list in place (Fisher-Yates) and returns it. */
+  shuffle<T>(items: T[]): T[] {
+    for (let index = items.length - 1; index > 0; index--) {
+      const other = this.int(0, index);
+      const held = items[index] as T;
+      items[index] = items[other] as T;
+      items[other] = held;
+    }
+    return items;
+  }
+
   pick<T>(items: readonly T[]): T {
     if (items.length === 0) throw new Error('Rng.pick needs at least one item');
     return items[Math.floor(this.next() * items.length)] as T;
