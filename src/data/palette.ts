@@ -37,6 +37,18 @@ export const DAMAGE_TYPE_COLOURS = {
   Biological: '#C24A9A',
 } as const;
 
+/** The standard damage colours, kept while a colour-blind palette is on. */
+const STANDARD_DAMAGE_COLOURS: Readonly<Record<string, string>> = { ...DAMAGE_TYPE_COLOURS };
+
+/**
+ * Swaps the damage type colours for a colour-blind palette (GDD 3.10). Every
+ * drawing reads DAMAGE_TYPE_COLOURS, so one swap reaches every screen.
+ */
+export function applyDamagePalette(colours: Readonly<Record<string, string>> | undefined): void {
+  const target = DAMAGE_TYPE_COLOURS as unknown as Record<string, string>;
+  for (const key of Object.keys(target)) target[key] = colours?.[key] ?? STANDARD_DAMAGE_COLOURS[key] ?? target[key] ?? '#ffffff';
+}
+
 export type FactionName = keyof typeof FACTION_COLOURS;
 export type KingdomName = keyof typeof KINGDOM_COLOURS;
 export type DamageTypeName = keyof typeof DAMAGE_TYPE_COLOURS;

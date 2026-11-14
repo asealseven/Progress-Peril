@@ -2,6 +2,8 @@
 
 import type { ArenaDef } from '../../data/arenas';
 
+type Walls = Pick<ArenaDef, 'width' | 'height' | 'bounds' | 'obstacles'>;
+
 interface Body {
   x: number;
   y: number;
@@ -9,13 +11,18 @@ interface Body {
 }
 
 /** Keeps a body inside the arena walls. */
-export function clampToArena(body: Body, arena: ArenaDef): void {
-  body.x = Math.min(arena.width - body.radius, Math.max(body.radius, body.x));
-  body.y = Math.min(arena.height - body.radius, Math.max(body.radius, body.y));
+export function clampToArena(body: Body, arena: Walls): void {
+  // Erased tiles shrink the live area (GDD 5.10).
+  const left = arena.bounds?.left ?? 0;
+  const top = arena.bounds?.top ?? 0;
+  const right = arena.bounds?.right ?? arena.width;
+  const bottom = arena.bounds?.bottom ?? arena.height;
+  body.x = Math.min(right - body.radius, Math.max(left + body.radius, body.x));
+  body.y = Math.min(bottom - body.radius, Math.max(top + body.radius, body.y));
 }
 
 /** Pushes a body out of every obstacle it overlaps. */
-export function pushOutOfObstacles(body: Body, arena: ArenaDef): void {
+export function pushOutOfObstacles(body: Body, arena: Walls): void {
   for (const obstacle of arena.obstacles) {
     const dx = body.x - obstacle.x;
     const dy = body.y - obstacle.y;
@@ -35,7 +42,7 @@ export function pushOutOfObstacles(body: Body, arena: ArenaDef): void {
 }
 
 /** True when the point sits inside an obstacle, with an optional margin. */
-export function insideObstacle(x: number, y: number, margin: number, arena: ArenaDef): boolean {
+export function insideObstacle(x: number, y: number, margin: number, arena: Walls): boolean {
   for (const obstacle of arena.obstacles) {
     const dx = x - obstacle.x;
     const dy = y - obstacle.y;

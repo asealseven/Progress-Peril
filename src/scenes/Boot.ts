@@ -1,11 +1,9 @@
 import Phaser from 'phaser';
-import { CHARACTERS } from '../data/characters';
+import { music } from '../audio/music';
 import { PALETTE, hexToNumber } from '../data/palette';
 import { SCREEN } from '../data/screen';
 import { STRINGS } from '../data/strings';
-import { WEAPONS } from '../data/weapons';
-import { newSeed, parseSeed } from '../sim/rng';
-import { createRun } from '../sim/run';
+import { queueImages } from '../render/images';
 import { drawPageFrame } from '../ui/frame';
 import { addText } from '../ui/text';
 import { isTouchPrimary, uiScale } from './platform';
@@ -13,7 +11,7 @@ import { isTouchPrimary, uiScale } from './platform';
 /** Ignores input for a moment, so a held key or a stray tap never skips the title. */
 const START_GUARD_MS = 350;
 
-/** Title screen: "Progress & Peril" on parchment. Any input starts a run. */
+/** Title screen: "Progress & Peril" on parchment. Any input opens character selection. */
 export class Boot extends Phaser.Scene {
   private readyAt = 0;
 
@@ -21,7 +19,11 @@ export class Boot extends Phaser.Scene {
     super('Boot');
   }
 
+  private loaded = false;
+
   create(): void {
+    // The quiet Archive theme plays in menus (GDD 15.10).
+    music.play({ kind: 'menu' });
     const { width, height } = SCREEN;
     const centreX = width / 2;
     const touch = isTouchPrimary();
@@ -68,6 +70,18 @@ export class Boot extends Phaser.Scene {
       wrapWidth: 900,
     }).setOrigin(0.5);
 
+    // Generated images load behind the title, under their manifest keys (CLAUDE.md rule 8).
+    // The title shows at once. The game starts once the pages have loaded.
+    this.loaded = false;
+    const loading = addText(this, centreX, 660, STRINGS.boot.loading, { size: 15, colour: PALETTE.brass }).setOrigin(0.5);
+    this.load.once(Phaser.Loader.Events.COMPLETE, () => {
+      this.loaded = true;
+      loading.destroy();
+      if (this.pending) this.startRun();
+    });
+    queueImages(this);
+    this.load.start();
+
     this.readyAt = this.time.now + START_GUARD_MS;
     this.time.delayedCall(START_GUARD_MS, () => {
       this.input.once('pointerup', this.startRun, this);
@@ -86,12 +100,16 @@ export class Boot extends Phaser.Scene {
     }
   }
 
+  /** Input arrived before the images finished loading. */
+  private pending = false;
+
   private startRun(): void {
     if (!this.scene.isActive()) return;
-    // A seed in the address (?seed=ABC123) replays a run, for reproducing bugs (GDD 15.14).
-    const requested = new URLSearchParams(window.location.search).get('seed');
-    const seed = (requested ? parseSeed(requested) : undefined) ?? newSeed();
-    const run = createRun(seed, CHARACTERS.inventor, WEAPONS.crossbow);
-    this.scene.start('Combat', { run });
+    if (!this.loaded) {
+      this.pending = true;
+      return;
+    }
+    // The title opens the Grand Archive hub (GDD 15.6).
+    this.scene.start('Hub');
   }
 }

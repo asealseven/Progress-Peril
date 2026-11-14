@@ -5,13 +5,22 @@ import '@fontsource/alegreya-sans/latin-400.css';
 import '@fontsource/alegreya-sans/latin-500.css';
 import '@fontsource/alegreya-sans/latin-700.css';
 import '@fontsource/caveat/latin-400.css';
+import { music } from './audio/music';
+import { unlockAudio } from './audio/sfx';
 import { FONT_PRELOAD } from './data/fonts';
 import { PALETTE } from './data/palette';
 import { SCREEN } from './data/screen';
 import { STRINGS } from './data/strings';
 import { Boot } from './scenes/Boot';
+import { CharacterSelect } from './scenes/CharacterSelect';
 import { Combat } from './scenes/Combat';
+import { DebugMenu } from './scenes/DebugMenu';
+import { Preparation } from './scenes/Preparation';
 import { Results } from './scenes/Results';
+import { Transition } from './scenes/Transition';
+import { Victory } from './scenes/Victory';
+import { Hub } from './scenes/Hub';
+import { Settings } from './scenes/Settings';
 
 const FONT_TIMEOUT_MS = 3000;
 
@@ -27,7 +36,17 @@ async function loadFonts(): Promise<void> {
   await Promise.race([loads, timeout]);
 }
 
+/** Browsers block sound until the first tap or key press (CLAUDE.md "Audio"). Each input resumes a suspended context. */
+function listenForAudioUnlock(): void {
+  const unlock = (): void => {
+    unlockAudio();
+    music.unlock();
+  };
+  for (const type of ['pointerdown', 'keydown', 'touchend']) window.addEventListener(type, unlock, { capture: true });
+}
+
 async function start(): Promise<void> {
+  listenForAudioUnlock();
   const rotatePrompt = document.getElementById('rotate-prompt');
   if (rotatePrompt) rotatePrompt.textContent = STRINGS.rotatePrompt;
 
@@ -47,7 +66,7 @@ async function start(): Promise<void> {
     input: {
       activePointers: 3,
     },
-    scene: [Boot, Combat, Results],
+    scene: [Boot, Hub, CharacterSelect, Transition, Combat, Results, Preparation, Victory, Settings, DebugMenu],
   });
 
   // Development builds expose the game for browser test scripts.

@@ -1,9 +1,16 @@
 // Platform checks shared by scenes.
 
-/** True on devices whose main pointer is a finger: phones and tablets. */
+let coarse: MediaQueryList | undefined;
+
+/** True on devices whose main pointer is a finger: phones and tablets. The query is made once. */
 export function isTouchPrimary(): boolean {
-  return typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches;
+  if (typeof window === 'undefined') return false;
+  coarse ??= window.matchMedia('(pointer: coarse)');
+  return coarse.matches;
 }
+
+/** Effect density scales down on phones, on top of the accessibility slider (GDD 15.4). */
+export const MOBILE_EFFECT_SHARE = 0.6;
 
 /**
  * Interface scale. A phone shows the 720 pixel tall game on a small screen,

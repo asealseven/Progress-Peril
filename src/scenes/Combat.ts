@@ -1,30 +1,57 @@
 import Phaser from 'phaser';
+import { assetKey } from '../data/assets';
+import { CombatAudio } from '../audio/combatAudio';
+import { music } from '../audio/music';
+import { SPRITE_IMAGE_SCALE, fitImage, hasImage } from '../render/images';
+import { drawDamageIcon, ensureStatusIconTextures, statusIconKey } from '../render/damageIcons';
 import { DAMAGE_TYPE_COLOURS, KINGDOM_COLOURS, PALETTE, hexToNumber } from '../data/palette';
 import type { DamageTypeName } from '../data/palette';
 import { SCREEN } from '../data/screen';
 import { STRINGS, formatTime } from '../data/strings';
-import { COMBAT } from '../data/tiers';
+import { ENEMY_RULES, PERFORMANCE_LIMITS } from '../data/tiers';
 import { Effects } from '../render/effects';
+import { drawArenaFloor, drawEnvironment } from '../render/environment';
+import { bossImageKey, bossKey, bossKingdom, bossTextureSize, drawBossMarks, drawBossTelegraphs, ensureBossTexture } from '../render/bosses';
+import { mainBoss } from '../sim/world/bosses';
+import type { BossBody } from '../sim/world/bosses';
+import { roundKind } from '../data/rounds';
+import { EVENTS } from '../data/events';
+import { HAZARDS } from '../data/hazards';
 import {
   PLAYER_KEY,
-  PLAYER_PROJECTILE_KEY,
   PLAYER_TEXTURE_SIZE,
-  PROJECTILE_TEXTURE_SIZE,
   enemyKey,
   enemyTextureSize,
   ensureEnemyTexture,
   ensurePlayerTexture,
-  ensureProjectileTexture,
 } from '../render/placeholders';
 import { formatSeed } from '../sim/rng';
-import { createWorldForRound, finishRound } from '../sim/run';
+import { createWorldForRound, eventForRound, finishRound, kingdomForRound } from '../sim/run';
 import type { RunState } from '../sim/run';
+import { auraRadius, currentAttackSpeed, orbitHeadRadius, orbitRadius } from '../sim/world/attacks';
+import { hasShield, shieldBlocks, spawnGroup } from '../sim/world/enemies';
+import { CHAMPION_TRAITS } from '../data/champions';
+import { ELITE_MODIFIERS } from '../data/eliteModifiers';
+import { ENEMIES, ENEMY_LIST } from '../data/enemies';
+import type { EnemyId } from '../data/enemies';
+import { territorySlot } from '../data/rounds';
+import { REACTION_DEFS, STATUS_DEFS, STATUS_EFFECTS } from '../data/statusEffects';
+import type { StatusEffect } from '../data/statusEffects';
+import { SYNERGIES } from '../data/synergies';
+import { meterSize, trailStatuses } from '../sim/world/status';
+import type { Enemy, EnemyRank, Hazard } from '../sim/world/types';
 import type { World } from '../sim/world/world';
 import { STEP_SECONDS } from '../sim/world/world';
 import { Button } from '../ui/button';
 import { addText } from '../ui/text';
-import { CombatInput, JOYSTICK_RADIUS } from './input';
-import { isTouchPrimary, uiScale } from './platform';
+import { CombatInput } from './input';
+import { settings } from './session';
+import { MODE_RULES } from '../data/modes';
+import type { GameSettings } from '../data/modes';
+import { RESEARCH_NODES } from '../data/research';
+import { RELICS } from '../data/relics';
+import { installedComponents } from '../sim/loadout';
+import { MOBILE_EFFECT_SHARE, isTouchPrimary, uiScale } from './platform';
 
 export interface CombatData {
   run: RunState;
@@ -37,12 +64,25 @@ const DANGER = hexToNumber(PALETTE.danger);
 const GOLD = hexToNumber(PALETTE.playerEffects);
 
 /** Muted floor tones keep enemies and telegraphs the strongest shapes (GDD 15.1). */
-const FLOOR = 0xddd2ba;
-const FLOOR_LINE = 0xcbbfa5;
 const PILLAR = 0x6b635a;
+
+const SMOKE = 0xbfb8a8;
+const STEEL = hexToNumber(DAMAGE_TYPE_COLOURS.Piercing);
+/** Placeholder colours for material pickups. */
+const MATERIAL_COLOURS = {
+  Scrap: 0x8a8f96,
+  Reagents: hexToNumber(DAMAGE_TYPE_COLOURS.Fire),
+  Crystals: hexToNumber(DAMAGE_TYPE_COLOURS.Cold),
+  Specimens: hexToNumber(DAMAGE_TYPE_COLOURS.Biological),
+} as const;
+const DEBUG_RANKS: readonly EnemyRank[] = ['normal', 'elite', 'champion'];
+const WARNING_SECONDS = 1.5;
+const MAX_CHAMPION_LABELS = 4;
+const CREATURE = hexToNumber(DAMAGE_TYPE_COLOURS.Toxic);
 
 const DEPTH = {
   floor: 0,
+  under: 3,
   telegraph: 5,
   enemy: 10,
   player: 20,
@@ -58,11 +98,29 @@ const DEPTH = {
 const MAX_FRAME_MS = 100;
 /** Camera look-ahead in the direction of movement, pixels (GDD 15.2). */
 const LOOK_AHEAD = 70;
+// Code animation (GDD 15.3): steps per second in radians, bob height in pixels, squash share and lean in radians.
+const STEP_RATE = 12;
+const BOB_HEIGHT = 3;
+const SQUASH = 0.06;
+const LEAN = 0.12;
+const MAX_GHOSTS = 24;
+const FLOURISH_SECONDS = 1.4;
+const MAX_STATUS_ICONS = 160;
+const CAPTION_MS = 2600;
+/** Chance per frame that a player shot leaves a trail puff (GDD 15.4). */
+const TRAIL_CHANCE = 0.35;
 const LOOK_SMOOTHING = 4;
 /** Mobile uses a slightly wider view than PC (GDD 15.2). */
 const TOUCH_ZOOM = 0.85;
+/** Boss rounds zoom out this far (GDD 15.2). */
+const BOSS_ZOOM = 0.85;
 const LOW_HEALTH = 0.3;
+const MAX_DAMAGE_NUMBERS = 24;
+const HERB = 0x4fa34a;
 const END_DELAY_MS = 1100;
+const PIP_SIZE = 6;
+const MAX_FLOATERS = 10;
+const FLOATER_SECONDS = 1.1;
 const HUD_MARGIN = 24;
 
 /** The combat scene: owns one simulation, feeds input in, steps and draws. */
@@ -83,7 +141,14 @@ export class Combat extends Phaser.Scene {
 
   private playerSprite!: Phaser.GameObjects.Image;
   private enemySprites: Array<Phaser.GameObjects.Image | undefined> = [];
-  private projectileSprites: Array<Phaser.GameObjects.Image | undefined> = [];
+  private ghosts: Phaser.GameObjects.Image[] = [];
+  private statusIcons: Phaser.GameObjects.Image[] = [];
+  private audio!: CombatAudio;
+  private captionText!: Phaser.GameObjects.Text;
+  private captions: string[] = [];
+  /** Zones, auras and traps draw under enemies. Projectiles, constructs and beams draw over them. */
+  private under!: Phaser.GameObjects.Graphics;
+  private over!: Phaser.GameObjects.Graphics;
   private telegraphs!: Phaser.GameObjects.Graphics;
   private bars!: Phaser.GameObjects.Graphics;
   private hud!: Phaser.GameObjects.Graphics;
@@ -96,10 +161,38 @@ export class Combat extends Phaser.Scene {
   private pauseObjects: Phaser.GameObjects.GameObject[] = [];
   private pauseButtons: Button[] = [];
   private pauseZone?: Phaser.GameObjects.Zone;
+  private debugButtons: Button[] = [];
+  private focusPoint: { x: number; y: number } | undefined;
+  /** Floating labels naming status reactions (GDD 15.4). */
+  private floaters: Array<{ text: Phaser.GameObjects.Text; life: number }> = [];
 
   private lastHealthLabel = '';
   private lastTimerLabel = '';
   private debugVisible = false;
+  /** Debug spawn tool: the enemy and rank picked. */
+  private debugEnemy = 0;
+  private debugRank = 0;
+  private enemyButton?: Button;
+  private rankButton?: Button;
+  /** Markers where large groups enter soon (GDD 4.11). */
+  private warnings: Array<{ x: number; y: number; life: number }> = [];
+  private championLabels: Phaser.GameObjects.Text[] = [];
+  private suppressedText!: Phaser.GameObjects.Text;
+  private goldText!: Phaser.GameObjects.Text;
+  private lastGold = -1;
+  private researchText!: Phaser.GameObjects.Text;
+  private lastResearch = -1;
+  private hazardLayer!: Phaser.GameObjects.Graphics;
+  /** Player settings (GDD 3.10). */
+  private prefs!: GameSettings;
+  /** Fast-forward toggle (GDD 3.12). */
+  private fastForward = false;
+  private speedText!: Phaser.GameObjects.Text;
+  private speedZone?: Phaser.GameObjects.Zone;
+  private damageNumbers: Array<{ text: Phaser.GameObjects.Text; life: number }> = [];
+  private priorityLabel!: Phaser.GameObjects.Text;
+  private bossHud!: Phaser.GameObjects.Graphics;
+  private bossLabels: Phaser.GameObjects.Text[] = [];
 
   constructor() {
     super('Combat');
@@ -110,7 +203,10 @@ export class Combat extends Phaser.Scene {
   }
 
   create(): void {
-    this.sim = createWorldForRound(this.run);
+    this.prefs = settings(this);
+    this.fastForward = this.prefs.fastForward;
+    this.damageNumbers = [];
+    this.sim = createWorldForRound(this.run, isTouchPrimary() ? PERFORMANCE_LIMITS.mobile : PERFORMANCE_LIMITS.pc);
     this.accumulator = 0;
     this.paused = false;
     this.ended = false;
@@ -119,31 +215,45 @@ export class Combat extends Phaser.Scene {
     this.lookY = 0;
     this.scale1 = uiScale();
     this.enemySprites = [];
-    this.projectileSprites = [];
+    this.ghosts = [];
+    this.statusIcons = [];
+    this.captions = [];
     this.weaponLabels = [];
+    this.debugButtons = [];
+    this.focusPoint = undefined;
+    this.floaters = [];
     this.pauseObjects = [];
     this.pauseButtons = [];
     this.pauseZone = undefined;
     this.lastHealthLabel = '';
     this.lastTimerLabel = '';
     this.debugVisible = false;
+    this.warnings = [];
+    this.lastGold = -1;
+    this.lastResearch = -1;
+    this.championLabels = [];
+    this.enemyButton = undefined;
+    this.rankButton = undefined;
 
     const arena = this.sim.arena;
     const main = this.cameras.main;
     main.setBackgroundColor(PALETTE.ink);
     main.setBounds(0, 0, arena.width, arena.height);
-    main.setZoom(isTouchPrimary() ? TOUCH_ZOOM : 1);
+    // Boss rounds widen the view so every telegraph stays on screen (GDD 15.2).
+    const bossRound = roundKind(this.sim.round) !== 'encounter';
+    main.setZoom((isTouchPrimary() ? TOUCH_ZOOM : 1) * (bossRound ? BOSS_ZOOM : 1));
     main.centerOn(this.sim.player.x, this.sim.player.y);
     // A second camera draws the HUD, so world zoom and scroll never move it.
     this.uiCamera = this.cameras.add(0, 0, SCREEN.width, SCREEN.height);
 
     ensurePlayerTexture(this);
-    ensureProjectileTexture(this);
+    ensureStatusIconTextures(this);
 
     this.drawArena();
+    this.under = this.inWorld(this.add.graphics()).setDepth(DEPTH.under);
+    this.over = this.inWorld(this.add.graphics()).setDepth(DEPTH.projectile);
     this.telegraphs = this.inWorld(this.add.graphics()).setDepth(DEPTH.telegraph);
-    this.playerSprite = this.inWorld(this.add.image(0, 0, PLAYER_KEY))
-      .setDisplaySize(PLAYER_TEXTURE_SIZE, PLAYER_TEXTURE_SIZE)
+    this.playerSprite = this.inWorld(fitImage(this.add.image(0, 0, PLAYER_KEY), this.spriteSize(PLAYER_KEY, PLAYER_TEXTURE_SIZE)))
       .setDepth(DEPTH.player);
     this.effects = new Effects(this.inWorld(this.add.graphics()).setDepth(DEPTH.effects));
     this.bars = this.inWorld(this.add.graphics()).setDepth(DEPTH.bars);
@@ -152,20 +262,57 @@ export class Combat extends Phaser.Scene {
     this.createPauseOverlay();
     this.setPaused(false);
 
-    this.controls = new CombatInput(this);
+    if (isTouchPrimary()) this.effects.maxParticles = 300;
+    this.controls = new CombatInput(this, this.prefs);
+    // Back from Settings: remapped controls and effect density take hold at once.
+    const onResume = (): void => {
+      this.controls.destroy();
+      this.controls = new CombatInput(this, this.prefs);
+      this.controls.enabled = !this.paused;
+      this.effects.density = this.prefs.effectDensity * (isTouchPrimary() ? MOBILE_EFFECT_SHARE : 1);
+    };
+    this.events.on(Phaser.Scenes.Events.RESUME, onResume);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.events.off(Phaser.Scenes.Events.RESUME, onResume));
+    // Sound and music (GDD 15.10). Captions show over the weapon tiles with subtitles on (GDD 3.10).
+    this.captionText = this.inHud(addText(this, SCREEN.width / 2, this.tileLayout().y - 40, '', { size: 18, weight: '700', align: 'center' }))
+      .setOrigin(0.5, 1)
+      .setDepth(DEPTH.hudText)
+      .setStroke(PALETTE.parchment, 5)
+      .setVisible(false);
+    this.audio = new CombatAudio(
+      this.prefs,
+      (text) => this.showCaption(text),
+      (x) => Math.max(-0.8, Math.min(0.8, (x - this.cameras.main.midPoint.x) / (SCREEN.width / 2))),
+    );
+    this.followMusic();
+    this.audio.roundStart();
+    this.effects.density = this.prefs.effectDensity * (isTouchPrimary() ? MOBILE_EFFECT_SHARE : 1);
     const keyboard = this.input.keyboard;
-    keyboard?.on('keydown-ESC', this.togglePause, this);
+    const pauseKey = `keydown-${this.prefs.keys.pause}`;
+    const speedKey = `keydown-${this.prefs.keys.fastForward}`;
+    keyboard?.on(pauseKey, this.togglePause, this);
+    keyboard?.on(speedKey, this.toggleSpeed, this);
+    keyboard?.addCapture(this.prefs.keys.fastForward);
     keyboard?.on('keydown-F3', this.toggleDebug, this);
     keyboard?.on('keydown-I', this.toggleInvincible, this);
+    keyboard?.on('keydown-L', this.openLoadout, this);
+    keyboard?.on('keydown-K', this.spawnTestEnemies, this);
+    keyboard?.on('keydown-N', this.nextDebugEnemy, this);
+    keyboard?.on('keydown-R', this.nextDebugRank, this);
     keyboard?.addCapture('TAB,F3');
     this.input.on('pointerdown', this.onPointerDown, this);
     this.game.events.on(Phaser.Core.Events.HIDDEN, this.pauseOnHide, this);
 
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.controls.destroy();
-      keyboard?.off('keydown-ESC', this.togglePause, this);
+      keyboard?.off(pauseKey, this.togglePause, this);
+      keyboard?.off(speedKey, this.toggleSpeed, this);
       keyboard?.off('keydown-F3', this.toggleDebug, this);
       keyboard?.off('keydown-I', this.toggleInvincible, this);
+      keyboard?.off('keydown-L', this.openLoadout, this);
+      keyboard?.off('keydown-K', this.spawnTestEnemies, this);
+      keyboard?.off('keydown-N', this.nextDebugEnemy, this);
+      keyboard?.off('keydown-R', this.nextDebugRank, this);
       this.input.off('pointerdown', this.onPointerDown, this);
       this.game.events.off(Phaser.Core.Events.HIDDEN, this.pauseOnHide, this);
     });
@@ -189,48 +336,70 @@ export class Combat extends Phaser.Scene {
 
   // --- Setup --------------------------------------------------------------------
 
-  /** Placeholder Great Foundry: a muted floor, the central crucible and iron pillars (GDD 5.9). */
+  /** The kingdom's arena (GDD 5.9): floor and fixed shapes once, hazards every frame. */
   private drawArena(): void {
     const arena = this.sim.arena;
-    const kingdom = hexToNumber(KINGDOM_COLOURS[arena.kingdom]);
-    const floor = this.inWorld(this.add.graphics()).setDepth(DEPTH.floor);
-
-    floor.fillStyle(FLOOR, 1);
-    floor.fillRect(0, 0, arena.width, arena.height);
-    floor.lineStyle(2, FLOOR_LINE, 1);
-    for (let x = 200; x < arena.width; x += 200) floor.lineBetween(x, 0, x, arena.height);
-    for (let y = 200; y < arena.height; y += 200) floor.lineBetween(0, y, arena.width, y);
-
-    floor.lineStyle(10, INK, 1);
-    floor.strokeRect(5, 5, arena.width - 10, arena.height - 10);
-    floor.lineStyle(3, kingdom, 0.8);
-    floor.strokeRect(16, 16, arena.width - 32, arena.height - 32);
-
-    for (const obstacle of arena.obstacles) {
-      if (obstacle.kind === 'landmark') {
-        floor.fillStyle(PILLAR, 1);
-        floor.fillCircle(obstacle.x, obstacle.y, obstacle.radius);
-        floor.fillStyle(kingdom, 1);
-        floor.fillCircle(obstacle.x, obstacle.y, obstacle.radius * 0.72);
-        floor.lineStyle(4, INK, 1);
-        floor.strokeCircle(obstacle.x, obstacle.y, obstacle.radius * 0.72);
-        floor.strokeCircle(obstacle.x, obstacle.y, obstacle.radius);
-      } else {
-        floor.fillStyle(PILLAR, 1);
-        floor.fillCircle(obstacle.x, obstacle.y, obstacle.radius);
-        floor.lineStyle(3, INK, 1);
-        floor.strokeCircle(obstacle.x, obstacle.y, obstacle.radius);
-        floor.lineStyle(2, INK, 0.5);
-        floor.strokeCircle(obstacle.x, obstacle.y, obstacle.radius * 0.6);
-      }
+    // A generated arena painting replaces the floor placeholder (ART_PROMPTS.md).
+    const key = assetKey('arena', arena.kingdom);
+    const painted = hasImage(key);
+    if (painted) this.inWorld(this.add.image(0, 0, key).setOrigin(0).setDisplaySize(arena.width, arena.height).setDepth(DEPTH.floor));
+    // The floor never changes in a round: bake it into a texture once, so it costs one image a frame (Milestone 12).
+    const floorKey = `floor.${arena.kingdom}${painted ? '.painted' : ''}`;
+    if (!this.textures.exists(floorKey)) {
+      const floor = this.make.graphics({}, false);
+      drawArenaFloor(floor, arena, painted);
+      floor.generateTexture(floorKey, arena.width, arena.height);
+      floor.destroy();
     }
+    this.inWorld(this.add.image(0, 0, floorKey).setOrigin(0).setDepth(DEPTH.floor));
+    this.hazardLayer = this.inWorld(this.add.graphics()).setDepth(DEPTH.floor + 1);
+  }
+
+  /** Boss and escort bars under the round, with phase marks (GDD 15.7). */
+  private drawBossBars(): void {
+    const s = this.scale1;
+    const g = this.bossHud;
+    g.clear();
+    const bodies: BossBody[] = [];
+    const main = mainBoss(this.sim);
+    if (main) bodies.push(main);
+    for (const body of this.sim.bosses) if (body.role === 'escort') bodies.push(body);
+    this.bossLabels.forEach((label, index) => {
+      const body = bodies[index];
+      if (!body) {
+        label.setVisible(false);
+        return;
+      }
+      const escort = body.role === 'escort';
+      const width = (escort ? 260 : 420) * s;
+      const height = (escort ? 10 : 16) * s;
+      const x = SCREEN.width / 2 - width / 2;
+      const y = (index === 0 ? 172 : 214) * s;
+      const enemy = body.enemy;
+      const share = Math.max(0, enemy.health / enemy.maxHealth);
+      g.fillStyle(PARCHMENT, 0.9);
+      g.fillRect(x, y, width, height);
+      g.fillStyle(hexToNumber(KINGDOM_COLOURS[bossKingdom(body)]), 1);
+      g.fillRect(x, y, width * share, height);
+      g.lineStyle(escort ? 2 : 3, INK, 1);
+      g.strokeRect(x, y, width, height);
+      // Phase marks at 70 and 30 per cent, or 50 for mini-bosses.
+      for (const mark of body.thresholds) {
+        g.lineStyle(2, INK, 1);
+        g.lineBetween(x + width * mark, y - 3, x + width * mark, y + height + 3);
+      }
+      const phase = body.phases[body.phase - 1]?.name ?? '';
+      const text = escort ? STRINGS.hud.escort(body.name) : STRINGS.hud.boss(body.name, phase);
+      if (label.text !== text) label.setText(text);
+      label.setPosition(SCREEN.width / 2, y - 3).setVisible(true);
+    });
   }
 
   /** HUD layout from GDD 15.7. */
   private createHud(): void {
     const s = this.scale1;
     const centreX = SCREEN.width / 2;
-    const arena = this.sim.arena;
+    const territory = territorySlot(this.sim.round) + 1;
 
     this.hud = this.inHud(this.add.graphics()).setDepth(DEPTH.hud);
 
@@ -249,7 +418,7 @@ export class Combat extends Phaser.Scene {
       .setOrigin(0.5, 0)
       .setDepth(DEPTH.hudText);
     const territoryText = this.inHud(
-      addText(this, centreX, 12 + 68 * s, STRINGS.hud.territory(arena.kingdom, arena.name), {
+      addText(this, centreX, 12 + 68 * s, STRINGS.hud.territory(territory, kingdomForRound(this.run)), {
         size: 15 * s,
         colour: PALETTE.brass,
         weight: '500',
@@ -257,6 +426,70 @@ export class Combat extends Phaser.Scene {
     )
       .setOrigin(0.5, 0)
       .setDepth(DEPTH.hudText);
+
+    // An event icon sits beside the round (GDD 15.7): a crimson wax seal.
+    if (eventForRound(this.run)) {
+      const sealX = centreX + roundText.width / 2 + 22 * s;
+      const sealY = 12 + 18 * s;
+      const seal = this.inHud(this.add.graphics()).setDepth(DEPTH.hudText);
+      seal.fillStyle(DANGER, 1);
+      for (let lobe = 0; lobe < 8; lobe++) {
+        const angle = (lobe / 8) * Math.PI * 2;
+        seal.fillCircle(sealX + Math.cos(angle) * 9 * s, sealY + Math.sin(angle) * 9 * s, 4 * s);
+      }
+      seal.fillCircle(sealX, sealY, 10 * s);
+      this.inHud(addText(this, sealX, sealY, '!', { role: 'heading', size: 18 * s, colour: PALETTE.parchment }))
+        .setOrigin(0.5)
+        .setDepth(DEPTH.hudText + 1);
+    }
+    // The endless overlay: loop counter and the character's personal best (GDD 15.9).
+    if (this.run.endless) {
+      const loop = Math.floor(territorySlot(this.sim.round) / MODE_RULES.loopLength) + 1;
+      const best = this.run.archive.bests.byCharacter[this.run.character.id] ?? 0;
+      this.inHud(addText(this, centreX, 12 + 88 * s, STRINGS.hud.endless(loop, best), { size: 14 * s, weight: '700', colour: PALETTE.danger }))
+        .setOrigin(0.5, 0)
+        .setDepth(DEPTH.hudText)
+        .setStroke(PALETTE.parchment, 4);
+    }
+
+    // Boss and escort bars (GDD 15.7).
+    this.bossHud = this.inHud(this.add.graphics()).setDepth(DEPTH.hud);
+    this.bossLabels = [0, 1].map((index) =>
+      this.inHud(addText(this, centreX, 0, '', { role: index === 0 ? 'heading' : 'body', size: (index === 0 ? 20 : 14) * s, weight: '700' }))
+        .setOrigin(0.5, 1)
+        .setDepth(DEPTH.hudText)
+        .setStroke(PALETTE.parchment, 4)
+        .setVisible(false),
+    );
+    // The Mutagen Flask names the stat it raised this round (GDD 5.12).
+    if (this.run.flaskStat) {
+      const flask = this.inHud(addText(this, centreX, 132 * s, STRINGS.hud.flask(STRINGS.hud.flaskStats[this.run.flaskStat]), { size: 16 * s, weight: '700', colour: PALETTE.brass }))
+        .setOrigin(0.5, 0)
+        .setDepth(DEPTH.hudText)
+        .setStroke(PALETTE.parchment, 4);
+      this.tweens.add({ targets: flask, alpha: 0, delay: 4000, duration: 900 });
+    }
+
+    // A territory event announces itself at the start of the round (GDD 5.11).
+    const event = eventForRound(this.run);
+    if (event) {
+      const def = EVENTS[event.id];
+      const banner = [
+        this.inHud(addText(this, centreX, 150 * s, STRINGS.hud.event(def.name), { role: 'heading', size: 34 * s, colour: PALETTE.danger })),
+        this.inHud(
+          addText(this, centreX, 150 * s + 44 * s, event.invader ? STRINGS.hud.invader(event.invader) : def.effect, {
+            size: 18 * s,
+            weight: '700',
+            align: 'center',
+            wrapWidth: 760,
+          }),
+        ),
+      ];
+      for (const text of banner) {
+        text.setOrigin(0.5, 0).setDepth(DEPTH.hudText).setStroke(PALETTE.parchment, 5);
+        this.tweens.add({ targets: text, alpha: 0, delay: 4500, duration: 900 });
+      }
+    }
 
     // Weapon tiles, bottom centre. Three slots (GDD 7.8).
     const tile = this.tileLayout();
@@ -267,7 +500,7 @@ export class Combat extends Phaser.Scene {
           this,
           tile.x + slot * (tile.size + tile.gap) + tile.size / 2,
           tile.y + tile.size / 2,
-          weapon ? weapon.def.name : STRINGS.hud.emptySlot,
+          weapon ? weapon.resolved.def.name : STRINGS.hud.emptySlot,
           {
             size: 13 * s,
             weight: weapon ? '700' : '400',
@@ -280,10 +513,27 @@ export class Combat extends Phaser.Scene {
         .setOrigin(0.5)
         .setDepth(DEPTH.hudText);
       this.weaponLabels.push(label);
+      // A generated weapon icon replaces the name in the tile (ART_PROMPTS.md).
+      const iconKey = weapon ? assetKey('weapon', weapon.resolved.def.name) : '';
+      if (weapon && hasImage(iconKey)) {
+        this.inHud(fitImage(this.add.image(label.x, label.y, iconKey), tile.size - 10)).setDepth(DEPTH.hudText);
+        label.setVisible(false);
+      }
     }
 
+    // Gold sits top right, left of the pause button on touch devices (GDD 15.7).
+    const goldRight = SCREEN.width - HUD_MARGIN - (isTouchPrimary() ? 64 * s + 16 : 0);
+    this.goldText = this.inHud(addText(this, goldRight, HUD_MARGIN - 4, '', { size: 22 * s, weight: '700' }))
+      .setOrigin(1, 0)
+      .setDepth(DEPTH.hudText);
+
+    // Research Points sit under the gold (GDD 15.7).
+    this.researchText = this.inHud(addText(this, goldRight, HUD_MARGIN - 4 + 28 * s, '', { size: 18 * s, weight: '700' }))
+      .setOrigin(1, 0)
+      .setDepth(DEPTH.hudText);
+
     // A parchment outline keeps HUD text readable over the arena.
-    for (const text of [this.healthText, this.timerText, roundText, territoryText]) {
+    for (const text of [this.healthText, this.timerText, roundText, territoryText, this.goldText, this.researchText]) {
       text.setStroke(PALETTE.parchment, 5);
     }
 
@@ -295,13 +545,48 @@ export class Combat extends Phaser.Scene {
       .setVisible(false);
     this.bannerText.setStroke(PALETTE.parchment, 8);
 
+    // The Unstable switches Auxiliary components off (GDD 9.11).
+    const tiles = this.tileLayout();
+    this.suppressedText = this.inHud(
+      addText(this, centreX, tiles.y - 10, STRINGS.hud.suppressed, { size: 16 * s, weight: '700', colour: PALETTE.danger }),
+    )
+      .setOrigin(0.5, 1)
+      .setDepth(DEPTH.hudText)
+      .setVisible(false);
+    this.suppressedText.setStroke(PALETTE.parchment, 5);
+
     this.debugText = this.inHud(
-      addText(this, HUD_MARGIN, SCREEN.height - HUD_MARGIN, '', { size: 15 * s, weight: '500' }),
+      addText(this, HUD_MARGIN, SCREEN.height - HUD_MARGIN - 104 * s, '', { size: 14 * s, weight: '500' }),
     )
       .setOrigin(0, 1)
       .setDepth(DEPTH.hudText)
       .setVisible(false);
     this.debugText.setBackgroundColor(PALETTE.parchment);
+
+    // Debug tools (CLAUDE.md "Testing"): loadout, spawn and invincibility.
+    const tools: Array<[string, () => void]> = [
+      [STRINGS.debug.loadout, () => this.openLoadout()],
+      [STRINGS.debug.spawn, () => this.spawnTestEnemies()],
+      [STRINGS.debug.invincible, () => this.toggleInvincible()],
+    ];
+    const toolWidth = 150 * s;
+    const addTool = (label: string, x: number, y: number, width: number, onClick: () => void): Button => {
+      const button = new Button(this, x, y, { label, width, height: 44 * s, textSize: 17 * s, onClick });
+      button.setDepth(DEPTH.hudText).setVisible(false);
+      for (const object of button.objects) this.inHud(object);
+      this.debugButtons.push(button);
+      return button;
+    };
+    const toolY = SCREEN.height - HUD_MARGIN - 22 * s;
+    tools.forEach(([label, onClick], index) => {
+      addTool(label, HUD_MARGIN + toolWidth / 2 + index * (toolWidth + 8), toolY, toolWidth, onClick);
+    });
+    // Spawn tool: pick any enemy and rank (N and R on a keyboard).
+    const upperY = toolY - 50 * s;
+    const enemyWidth = toolWidth * 2 + 8;
+    this.enemyButton = addTool('', HUD_MARGIN + enemyWidth / 2, upperY, enemyWidth, () => this.nextDebugEnemy());
+    this.rankButton = addTool('', HUD_MARGIN + enemyWidth + 8 + toolWidth / 2, upperY, toolWidth, () => this.nextDebugRank());
+    this.refreshDebugTools();
 
     // Touch devices get a pause button in the top right corner (GDD 15.7).
     if (isTouchPrimary()) {
@@ -313,6 +598,32 @@ export class Combat extends Phaser.Scene {
       this.pauseZone.on('pointerup', () => {
         if (!this.paused) this.setPaused(true);
       });
+      const speed = this.speedButtonLayout();
+      this.speedZone = this.inHud(this.add.zone(speed.x + speed.size / 2, speed.y + speed.size / 2, speed.size, speed.size)).setDepth(DEPTH.hudText);
+      this.speedZone.setInteractive();
+      this.speedZone.on('pointerup', () => this.toggleSpeed());
+    }
+    this.speedText = this.inHud(addText(this, SCREEN.width - HUD_MARGIN, HUD_MARGIN + 52 * s, STRINGS.hud.fastForward, { size: 16 * s, weight: '700', colour: PALETTE.brass }))
+      .setOrigin(1, 0)
+      .setDepth(DEPTH.hudText)
+      .setVisible(false);
+    this.priorityLabel = this.inWorld(addText(this, 0, 0, STRINGS.hud.priority, { role: 'hand', size: 22, colour: PALETTE.danger }))
+      .setOrigin(0.5, 1)
+      .setDepth(DEPTH.bars + 1)
+      .setStroke(PALETTE.parchment, 5)
+      .setVisible(false);
+    // The trial explains each round (GDD 3.11).
+    if (this.run.trial && this.run.round <= 3) {
+      const hint = this.inHud(addText(this, SCREEN.width / 2, SCREEN.height - 120 * s, STRINGS.trial.round[this.run.round - 1] ?? '', {
+        size: 18 * s,
+        weight: '700',
+        align: 'center',
+        wrapWidth: 900,
+      }))
+        .setOrigin(0.5, 1)
+        .setDepth(DEPTH.hudText)
+        .setStroke(PALETTE.parchment, 5);
+      this.tweens.add({ targets: hint, alpha: 0, delay: 9000, duration: 1200 });
     }
   }
 
@@ -321,6 +632,11 @@ export class Combat extends Phaser.Scene {
     const gap = 10;
     const total = size * 3 + gap * 2;
     return { x: (SCREEN.width - total) / 2, y: SCREEN.height - 18 - size, size, gap };
+  }
+
+  private speedButtonLayout(): { x: number; y: number; size: number } {
+    const pause = this.pauseButtonLayout();
+    return { x: pause.x, y: pause.y + pause.size + 12, size: pause.size };
   }
 
   private pauseButtonLayout(): { x: number; y: number; size: number } {
@@ -333,8 +649,8 @@ export class Combat extends Phaser.Scene {
     const s = this.scale1;
     const centreX = SCREEN.width / 2;
     const centreY = SCREEN.height / 2;
-    const panelWidth = 460 * s;
-    const panelHeight = 380 * s;
+    const panelWidth = Math.min(SCREEN.width - 40, 1000 * s);
+    const panelHeight = Math.min(SCREEN.height - 30, 640 * s);
 
     const dim = this.add.rectangle(centreX, centreY, SCREEN.width, SCREEN.height, INK, 0.6);
     dim.setInteractive();
@@ -352,24 +668,64 @@ export class Combat extends Phaser.Scene {
       { role: 'hand', size: 28 * s, colour: PALETTE.brass },
     ).setOrigin(0.5);
 
-    const resume = new Button(this, centreX, centreY + 20 * s, {
+    // The pause screen shows the full build: weapons, components, synergies and research (GDD 3.12).
+    const names = [...this.sim.synergies].map((id) => SYNERGIES[id]?.name ?? id);
+    const run = this.run;
+    const weapons = run.weapons
+      .slice(0, 3)
+      .map((weapon) => {
+        const parts = installedComponents(weapon).map((component) => component.def.name);
+        return STRINGS.pause.weapon(weapon.def.name, weapon.grade, parts.length > 0 ? parts.join(', ') : STRINGS.results.none);
+      })
+      .join('\n');
+    const research = run.research.researched.map((id) => RESEARCH_NODES.find((node) => node.id === id)?.name ?? id);
+    const relics = run.relics.map((id) => RELICS[id].name);
+    const lines = [
+      weapons,
+      STRINGS.pause.synergies(names),
+      STRINGS.pause.research(research),
+      STRINGS.pause.relics(relics),
+      STRINGS.pause.mode(run.mode.assist, run.mode.tier, run.endless),
+    ].join('\n\n');
+    const synergies = addText(this, centreX - panelWidth / 2 + 30, centreY - panelHeight / 2 + 134 * s, lines, {
+      size: 14 * s,
+      weight: '500',
+      wrapWidth: panelWidth - 60,
+    });
+
+    // Three buttons share the panel width, so they fit on a phone too.
+    const step = panelWidth / 3;
+    const buttonWidth = step - 24;
+    const resume = new Button(this, centreX - step, centreY + panelHeight / 2 - 50 * s, {
       label: STRINGS.pause.resume,
-      width: 320 * s,
+      width: buttonWidth,
       height: 64 * s,
       textSize: 28 * s,
       onClick: () => this.setPaused(false),
     });
-    const quit = new Button(this, centreX, centreY + 106 * s, {
-      label: STRINGS.pause.quit,
-      width: 320 * s,
+    // Settings open over the paused round and return to it (GDD 15.9).
+    const options = new Button(this, centreX, centreY + panelHeight / 2 - 50 * s, {
+      label: STRINGS.pause.settings,
+      width: buttonWidth,
       height: 64 * s,
       textSize: 28 * s,
-      onClick: () => this.scene.start('Boot'),
+      onClick: () => {
+        this.scene.launch('Settings', { tab: 'options' });
+        this.scene.pause();
+      },
+    });
+    const quit = new Button(this, centreX + step, centreY + panelHeight / 2 - 50 * s, {
+      label: STRINGS.pause.quit,
+      width: buttonWidth,
+      height: 64 * s,
+      textSize: 28 * s,
+      // The run stays saved at its last preparation phase (GDD 15.13).
+      onClick: () => this.scene.start('Hub'),
     });
 
-    this.pauseObjects = [dim, panel, title, seed];
-    this.pauseButtons = [resume, quit];
-    [dim, panel, title, seed].forEach((object, index) => {
+    this.pauseObjects = [dim, panel, title, seed, synergies];
+    this.pauseButtons = [resume, options, quit];
+    [dim, panel, title, seed, synergies].forEach((object, index) => {
       this.inHud(object).setDepth(DEPTH.overlay + index);
     });
     for (const button of this.pauseButtons) {
@@ -385,7 +741,7 @@ export class Combat extends Phaser.Scene {
     this.paused = paused;
     if (this.controls) {
       this.controls.enabled = !paused;
-      this.controls.releaseJoystick();
+      this.controls.releaseAll();
     }
     for (const object of this.pauseObjects) {
       (object as Phaser.GameObjects.GameObject & Phaser.GameObjects.Components.Visible).setVisible(paused);
@@ -405,10 +761,44 @@ export class Combat extends Phaser.Scene {
   private toggleDebug(): void {
     this.debugVisible = !this.debugVisible;
     this.debugText.setVisible(this.debugVisible);
+    for (const button of this.debugButtons) button.setVisible(this.debugVisible);
   }
 
   private toggleInvincible(): void {
     if (this.debugVisible) this.sim.invincible = !this.sim.invincible;
+  }
+
+  /** Debug tool: spawns a group of the picked enemy and rank outside the camera view. */
+  private spawnTestEnemies(): void {
+    if (!this.debugVisible || this.ended) return;
+    const def = ENEMY_LIST[this.debugEnemy];
+    const rank = DEBUG_RANKS[this.debugRank] ?? 'normal';
+    if (def) spawnGroup(this.sim, def, rank === 'normal' ? 5 : 1, rank);
+  }
+
+  private nextDebugEnemy(): void {
+    if (!this.debugVisible) return;
+    this.debugEnemy = (this.debugEnemy + 1) % ENEMY_LIST.length;
+    this.refreshDebugTools();
+  }
+
+  private nextDebugRank(): void {
+    if (!this.debugVisible) return;
+    this.debugRank = (this.debugRank + 1) % DEBUG_RANKS.length;
+    this.refreshDebugTools();
+  }
+
+  private refreshDebugTools(): void {
+    this.enemyButton?.setLabel(STRINGS.debug.spawnEnemy(ENEMY_LIST[this.debugEnemy]?.name ?? ''));
+    this.rankButton?.setLabel(STRINGS.debug.spawnRank(DEBUG_RANKS[this.debugRank] ?? 'normal'));
+  }
+
+  /** Debug tool: opens the loadout menu over the paused round. */
+  private openLoadout(): void {
+    if (!this.debugVisible || this.ended) return;
+    this.controls.releaseAll();
+    this.scene.launch('DebugMenu', { run: this.run });
+    this.scene.pause();
   }
 
   /** A three-finger tap opens the debug overlay on a phone. */
@@ -424,17 +814,24 @@ export class Combat extends Phaser.Scene {
 
   override update(_time: number, delta: number): void {
     if (this.controls.pausePressed()) this.togglePause();
+    if (this.controls.speedPressed()) this.toggleSpeed();
 
     const frame = Math.min(delta, MAX_FRAME_MS) / 1000;
     if (!this.paused) {
       // Fixed time step: accumulate frame time and run whole steps (CLAUDE.md rule 2).
-      this.accumulator += frame;
-      const input = this.controls.readMove();
+      // Fast-forward runs 1.5 times the steps. Assist mode runs slower (GDD 3.9, 3.12).
+      this.accumulator += frame * this.gameSpeed();
+      const move = this.controls.readMove();
+      const player = this.sim.player;
+      this.focusPoint = this.ended ? undefined : this.controls.readFocus(this.cameras.main, player.x, player.y);
+      const input = { ...move, focusX: this.focusPoint?.x, focusY: this.focusPoint?.y };
       while (this.accumulator >= STEP_SECONDS) {
         this.sim.step(input);
         this.accumulator -= STEP_SECONDS;
       }
       this.playEvents();
+      this.audio.frame(this.sim);
+      this.followMusic();
       this.clock += frame;
     }
 
@@ -443,43 +840,217 @@ export class Combat extends Phaser.Scene {
     if (!this.ended && this.sim.phase !== 'running') this.endRound();
   }
 
+  /** Fast-forward switches off for mini-boss and boss rounds (GDD 3.12). */
+  private speedAllowed(): boolean {
+    return roundKind(this.sim.round) === 'encounter';
+  }
+
+  private gameSpeed(): number {
+    const assist = this.run.mode.assist ? MODE_RULES.assistSpeed : 1;
+    const fast = this.fastForward && this.speedAllowed() ? MODE_RULES.fastForward : 1;
+    return assist * fast;
+  }
+
+  private toggleSpeed(): void {
+    if (this.paused || !this.speedAllowed()) return;
+    this.fastForward = !this.fastForward;
+    // The toggle stays as the player left it for the next normal round.
+    this.prefs.fastForward = this.fastForward;
+  }
+
+  private shake(duration: number, intensity: number): void {
+    if (this.prefs.screenShake) this.cameras.main.shake(duration, intensity);
+  }
+
+  private flash(duration: number, red?: number, green?: number, blue?: number): void {
+    if (this.prefs.flashes) this.cameras.main.flash(duration, red, green, blue);
+  }
+
+  /** Damage numbers rise from hits, when the setting is on (GDD 3.10). */
+  private showDamage(amount: number, x: number, y: number, critical: boolean, type: DamageTypeName): void {
+    if (!this.prefs.damageNumbers || amount < 1) return;
+    let entry = this.damageNumbers.find((item) => item.life <= 0);
+    if (!entry) {
+      if (this.damageNumbers.length >= MAX_DAMAGE_NUMBERS) return;
+      const text = this.inWorld(addText(this, 0, 0, '', { size: 15, weight: '700' }))
+        .setOrigin(0.5)
+        .setDepth(DEPTH.bars + 2)
+        .setStroke(PALETTE.parchment, 3);
+      entry = { text, life: 0 };
+      this.damageNumbers.push(entry);
+    }
+    entry.life = 0.6;
+    entry.text.setText(`${Math.round(amount)}`).setPosition(x + (Math.random() - 0.5) * 16, y - 16);
+    // Ink numbers edged in the damage type colour, so light colours stay readable (GDD 15.1).
+    entry.text
+      .setColor(critical ? PALETTE.danger : PALETTE.ink)
+      .setStroke(DAMAGE_TYPE_COLOURS[type], 4)
+      .setScale(critical ? 1.25 : 1)
+      .setVisible(true)
+      .setAlpha(1);
+  }
+
+  private drawDamageNumbers(frame: number): void {
+    for (const entry of this.damageNumbers) {
+      if (entry.life <= 0) continue;
+      entry.life -= frame;
+      entry.text.y -= 40 * frame;
+      entry.text.setAlpha(Math.max(0, entry.life / 0.6));
+      if (entry.life <= 0) entry.text.setVisible(false);
+    }
+  }
+
   private endRound(): void {
     this.ended = true;
     this.controls.enabled = false;
-    this.controls.releaseJoystick();
+    this.controls.releaseAll();
+    this.focusPoint = undefined;
     const cleared = this.sim.phase === 'cleared';
+    this.audio.roundEnd();
     this.bannerText.setText(cleared ? STRINGS.hud.roundCleared : STRINGS.hud.defeated);
     this.bannerText.setColor(cleared ? PALETTE.ink : PALETTE.danger);
     this.bannerText.setVisible(true);
     this.time.delayedCall(END_DELAY_MS, () => {
       const result = finishRound(this.run, this.sim);
-      this.scene.start('Results', { run: this.run, result });
+      // The campaign ends with the final kingdom's ending (GDD 2.4).
+      if (this.run.status === 'complete') this.scene.start('Victory', { run: this.run });
+      else this.scene.start('Results', { run: this.run, result });
     });
   }
 
   /** Turns simulation events into effects, then clears the list. */
   private playEvents(): void {
     for (const event of this.sim.events) {
+      this.audio.event(this.sim, event);
       switch (event.type) {
         case 'enemyHit':
-          this.effects.burst(
-            event.x,
-            event.y,
-            hexToNumber(DAMAGE_TYPE_COLOURS[event.damageType]),
-            event.critical ? 7 : 3,
-            event.critical ? 190 : 130,
-            event.critical ? 3.5 : 2.5,
-            0.28,
-          );
+          this.showDamage(event.amount, event.x, event.y, event.critical, event.damageType);
+          this.effects.hit(event.x, event.y, event.damageType, event.critical);
           break;
-        case 'enemyKilled':
-          this.effects.burst(event.x, event.y, INK, 10, 170, 3.5, 0.5);
+        case 'enemyKilled': {
+          // The sprite shrinks and fades while ink splatters out (GDD 15.3).
+          const def = ENEMIES[event.enemyId as EnemyId];
+          this.effects.splatter(event.x, event.y, def?.radius ?? 14);
+          if (def) this.fadeOut(enemyKey(def), event.x, event.y, this.spriteSize(enemyKey(def), enemyTextureSize(def)));
           break;
+        }
         case 'projectileBlocked':
           this.effects.burst(event.x, event.y, GOLD, 3, 90, 2, 0.2);
           break;
+        case 'hazardBurst': {
+          // Hazards hit both sides: the ring keeps the hazard's damage colour (GDD 5.10).
+          const type = HAZARDS[event.hazard].damageType;
+          const colour = type ? hexToNumber(DAMAGE_TYPE_COLOURS[type]) : INK;
+          if (event.radius > 0) this.effects.ring(event.x, event.y, event.radius, colour, 0.35);
+          this.effects.burst(event.x, event.y, colour, 10, 260, 3, 0.4);
+          if (event.hazard === 'slag-wave' || event.hazard === 'stamping-press') this.shake(140, 0.005);
+          break;
+        }
+        case 'bossPhase':
+          // A phase change flashes and shakes (GDD 15.3).
+          this.flash(180, 255, 255, 255);
+          this.shake(260, 0.008);
+          if (event.name) this.showFloater(event.name, event.x, event.y - 70);
+          break;
+        case 'bossStrike':
+          this.effects.ring(event.x, event.y, event.radius, hexToNumber(DAMAGE_TYPE_COLOURS[event.damageType]), 0.3);
+          this.effects.burst(event.x, event.y, hexToNumber(DAMAGE_TYPE_COLOURS[event.damageType]), 10, 240, 3, 0.35);
+          break;
+        case 'bossWave':
+          this.effects.line([event.x1, event.y1, event.x2, event.y2], 8, hexToNumber(DAMAGE_TYPE_COLOURS[event.damageType]), 0.3);
+          this.shake(120, 0.004);
+          break;
+        case 'bossNull':
+          this.effects.ring(event.x, event.y, event.radius, INK, 0.5);
+          break;
+        case 'bossRepair':
+          this.showFloater(STRINGS.hud.repaired, event.x, event.y - 70);
+          break;
+        case 'bossDefeated':
+          this.shake(500, 0.012);
+          this.flash(300, 255, 255, 255);
+          break;
+        case 'hazardArc':
+          this.effects.line([event.fromX, event.fromY, event.toX, event.toY], 3, hexToNumber(DAMAGE_TYPE_COLOURS.Electric));
+          break;
+        case 'tilesErased':
+          this.shake(260, 0.006);
+          break;
         case 'playerHit':
-          this.cameras.main.shake(110, 0.004);
+          this.shake(110, 0.004);
+          break;
+        case 'sweep':
+        case 'cone':
+          this.effects.arc(event.x, event.y, event.radius, event.angle, event.arc, hexToNumber(DAMAGE_TYPE_COLOURS[event.damageType]));
+          break;
+        case 'slam':
+          this.effects.ring(event.x, event.y, event.radius, hexToNumber(DAMAGE_TYPE_COLOURS[event.damageType]));
+          break;
+        case 'thrust':
+          this.effects.line(
+            [event.x1, event.y1, event.x2, event.y2],
+            Math.max(4, event.halfWidth),
+            hexToNumber(DAMAGE_TYPE_COLOURS[event.damageType]),
+          );
+          break;
+        case 'explosion':
+          // Three sizes, tinted by damage type. Large blasts shake a little (GDD 15.4).
+          if (this.effects.explosion(event.x, event.y, event.radius, event.damageType) === 2 && event.generation === 0) this.shake(90, 0.003);
+          break;
+        case 'chain':
+          this.effects.lightning(event.points, hexToNumber(DAMAGE_TYPE_COLOURS[event.damageType]));
+          break;
+        case 'trapSnap':
+          this.effects.ring(event.x, event.y, event.radius, GOLD, 0.2);
+          break;
+        case 'status':
+          {
+            // A triggered status bursts in its damage type's style (GDD 15.4).
+            const type = STATUS_DEFS[event.status].damageType;
+            if (type) this.effects.typeBurst(event.x, event.y, type, 0.7);
+            else this.effects.burst(event.x, event.y, hexToNumber(STATUS_DEFS[event.status].colour), 6, 110, 3, 0.4);
+          }
+          break;
+        case 'reaction':
+          this.effects.reaction(event.x, event.y, event.reaction, hexToNumber(REACTION_DEFS[event.reaction].colour));
+          this.showFloater(event.reaction, event.x, event.y);
+          break;
+        case 'spawnWarning':
+          this.warnings.push({ x: event.x, y: event.y, life: WARNING_SECONDS });
+          break;
+        case 'enemyBlast':
+          // Enemy blasts keep the crimson danger ring, with sparks in the damage colour (GDD 15.1).
+          this.effects.ring(event.x, event.y, event.radius, DANGER, 0.3);
+          this.effects.burst(event.x, event.y, hexToNumber(DAMAGE_TYPE_COLOURS[event.damageType]), 10, 240, 3, 0.4);
+          break;
+        case 'teleport':
+          this.effects.line([event.x1, event.y1, event.x2, event.y2], 3, hexToNumber(DAMAGE_TYPE_COLOURS.Electric));
+          this.effects.ring(event.x2, event.y2, 26, DANGER, 0.3);
+          break;
+        case 'repair':
+          this.effects.line([event.x1, event.y1, event.x2, event.y2], 3, BRASS);
+          this.effects.ring(event.x2, event.y2, 24, BRASS, 0.3);
+          break;
+        case 'goldStolen':
+          this.showFloater(STRINGS.hud.goldStolen(event.amount), event.x, event.y);
+          break;
+        case 'goldReturned':
+          this.showFloater(STRINGS.hud.goldReturned(event.amount), event.x, event.y);
+          break;
+        case 'revived':
+          // The Archive's revival (GDD 3.8).
+          this.flash(400, 255, 255, 255);
+          this.showFloater(STRINGS.results.revived, this.sim.player.x, this.sim.player.y - 60);
+          break;
+        case 'pickup':
+          this.effects.burst(event.x, event.y, event.kind === 'gold' ? GOLD : BRASS, event.kind === 'gold' ? 3 : 6, 90, 2, 0.25);
+          break;
+        case 'constructDestroyed':
+          this.effects.burst(event.x, event.y, GOLD, 12, 200, 3.5, 0.5);
+          break;
+        case 'mutated':
+          this.showFloater(ELITE_MODIFIERS[event.modifier].name, event.x, event.y);
+          this.effects.ring(event.x, event.y, 30, hexToNumber(ELITE_MODIFIERS[event.modifier].colour), 0.4);
           break;
         default:
           break;
@@ -488,13 +1059,47 @@ export class Combat extends Phaser.Scene {
     this.sim.events.length = 0;
   }
 
+  /** A short label rising from a point: reaction names, mutations and stolen gold (GDD 15.4). */
+  private showFloater(label: string, x: number, y: number): void {
+    let floater = this.floaters.find((entry) => entry.life <= 0);
+    if (!floater) {
+      if (this.floaters.length >= MAX_FLOATERS) return;
+      const text = this.inWorld(addText(this, 0, 0, '', { role: 'hand', size: 24 }))
+        .setOrigin(0.5)
+        .setDepth(DEPTH.bars + 1);
+      text.setStroke(PALETTE.parchment, 5);
+      floater = { text, life: 0 };
+      this.floaters.push(floater);
+    }
+    floater.life = FLOATER_SECONDS;
+    floater.text.setText(label).setPosition(x, y - 30).setAlpha(1).setVisible(true);
+  }
+
+  private drawFloaters(frame: number): void {
+    for (const floater of this.floaters) {
+      if (floater.life <= 0) continue;
+      floater.life -= frame;
+      if (floater.life <= 0) {
+        floater.text.setVisible(false);
+        continue;
+      }
+      floater.text.y -= 26 * frame;
+      floater.text.setAlpha(Math.min(1, floater.life / 0.3));
+    }
+  }
+
   // --- Drawing ------------------------------------------------------------------
 
   private draw(frame: number): void {
     this.drawCamera(frame);
+    drawEnvironment(this.hazardLayer, this.sim.environment, this.sim.elapsed);
     this.drawPlayer();
     this.drawEnemies();
-    this.drawProjectiles();
+    this.drawUnder();
+    this.drawOver();
+    this.drawFloaters(frame);
+    this.drawDamageNumbers(frame);
+    this.drawWarnings(frame);
     this.effects.update(frame);
     this.drawHud();
     if (this.debugVisible) this.drawDebug();
@@ -510,9 +1115,121 @@ export class Combat extends Phaser.Scene {
     this.cameras.main.centerOn(player.x + this.lookX, player.y + this.lookY);
   }
 
+  /** Generated sprites draw larger than the collision circle. Placeholders keep their size. */
+  private spriteSize(key: string, size: number): number {
+    return hasImage(key) ? size * SPRITE_IMAGE_SCALE : size;
+  }
+
+  /**
+   * Code animation for one image (GDD 15.3): a gentle bob, a lean toward the
+   * direction of travel and a slight squash on each step. The base scale comes
+   * from fitting the image, so the motion works on placeholders and art alike.
+   */
+  private animate(sprite: Phaser.GameObjects.Image, x: number, y: number, vx: number, vy: number, speed: number, seed: number): void {
+    const moving = Math.min(1, Math.hypot(vx, vy) / Math.max(1, speed));
+    const step = this.clock * STEP_RATE + seed;
+    const bob = moving > 0.1 ? -Math.abs(Math.sin(step)) * BOB_HEIGHT * moving : Math.sin(this.clock * 2 + seed) * 0.8;
+    const squash = moving > 0.1 ? Math.abs(Math.cos(step)) * SQUASH * moving : 0;
+    const baseX = sprite.scaleX;
+    const baseY = sprite.scaleY;
+    sprite.setPosition(x, y + bob);
+    sprite.setRotation((vx / Math.max(1, speed)) * LEAN);
+    sprite.setScale(baseX * (1 + squash * 0.6), baseY * (1 - squash));
+  }
+
+  /** One pooled status icon above an enemy, from the baked icon textures. */
+  private statusIcon(index: number, status: StatusEffect, x: number, y: number, alpha: number): void {
+    let icon = this.statusIcons[index];
+    if (!icon) {
+      if (index >= MAX_STATUS_ICONS) return;
+      icon = this.inWorld(this.add.image(0, 0, statusIconKey(status))).setDepth(DEPTH.bars + 0.5);
+      this.statusIcons[index] = icon;
+    }
+    icon.setTexture(statusIconKey(status)).setPosition(x, y).setDisplaySize((PIP_SIZE + 1.5) * 2, (PIP_SIZE + 1.5) * 2).setAlpha(alpha).setVisible(true);
+  }
+
+  /** Ink curls grow from each corner of a tile, then fade. Progress runs from 0 to 1. */
+  private drawFlourish(g: Phaser.GameObjects.Graphics, x: number, y: number, size: number, progress: number): void {
+    const grow = Math.min(1, progress * 2);
+    const alpha = progress < 0.6 ? 1 : 1 - (progress - 0.6) / 0.4;
+    g.lineStyle(3, INK, alpha);
+    const corners: Array<[number, number, number]> = [
+      [x - 6, y - 6, Math.PI],
+      [x + size + 6, y - 6, -Math.PI / 2],
+      [x + size + 6, y + size + 6, 0],
+      [x - 6, y + size + 6, Math.PI / 2],
+    ];
+    for (const [cx, cy, start] of corners) {
+      // A short spiral: the radius shrinks as the curl turns inward.
+      g.beginPath();
+      const turns = 1.4 * grow;
+      for (let step = 0; step <= 16; step++) {
+        const t = (step / 16) * turns;
+        const angle = start + t * Math.PI * 2;
+        const radius = 14 * (1 - t / 1.8);
+        const px = cx + Math.cos(angle) * radius;
+        const py = cy + Math.sin(angle) * radius;
+        if (step === 0) g.moveTo(px, py);
+        else g.lineTo(px, py);
+      }
+      g.strokePath();
+    }
+  }
+
+  /** Captions stack up to two lines and fade after a few seconds. */
+  private showCaption(text: string): void {
+    this.captions = [...this.captions.filter((line) => line !== text), text].slice(-2);
+    this.captionText.setText(this.captions.join('\n')).setAlpha(1).setVisible(true);
+    this.tweens.killTweensOf(this.captionText);
+    this.tweens.add({
+      targets: this.captionText,
+      alpha: 0,
+      delay: CAPTION_MS,
+      duration: 500,
+      onComplete: () => {
+        this.captions = [];
+        this.captionText.setVisible(false);
+      },
+    });
+  }
+
+  /** The kingdom's layers, or the boss theme on boss rounds. Convergence has its own theme (GDD 15.10). */
+  private followMusic(): void {
+    const kingdom = kingdomForRound(this.run);
+    const boss = this.sim.bosses.find((body) => body.role === 'boss' && body.bossId);
+    if (boss?.convergence) music.play({ kind: 'boss', id: 'convergence', kingdom });
+    else if (boss?.bossId) music.play({ kind: 'boss', id: boss.bossId, kingdom });
+    else music.play({ kind: 'kingdom', kingdom });
+  }
+
+  /** A dying enemy's image shrinks and fades (GDD 15.3). */
+  private fadeOut(key: string, x: number, y: number, size: number): void {
+    if (!this.textures.exists(key)) return;
+    let ghost = this.ghosts.find((item) => !item.visible);
+    if (!ghost) {
+      if (this.ghosts.length >= MAX_GHOSTS) return;
+      ghost = this.inWorld(this.add.image(0, 0, key)).setDepth(DEPTH.enemy - 0.5);
+      this.ghosts.push(ghost);
+    }
+    ghost.setTexture(key).setPosition(x, y).setAlpha(1).setVisible(true).setRotation(0);
+    fitImage(ghost, size);
+    const target = ghost;
+    this.tweens.killTweensOf(target);
+    this.tweens.add({
+      targets: target,
+      scaleX: target.scaleX * 0.2,
+      scaleY: target.scaleY * 0.2,
+      alpha: 0,
+      duration: 260,
+      ease: 'Quad.easeIn',
+      onComplete: () => target.setVisible(false),
+    });
+  }
+
   private drawPlayer(): void {
     const player = this.sim.player;
-    this.playerSprite.setPosition(player.x, player.y);
+    fitImage(this.playerSprite, this.spriteSize(PLAYER_KEY, PLAYER_TEXTURE_SIZE));
+    this.animate(this.playerSprite, player.x, player.y, player.vx, player.vy, player.stats.moveSpeed, 0);
     // The player blinks during the invulnerability window (GDD 3.7).
     const blink = player.invulnerable > 0 && Math.floor(this.clock * 20) % 2 === 0;
     this.playerSprite.setAlpha(blink ? 0.35 : 1);
@@ -525,6 +1242,8 @@ export class Combat extends Phaser.Scene {
     telegraphs.clear();
     bars.clear();
 
+    let labels = 0;
+    let pipCount = 0;
     const enemies = this.sim.enemies.items;
     for (let slot = 0; slot < enemies.length; slot++) {
       const enemy = enemies[slot];
@@ -534,32 +1253,43 @@ export class Combat extends Phaser.Scene {
         continue;
       }
 
-      const key = enemyKey(enemy.def);
+      // Bosses and mini-bosses draw in the kingdom colour with a thick outline. Parts keep the faction circle.
+      // A generated image per phase replaces the circle (GDD 15.3).
+      const boss = enemy.boss && (enemy.boss.role !== 'part' || enemy.boss.partId === 'unmaking-copy') ? enemy.boss : undefined;
+      const art = boss ? bossImageKey(boss) : undefined;
+      const key = art ?? (boss ? bossKey(enemy.def) : enemyKey(enemy.def));
+      const ensure = (): void => {
+        if (boss) ensureBossTexture(this, enemy.def, bossKingdom(boss));
+        else ensureEnemyTexture(this, enemy.def);
+      };
       if (!sprite) {
-        ensureEnemyTexture(this, enemy.def);
+        ensure();
         sprite = this.inWorld(this.add.image(0, 0, key)).setDepth(DEPTH.enemy);
         this.enemySprites[slot] = sprite;
       } else if (sprite.texture.key !== key) {
-        ensureEnemyTexture(this, enemy.def);
+        ensure();
         sprite.setTexture(key);
       }
-      const size = enemyTextureSize(enemy.def);
-      sprite.setDisplaySize(size, size);
+      // Split copies and the mutated Alchemist draw at their current size.
+      const size = (boss ? bossTextureSize(enemy.def) : enemyTextureSize(enemy.def)) * (enemy.radius / enemy.def.radius);
+      fitImage(sprite, this.spriteSize(key, size));
 
       // Wind-up pull-back, then a quick lunge (GDD 15.3).
       let offset = 0;
-      if (enemy.action === 'windup') {
-        const progress = 1 - enemy.actionTimer / COMBAT.enemyMeleeWindup;
+      if (enemy.action === 'windup' || enemy.action === 'cast') {
+        const progress = Math.min(1, Math.max(0, 1 - enemy.actionTimer / enemy.actionDuration));
         offset = -6 * progress;
-        // Every enemy attack telegraph uses one crimson outline (GDD 15.1).
-        telegraphs.lineStyle(3, DANGER, 0.55 + 0.45 * progress);
-        telegraphs.strokeCircle(enemy.x, enemy.y, enemy.radius + 3 + enemy.range * progress);
+        this.drawTelegraph(enemy, progress);
       } else if (enemy.action === 'recover') {
-        const sinceStrike = COMBAT.enemyMeleeRecover - enemy.actionTimer;
+        const sinceStrike = enemy.actionDuration - enemy.actionTimer;
         offset = 9 * Math.max(0, 1 - sinceStrike / 0.15);
       }
-      sprite.setPosition(enemy.x + enemy.faceX * offset, enemy.y + enemy.faceY * offset);
+      this.animate(sprite, enemy.x + enemy.faceX * offset, enemy.y + enemy.faceY * offset, enemy.vx, enemy.vy, Math.max(40, enemy.baseSpeed), slot * 1.7);
       sprite.setVisible(true);
+      // A sleeping Guardian and a stalled Lancer fade. So do The Unmaking's copies once the real body shows.
+      const owner = enemy.boss?.owner;
+      const revealedCopy = enemy.boss?.partId === 'unmaking-copy' && owner !== undefined && owner.timers.reveal > 0;
+      sprite.setAlpha(enemy.action === 'dormant' ? 0.55 : enemy.action === 'stall' || revealedCopy ? 0.4 : 1);
 
       // White flash on hit (GDD 15.3).
       if (enemy.hitFlash > 0) {
@@ -570,7 +1300,10 @@ export class Combat extends Phaser.Scene {
         sprite.setTintMode(Phaser.TintModes.MULTIPLY);
       }
 
-      if (enemy.health < enemy.maxHealth) {
+      this.drawRank(enemy);
+
+      // Bosses show their health in the HUD bars (GDD 15.7).
+      if (enemy.health < enemy.maxHealth && !boss) {
         const width = enemy.radius * 2 + 4;
         const left = enemy.x - width / 2;
         const top = enemy.y - enemy.radius - 10;
@@ -579,25 +1312,529 @@ export class Combat extends Phaser.Scene {
         bars.fillStyle(PARCHMENT, 1);
         bars.fillRect(left, top, width * Math.max(0, enemy.health / enemy.maxHealth), 4);
       }
+
+      // Status meters show as small pips above the health bar, so players see effects coming (GDD 9.14).
+      // A triggered effect fills its pip and adds a coloured outline to the enemy (GDD 15.4).
+      let pip = 0;
+      let outlines = 0;
+      for (let index = 0; index < STATUS_EFFECTS.length; index++) {
+        const meter = enemy.statusMeter[index] ?? 0;
+        const active = (enemy.statusActive[index] ?? 0) > 0;
+        if (meter <= 0 && !active) continue;
+        const status = STATUS_EFFECTS[index];
+        if (!status) continue;
+        const colour = hexToNumber(STATUS_DEFS[status].colour);
+        // Status meters show as small icons above the health bar (GDD 15.4): the shape fills in as the meter builds.
+        const pipX = enemy.x - enemy.radius + 4 + pip * (PIP_SIZE * 2 + 3);
+        const pipY = enemy.y - enemy.radius - 20;
+        const fill = active ? 1 : Math.min(1, meter / meterSize(enemy, status));
+        this.statusIcon(pipCount++, status, pipX, pipY, active ? 1 : 0.3 + 0.7 * fill);
+        if (!active) {
+          bars.fillStyle(INK, 0.8);
+          bars.fillRect(pipX - PIP_SIZE, pipY + PIP_SIZE + 2, PIP_SIZE * 2 * fill, 2);
+        }
+        pip++;
+        if (active && outlines < 2) {
+          bars.lineStyle(3, colour, 0.95);
+          bars.strokeCircle(enemy.x, enemy.y, enemy.radius + 4 + outlines * 4);
+          outlines++;
+        }
+      }
+
+      // A champion shows its trait by name (GDD 9.13).
+      if (enemy.rank === 'champion' && enemy.championTrait && labels < MAX_CHAMPION_LABELS) {
+        let label = this.championLabels[labels];
+        if (!label) {
+          label = this.inWorld(addText(this, 0, 0, '', { role: 'hand', size: 20 }))
+            .setOrigin(0.5, 1)
+            .setDepth(DEPTH.bars + 1);
+          label.setStroke(PALETTE.parchment, 5);
+          this.championLabels[labels] = label;
+        }
+        const text = STRINGS.hud.champion(CHAMPION_TRAITS[enemy.championTrait].name, enemy.def.name);
+        if (label.text !== text) label.setText(text);
+        label.setPosition(enemy.x, enemy.y - enemy.radius - 34).setVisible(true);
+        labels++;
+      }
+    }
+    for (let index = labels; index < this.championLabels.length; index++) this.championLabels[index]?.setVisible(false);
+    for (let index = pipCount; index < this.statusIcons.length; index++) this.statusIcons[index]?.setVisible(false);
+
+    for (const body of this.sim.bosses) drawBossMarks(bars, body, this.sim.elapsed);
+    drawBossTelegraphs(telegraphs, this.sim.bossTelegraphs);
+  }
+
+  /** Every enemy attack telegraph uses one crimson outline (GDD 15.1). The shape follows the attack. */
+  private drawTelegraph(enemy: Enemy, progress: number): void {
+    const g = this.telegraphs;
+    const alpha = 0.55 + 0.45 * progress;
+    g.lineStyle(3, DANGER, alpha);
+
+    if (enemy.action === 'cast') {
+      switch (enemy.ability) {
+        case 'mine':
+          g.strokeCircle(enemy.aimX, enemy.aimY, ENEMY_RULES.mineBlastRadius * progress);
+          g.lineBetween(enemy.x, enemy.y, enemy.aimX, enemy.aimY);
+          break;
+        case 'spores':
+          g.strokeCircle(enemy.aimX, enemy.aimY, 14 + 10 * progress);
+          g.lineBetween(enemy.x, enemy.y, enemy.aimX, enemy.aimY);
+          break;
+        case 'teleport':
+          g.strokeCircle(enemy.aimX, enemy.aimY, enemy.radius + 10 * (1 - progress));
+          break;
+        default:
+          g.lineStyle(3, BRASS, alpha);
+          g.strokeCircle(enemy.x, enemy.y, enemy.radius + 6 + 8 * progress);
+          break;
+      }
+      return;
+    }
+
+    const player = this.sim.player;
+    switch (enemy.def.attack) {
+      case 'ranged': {
+        // A sight line toward the target.
+        const dx = player.x - enemy.x;
+        const dy = player.y - enemy.y;
+        const length = Math.hypot(dx, dy) || 1;
+        const reach = Math.min(length, enemy.range + 160);
+        g.lineStyle(2 + 2 * progress, DANGER, alpha * 0.8);
+        g.lineBetween(enemy.x, enemy.y, enemy.x + (dx / length) * reach, enemy.y + (dy / length) * reach);
+        break;
+      }
+      case 'slam':
+        g.fillStyle(DANGER, 0.12 + 0.18 * progress);
+        g.fillCircle(enemy.aimX, enemy.aimY, ENEMY_RULES.slamRadius);
+        g.strokeCircle(enemy.aimX, enemy.aimY, ENEMY_RULES.slamRadius);
+        break;
+      case 'detonate':
+        g.fillStyle(DANGER, 0.12 + 0.2 * progress);
+        g.fillCircle(enemy.x, enemy.y, ENEMY_RULES.detonateRadius);
+        g.strokeCircle(enemy.x, enemy.y, ENEMY_RULES.detonateRadius);
+        break;
+      case 'charge': {
+        // The lane of the dash.
+        const dx = enemy.aimX - enemy.x;
+        const dy = enemy.aimY - enemy.y;
+        const length = Math.hypot(dx, dy) || 1;
+        const nx = (-dy / length) * enemy.radius;
+        const ny = (dx / length) * enemy.radius;
+        g.fillStyle(DANGER, 0.1 + 0.15 * progress);
+        g.fillPoints(
+          [
+            new Phaser.Math.Vector2(enemy.x + nx, enemy.y + ny),
+            new Phaser.Math.Vector2(enemy.aimX + nx, enemy.aimY + ny),
+            new Phaser.Math.Vector2(enemy.aimX - nx, enemy.aimY - ny),
+            new Phaser.Math.Vector2(enemy.x - nx, enemy.y - ny),
+          ],
+          true,
+        );
+        g.lineBetween(enemy.x + nx, enemy.y + ny, enemy.aimX + nx, enemy.aimY + ny);
+        g.lineBetween(enemy.x - nx, enemy.y - ny, enemy.aimX - nx, enemy.aimY - ny);
+        break;
+      }
+      case 'shockwave':
+        g.lineStyle(4 + 4 * progress, DANGER, alpha);
+        g.strokeCircle(enemy.x, enemy.y, enemy.radius + 10 + 50 * progress);
+        break;
+      default:
+        g.strokeCircle(enemy.x, enemy.y, enemy.radius + 3 + enemy.range * progress);
+        break;
     }
   }
 
-  private drawProjectiles(): void {
-    const projectiles = this.sim.projectiles.items;
-    for (let slot = 0; slot < projectiles.length; slot++) {
-      const projectile = projectiles[slot];
-      let sprite = this.projectileSprites[slot];
-      if (!projectile || !projectile.active) {
-        sprite?.setVisible(false);
-        continue;
+  /** Rank rings, modifier markers, shields and resistance marks (GDD 9.12, 9.13). */
+  private drawRank(enemy: Enemy): void {
+    const bars = this.bars;
+    const { x, y, radius } = enemy;
+
+    if (enemy.rank === 'elite') {
+      bars.lineStyle(2, BRASS, 1);
+      bars.strokeCircle(x, y, radius + 5);
+    } else if (enemy.rank === 'champion') {
+      bars.lineStyle(3, GOLD, 1);
+      bars.strokeCircle(x, y, radius + 5);
+      bars.lineStyle(2, GOLD, 0.7);
+      bars.strokeCircle(x, y, radius + 10);
+    }
+
+    // One marker per elite modifier, under the enemy.
+    const count = enemy.modifiers.length;
+    for (let index = 0; index < count; index++) {
+      const modifier = enemy.modifiers[index];
+      if (!modifier) continue;
+      const markX = x + (index - (count - 1) / 2) * 11;
+      const markY = y + radius + 11;
+      bars.fillStyle(INK, 1);
+      bars.fillTriangle(markX - 6, markY - 5, markX + 6, markY - 5, markX, markY + 7);
+      bars.fillStyle(hexToNumber(ELITE_MODIFIERS[modifier].colour), 1);
+      bars.fillTriangle(markX - 4, markY - 4, markX + 4, markY - 4, markX, markY + 4.5);
+    }
+
+    // Tower shields and Shielded elites show the guarded arc.
+    if (hasShield(enemy) && enemy.action !== 'dormant') {
+      const facing = Math.atan2(enemy.faceY, enemy.faceX);
+      const up = enemy.modifiers.includes('shielded') ? shieldBlocks(enemy, -enemy.faceX, -enemy.faceY) : true;
+      bars.lineStyle(5, INK, up ? 1 : 0.3);
+      bars.beginPath();
+      bars.arc(x, y, radius + 7, facing - Math.PI / 3, facing + Math.PI / 3);
+      bars.strokePath();
+      bars.lineStyle(3, STEEL, up ? 1 : 0.3);
+      bars.beginPath();
+      bars.arc(x, y, radius + 7, facing - Math.PI / 3, facing + Math.PI / 3);
+      bars.strokePath();
+    }
+
+    // The damage type resisted now: Anomalies, Resistant elites and Reactive Plating.
+    const resisted = enemy.plateType ?? enemy.resistType;
+    if (resisted) {
+      bars.fillStyle(INK, 1);
+      bars.fillCircle(x + radius, y - radius, 6);
+      bars.fillStyle(hexToNumber(DAMAGE_TYPE_COLOURS[resisted]), 1);
+      bars.fillCircle(x + radius, y - radius, 4);
+    }
+
+    if (enemy.carriedGold > 0) {
+      bars.fillStyle(INK, 1);
+      bars.fillCircle(x - radius, y - radius, 6);
+      bars.fillStyle(GOLD, 1);
+      bars.fillCircle(x - radius, y - radius, 4);
+    }
+  }
+
+  /** Enemy area effects, drawn under enemies. Danger outlines mark them as hostile (GDD 15.1). */
+  private drawHazard(g: Phaser.GameObjects.Graphics, hazard: Hazard): void {
+    const fade = Math.min(1, hazard.timeLeft / 0.5);
+    switch (hazard.kind) {
+      case 'acid':
+      case 'toxic':
+      case 'burning': {
+        const colour = hexToNumber(
+          DAMAGE_TYPE_COLOURS[hazard.kind === 'acid' ? 'Corrosive' : hazard.kind === 'toxic' ? 'Toxic' : 'Fire'],
+        );
+        g.fillStyle(colour, 0.34 * fade);
+        g.fillCircle(hazard.x, hazard.y, hazard.radius);
+        g.lineStyle(2, DANGER, 0.75 * fade);
+        g.strokeCircle(hazard.x, hazard.y, hazard.radius);
+        break;
       }
-      if (!sprite) {
-        sprite = this.inWorld(this.add.image(0, 0, PLAYER_PROJECTILE_KEY))
-          .setDisplaySize(PROJECTILE_TEXTURE_SIZE, PROJECTILE_TEXTURE_SIZE)
-          .setDepth(DEPTH.projectile);
-        this.projectileSprites[slot] = sprite;
+      case 'spores': {
+        const colour = hexToNumber(DAMAGE_TYPE_COLOURS.Biological);
+        g.fillStyle(colour, (0.2 + 0.05 * Math.sin(this.clock * 4)) * fade);
+        g.fillCircle(hazard.x, hazard.y, hazard.radius);
+        g.lineStyle(2, DANGER, 0.6 * fade);
+        g.strokeCircle(hazard.x, hazard.y, hazard.radius);
+        break;
       }
-      sprite.setPosition(projectile.x, projectile.y).setVisible(true);
+      case 'pod': {
+        const progress = 1 - hazard.timeLeft / hazard.duration;
+        g.lineStyle(2, DANGER, 0.35 + 0.5 * progress);
+        g.strokeCircle(hazard.x, hazard.y, ENEMY_RULES.sporeCloudRadius * progress);
+        g.fillStyle(hexToNumber(DAMAGE_TYPE_COLOURS.Biological), 1);
+        g.fillCircle(hazard.x, hazard.y, hazard.radius * (0.8 + 0.25 * progress));
+        g.lineStyle(2, INK, 1);
+        g.strokeCircle(hazard.x, hazard.y, hazard.radius * (0.8 + 0.25 * progress));
+        break;
+      }
+      case 'mine': {
+        const armed = hazard.arming <= 0;
+        const blink = armed ? 0.5 + 0.5 * Math.sin(this.clock * 12) : 0.25;
+        g.lineStyle(2, DANGER, armed ? 0.7 : 0.35);
+        g.strokeCircle(hazard.x, hazard.y, ENEMY_RULES.mineTriggerRadius);
+        g.fillStyle(INK, 1);
+        g.fillCircle(hazard.x, hazard.y, hazard.radius);
+        g.fillStyle(DANGER, blink);
+        g.fillCircle(hazard.x, hazard.y, hazard.radius * 0.45);
+        break;
+      }
+      case 'seed': {
+        const progress = 1 - hazard.timeLeft / hazard.duration;
+        g.fillStyle(hexToNumber(DAMAGE_TYPE_COLOURS.Toxic), 1);
+        g.fillCircle(hazard.x, hazard.y, hazard.radius);
+        g.lineStyle(2, INK, 1);
+        g.strokeCircle(hazard.x, hazard.y, hazard.radius);
+        g.lineStyle(2, DANGER, 0.8);
+        g.beginPath();
+        g.arc(hazard.x, hazard.y, hazard.radius + 5, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * progress);
+        g.strokePath();
+        break;
+      }
+      case 'shockwave':
+        g.lineStyle(10, DANGER, 0.25 * fade + 0.2);
+        g.strokeCircle(hazard.x, hazard.y, hazard.radius);
+        g.lineStyle(3, DANGER, 0.9);
+        g.strokeCircle(hazard.x, hazard.y, hazard.radius);
+        break;
+    }
+  }
+
+  /** Warning markers where large groups enter, with an arrow at the screen edge (GDD 4.11). */
+  private drawWarnings(frame: number): void {
+    if (this.warnings.length === 0) return;
+    const g = this.telegraphs;
+    const view = this.cameras.main.worldView;
+    for (const warning of this.warnings) {
+      warning.life -= frame;
+      if (warning.life <= 0) continue;
+      const pulse = 0.5 + 0.5 * Math.sin(this.clock * 14);
+      g.lineStyle(4, DANGER, 0.5 + 0.5 * pulse);
+      g.strokeCircle(warning.x, warning.y, 46 + 8 * pulse);
+      g.lineBetween(warning.x, warning.y - 22, warning.x, warning.y + 6);
+      g.fillStyle(DANGER, 1);
+      g.fillCircle(warning.x, warning.y + 18, 4);
+      // Off screen: an arrow on the edge of the view points at the entry.
+      if (!view.contains(warning.x, warning.y)) {
+        const edgeX = Math.min(view.right - 30, Math.max(view.x + 30, warning.x));
+        const edgeY = Math.min(view.bottom - 30, Math.max(view.y + 30, warning.y));
+        const angle = Math.atan2(warning.y - edgeY, warning.x - edgeX);
+        g.fillStyle(DANGER, 0.6 + 0.4 * pulse);
+        g.fillTriangle(
+          edgeX + Math.cos(angle) * 18,
+          edgeY + Math.sin(angle) * 18,
+          edgeX + Math.cos(angle + 2.5) * 14,
+          edgeY + Math.sin(angle + 2.5) * 14,
+          edgeX + Math.cos(angle - 2.5) * 14,
+          edgeY + Math.sin(angle - 2.5) * 14,
+        );
+      }
+    }
+    this.warnings = this.warnings.filter((warning) => warning.life > 0);
+  }
+
+  /** Area effects, auras and traps: drawn under enemies. */
+  private drawUnder(): void {
+    const g = this.under;
+    const sim = this.sim;
+    const player = sim.player;
+    g.clear();
+
+    for (const zone of sim.zones.items) {
+      if (!zone.active) continue;
+      const fade = Math.min(1, zone.timeLeft / 0.5);
+      if (zone.kind === 'burning') {
+        const fire = hexToNumber(DAMAGE_TYPE_COLOURS.Fire);
+        g.fillStyle(fire, 0.28 * fade);
+        g.fillCircle(zone.x, zone.y, zone.radius);
+        g.lineStyle(2, fire, 0.8 * fade);
+        g.strokeCircle(zone.x, zone.y, zone.radius);
+      } else if (zone.kind === 'rubble') {
+        g.fillStyle(PILLAR, 0.4 * fade);
+        g.fillCircle(zone.x, zone.y, zone.radius);
+        g.lineStyle(2, INK, 0.45 * fade);
+        g.strokeCircle(zone.x, zone.y, zone.radius * 0.6);
+        g.strokeCircle(zone.x, zone.y, zone.radius);
+      } else if (zone.kind === 'fumes') {
+        const toxic = hexToNumber(DAMAGE_TYPE_COLOURS.Toxic);
+        g.fillStyle(toxic, 0.3 * fade);
+        g.fillCircle(zone.x, zone.y, zone.radius);
+        g.lineStyle(2, toxic, 0.8 * fade);
+        g.strokeCircle(zone.x, zone.y, zone.radius);
+      } else if (zone.kind === 'trail') {
+        const status = trailStatuses(sim, zone.weaponIndex)[0];
+        const colour = hexToNumber(status ? STATUS_DEFS[status].colour : DAMAGE_TYPE_COLOURS.Fire);
+        g.fillStyle(colour, 0.4 * Math.min(1, zone.timeLeft / zone.duration + 0.2));
+        g.fillCircle(zone.x, zone.y, zone.radius);
+      } else {
+        g.fillStyle(SMOKE, 0.6 * fade);
+        g.fillCircle(zone.x, zone.y, zone.radius);
+        g.lineStyle(2, INK, 0.25 * fade);
+        g.strokeCircle(zone.x, zone.y, zone.radius);
+      }
+    }
+
+    for (const hazard of sim.hazards.items) {
+      if (hazard.active) this.drawHazard(g, hazard);
+    }
+
+    // Pickups: gold coins, material crates and component cogs (GDD 14.1, 14.2).
+    for (const pickup of sim.pickups.items) {
+      if (!pickup.active) continue;
+      if (pickup.kind === 'gold') {
+        const radius = Math.min(9, 4 + Math.sqrt(pickup.amount));
+        g.fillStyle(GOLD, 1);
+        g.fillCircle(pickup.x, pickup.y, radius);
+        g.lineStyle(1.5, INK, 1);
+        g.strokeCircle(pickup.x, pickup.y, radius);
+      } else if (pickup.kind === 'material') {
+        g.fillStyle(MATERIAL_COLOURS[pickup.material], 1);
+        g.fillRect(pickup.x - 6, pickup.y - 6, 12, 12);
+        g.lineStyle(1.5, INK, 1);
+        g.strokeRect(pickup.x - 6, pickup.y - 6, 12, 12);
+      } else if (pickup.kind === 'herb') {
+        // Biology Master: a healing herb, three green leaves.
+        g.fillStyle(HERB, 1);
+        for (let leaf = 0; leaf < 3; leaf++) {
+          const angle = (leaf / 3) * Math.PI * 2 - Math.PI / 2;
+          g.fillEllipse(pickup.x + Math.cos(angle) * 5, pickup.y + Math.sin(angle) * 5, 9, 9);
+        }
+        g.lineStyle(1.5, INK, 1);
+        g.strokeCircle(pickup.x, pickup.y, 10);
+      } else {
+        const pulse = 0.6 + 0.4 * Math.sin(this.clock * 6);
+        g.lineStyle(3, GOLD, pulse);
+        g.strokeCircle(pickup.x, pickup.y, 14);
+        g.fillStyle(PARCHMENT, 1);
+        g.fillTriangle(pickup.x - 9, pickup.y + 7, pickup.x + 9, pickup.y + 7, pickup.x, pickup.y - 9);
+        g.lineStyle(2, INK, 1);
+        g.strokeTriangle(pickup.x - 9, pickup.y + 7, pickup.x + 9, pickup.y + 7, pickup.x, pickup.y - 9);
+      }
+    }
+
+    // A slowed player shows a cold ring: latched crawlers and spore clouds (GDD 9.11).
+    if (player.slowTimer > 0 && player.health > 0) {
+      g.lineStyle(3, hexToNumber(DAMAGE_TYPE_COLOURS.Cold), 0.9);
+      g.strokeCircle(player.x, player.y, player.radius + 12);
+    }
+
+    for (const weapon of sim.weapons) {
+      const resolved = weapon.resolved;
+      if (resolved.delivery === 'aura') {
+        const colour = hexToNumber(DAMAGE_TYPE_COLOURS[resolved.damageParts[0]?.type ?? 'Biological']);
+        const radius = auraRadius(resolved);
+        g.fillStyle(colour, 0.1 + 0.04 * Math.sin(this.clock * 5));
+        g.fillCircle(player.x, player.y, radius);
+        g.lineStyle(2, colour, 0.6);
+        g.strokeCircle(player.x, player.y, radius);
+      } else if (resolved.delivery === 'orbit') {
+        g.lineStyle(1, GOLD, 0.25);
+        g.strokeCircle(player.x, player.y, orbitRadius(resolved));
+      }
+    }
+
+    for (const trap of sim.traps.items) {
+      if (!trap.active) continue;
+      const armed = trap.arming <= 0;
+      g.fillStyle(GOLD, armed ? 0.9 : 0.35);
+      g.fillTriangle(trap.x - 9, trap.y, trap.x, trap.y - 9, trap.x + 9, trap.y);
+      g.fillTriangle(trap.x - 9, trap.y, trap.x, trap.y + 9, trap.x + 9, trap.y);
+      g.lineStyle(2, INK, armed ? 1 : 0.4);
+      g.strokeCircle(trap.x, trap.y, 11);
+    }
+  }
+
+  /** Projectiles, constructs, orbit heads, beams and the focus reticle: drawn over enemies. */
+  private drawOver(): void {
+    const g = this.over;
+    const sim = this.sim;
+    const player = sim.player;
+    g.clear();
+
+    for (const construct of sim.constructs.items) {
+      if (!construct.active) continue;
+      const fill = construct.kind === 'creature' ? CREATURE : construct.kind === 'hound' ? BRASS : GOLD;
+      if (construct.kind === 'turret') {
+        g.fillStyle(PILLAR, 1);
+        g.fillCircle(construct.x, construct.y, construct.radius + 3);
+        g.lineStyle(5, INK, 1);
+        g.lineBetween(
+          construct.x,
+          construct.y,
+          construct.x + construct.faceX * (construct.radius + 9),
+          construct.y + construct.faceY * (construct.radius + 9),
+        );
+      } else {
+        // A snout shows where the companion is heading.
+        g.fillStyle(INK, 1);
+        g.fillCircle(construct.x + construct.faceX * construct.radius, construct.y + construct.faceY * construct.radius, 5);
+      }
+      g.fillStyle(fill, 1);
+      g.fillCircle(construct.x, construct.y, construct.radius);
+      g.lineStyle(3, INK, 1);
+      g.strokeCircle(construct.x, construct.y, construct.radius);
+      if (construct.health < construct.maxHealth) {
+        const width = construct.radius * 2 + 4;
+        g.fillStyle(INK, 1);
+        g.fillRect(construct.x - width / 2 - 1, construct.y - construct.radius - 11, width + 2, 6);
+        g.fillStyle(GOLD, 1);
+        g.fillRect(construct.x - width / 2, construct.y - construct.radius - 10, width * (construct.health / construct.maxHealth), 4);
+      }
+    }
+
+    for (const weapon of sim.weapons) {
+      const resolved = weapon.resolved;
+      if (resolved.delivery === 'orbit') {
+        const radius = orbitRadius(resolved);
+        const head = orbitHeadRadius(resolved);
+        for (let index = 0; index < resolved.projectiles; index++) {
+          const angle = weapon.orbitAngle + (index / resolved.projectiles) * Math.PI * 2;
+          const x = player.x + Math.cos(angle) * radius;
+          const y = player.y + Math.sin(angle) * radius;
+          g.lineStyle(2, INK, 0.5);
+          g.lineBetween(player.x, player.y, x, y);
+          g.fillStyle(GOLD, 1);
+          g.fillCircle(x, y, head);
+          g.lineStyle(3, INK, 1);
+          g.strokeCircle(x, y, head);
+        }
+      } else if (resolved.delivery === 'beam' && weapon.beamActive) {
+        const colour = hexToNumber(DAMAGE_TYPE_COLOURS[resolved.damageParts[0]?.type ?? 'Fire']);
+        // The beam thickens as the damage rises on one target.
+        const width = 4 + Math.min(6, weapon.beamTicks * 0.6);
+        g.lineStyle(width, colour, 0.85);
+        g.lineBetween(player.x, player.y, weapon.beamX, weapon.beamY);
+        g.lineStyle(Math.max(1.5, width * 0.3), PARCHMENT, 0.95);
+        g.lineBetween(player.x, player.y, weapon.beamX, weapon.beamY);
+      }
+    }
+
+    // Player projectiles lean warm gold (GDD 15.1).
+    for (const projectile of sim.projectiles.items) {
+      if (!projectile.active) continue;
+      const radius = Math.max(3, projectile.radius);
+      if (projectile.kind === 'arcing') {
+        const progress = Math.min(1, projectile.elapsed / projectile.flight);
+        const span = Math.hypot(projectile.targetX - projectile.startX, projectile.targetY - projectile.startY);
+        const height = Math.sin(progress * Math.PI) * Math.min(140, 30 + span * 0.3);
+        g.fillStyle(INK, 0.2);
+        g.fillEllipse(projectile.x, projectile.y, radius * 2.4, radius * 1.4);
+        g.fillStyle(GOLD, 1);
+        g.fillCircle(projectile.x, projectile.y - height, radius + 1);
+        g.lineStyle(2, INK, 1);
+        g.strokeCircle(projectile.x, projectile.y - height, radius + 1);
+        // A faint mark shows where the shot lands.
+        g.lineStyle(1.5, GOLD, 0.5);
+        g.strokeCircle(projectile.targetX, projectile.targetY, Math.max(8, projectile.blastRadius));
+      } else {
+        // A trail in the damage type's style follows each shot (GDD 15.4).
+        const trailType = projectile.forcedType ?? sim.weapons[projectile.weaponIndex]?.resolved.damageParts[0]?.type;
+        if (trailType && Math.random() < TRAIL_CHANCE) this.effects.trail(projectile.x - projectile.dx * 10, projectile.y - projectile.dy * 10, trailType);
+        // A parasite shows in the Biological colour.
+        const colour = projectile.parasite ? hexToNumber(DAMAGE_TYPE_COLOURS.Biological) : GOLD;
+        g.lineStyle(Math.max(2, radius * 0.8), colour, 0.45);
+        g.lineBetween(projectile.x - projectile.dx * 14, projectile.y - projectile.dy * 14, projectile.x, projectile.y);
+        g.fillStyle(colour, 1);
+        g.fillCircle(projectile.x, projectile.y, radius);
+        g.lineStyle(1.5, INK, 1);
+        g.strokeCircle(projectile.x, projectile.y, radius);
+      }
+    }
+
+    // Enemy projectiles lean dark ink, with a crimson edge (GDD 15.1).
+    for (const shot of sim.enemyShots.items) {
+      if (!shot.active) continue;
+      g.lineStyle(3, INK, 0.45);
+      g.lineBetween(shot.x - shot.dx * 12, shot.y - shot.dy * 12, shot.x, shot.y);
+      g.fillStyle(INK, 1);
+      g.fillCircle(shot.x, shot.y, shot.radius);
+      g.lineStyle(1.5, DANGER, 1);
+      g.strokeCircle(shot.x, shot.y, shot.radius + 1);
+      // A high-contrast outline with adjustable brightness (GDD 3.10).
+      if (this.prefs.projectileOutline > 0) {
+        g.lineStyle(2, 0xffffff, this.prefs.projectileOutline);
+        g.strokeCircle(shot.x, shot.y, shot.radius + 3);
+      }
+    }
+
+    // The focus point shows as a small brass reticle (GDD 15.7).
+    const focus = this.focusPoint;
+    if (focus) {
+      g.lineStyle(3, BRASS, 1);
+      g.strokeCircle(focus.x, focus.y, 12);
+      g.lineBetween(focus.x - 20, focus.y, focus.x - 6, focus.y);
+      g.lineBetween(focus.x + 6, focus.y, focus.x + 20, focus.y);
+      g.lineBetween(focus.x, focus.y - 20, focus.x, focus.y - 6);
+      g.lineBetween(focus.x, focus.y + 6, focus.x, focus.y + 20);
     }
   }
 
@@ -633,14 +1870,17 @@ export class Combat extends Phaser.Scene {
       if (!value) continue;
       const colour = hexToNumber(DAMAGE_TYPE_COLOURS[type as DamageTypeName]);
       const fill = Math.min(1, value / player.stats.adaptationCap);
+      // The ring fills toward the cap around the damage type's shape (GDD 15.1).
       hud.fillStyle(PARCHMENT, 0.9);
-      hud.fillCircle(iconX, iconY, 9 * s);
-      hud.fillStyle(colour, 1);
-      hud.slice(iconX, iconY, 9 * s, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * fill, false);
-      hud.fillPath();
-      hud.lineStyle(2, INK, 1);
-      hud.strokeCircle(iconX, iconY, 9 * s);
-      iconX += 26 * s;
+      hud.fillCircle(iconX, iconY, 11 * s);
+      hud.lineStyle(3 * s, colour, 1);
+      hud.beginPath();
+      hud.arc(iconX, iconY, 10 * s, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * fill, false);
+      hud.strokePath();
+      hud.lineStyle(1.5, INK, 1);
+      hud.strokeCircle(iconX, iconY, 11.5 * s);
+      drawDamageIcon(hud, type as DamageTypeName, iconX, iconY, 6 * s);
+      iconX += 28 * s;
     }
 
     // Round timer, top centre. At zero the round goes on until every enemy falls (GDD 4.9).
@@ -661,13 +1901,53 @@ export class Combat extends Phaser.Scene {
       hud.fillStyle(PARCHMENT, weapon ? 0.92 : 0.5);
       hud.fillRect(x, tile.y, tile.size, tile.size);
       if (weapon) {
-        const wait = Math.min(1, weapon.cooldown * weapon.stats.attacksPerSecond);
-        hud.fillStyle(BRASS, 0.35);
-        hud.fillRect(x, tile.y + tile.size * (1 - wait), tile.size, tile.size * wait);
+        if (weapon.jamTimer > 0) {
+          // A jammed weapon shows the danger colour until the jam clears.
+          hud.fillStyle(DANGER, 0.4);
+          hud.fillRect(x, tile.y, tile.size, tile.size);
+        } else {
+          const wait = Math.min(1, weapon.cooldown * currentAttackSpeed(sim, weapon));
+          hud.fillStyle(BRASS, 0.35);
+          hud.fillRect(x, tile.y + tile.size * (1 - wait), tile.size, tile.size * wait);
+        }
       }
       hud.lineStyle(weapon ? 3 : 2, weapon ? INK : BRASS, weapon ? 1 : 0.7);
       hud.strokeRect(x, tile.y, tile.size, tile.size);
+      // The Unstable switched this weapon's Auxiliary component off (GDD 9.11).
+      if (weapon && sim.auxiliarySuppressed && weapon.full !== weapon.suppressed) {
+        hud.lineStyle(4, DANGER, 0.9);
+        hud.strokeRect(x + 3, tile.y + 3, tile.size - 6, tile.size - 6);
+      }
+      // Synergy activation draws a brief ink flourish round the tile when the round starts (GDD 15.4).
+      if (weapon && weapon.resolved.synergies.length > 0 && this.clock < FLOURISH_SECONDS) {
+        this.drawFlourish(hud, x, tile.y, tile.size, this.clock / FLOURISH_SECONDS);
+      }
+      // Weapon tiles glow when a synergy is active (GDD 15.7).
+      if (weapon && weapon.resolved.synergies.length > 0) {
+        const pulse = 0.55 + 0.4 * (0.5 + 0.5 * Math.sin(this.clock * 4 + slot));
+        hud.lineStyle(5, GOLD, pulse);
+        hud.strokeRect(x - 5, tile.y - 5, tile.size + 10, tile.size + 10);
+        hud.lineStyle(2, GOLD, pulse * 0.5);
+        hud.strokeRect(x - 10, tile.y - 10, tile.size + 20, tile.size + 20);
+      }
     }
+
+    if (sim.gold !== this.lastGold) {
+      this.lastGold = sim.gold;
+      this.goldText.setText(STRINGS.prep.gold(sim.gold));
+    }
+    const research = Math.floor(this.run.research.points + sim.loot.research + 1e-9);
+    if (research !== this.lastResearch) {
+      this.lastResearch = research;
+      this.researchText.setText(STRINGS.hud.research(research));
+    }
+
+    // A Null Field switches off synergies and Auxiliary components (GDD 10.3).
+    const nulled = sim.nullTimer > 0;
+    const suppressedLabel = nulled ? STRINGS.hud.nulled : STRINGS.hud.suppressed;
+    if (this.suppressedText.text !== suppressedLabel) this.suppressedText.setText(suppressedLabel);
+    this.suppressedText.setVisible(nulled || (sim.auxiliarySuppressed && sim.weapons.some((weapon) => weapon.full !== weapon.suppressed)));
+    this.drawBossBars();
 
     // Pause button on touch devices.
     if (this.pauseZone) {
@@ -681,15 +1961,39 @@ export class Combat extends Phaser.Scene {
       const barH = button.size * 0.44;
       hud.fillRect(button.x + button.size * 0.32 - barW / 2, button.y + (button.size - barH) / 2, barW, barH);
       hud.fillRect(button.x + button.size * 0.68 - barW / 2, button.y + (button.size - barH) / 2, barW, barH);
+      // The speed button sits under pause. It greys out on boss rounds (GDD 15.7).
+      const speed = this.speedButtonLayout();
+      const allowed = this.speedAllowed();
+      hud.fillStyle(this.fastForward && allowed ? GOLD : PARCHMENT, allowed ? 0.9 : 0.4);
+      hud.fillRect(speed.x, speed.y, speed.size, speed.size);
+      hud.lineStyle(3, INK, allowed ? 1 : 0.4);
+      hud.strokeRect(speed.x, speed.y, speed.size, speed.size);
+      hud.fillStyle(INK, allowed ? 1 : 0.4);
+      for (const offset of [0.22, 0.5]) {
+        const left = speed.x + speed.size * offset;
+        hud.fillTriangle(left, speed.y + speed.size * 0.28, left, speed.y + speed.size * 0.72, left + speed.size * 0.28, speed.y + speed.size * 0.5);
+      }
     }
+    // A fixed joystick shows its ring at rest (GDD 3.10).
+    if (isTouchPrimary() && this.prefs.joystickFixed && !this.controls.joystick.active) {
+      const base = this.controls.fixedBase();
+      hud.lineStyle(3, INK, 0.35);
+      hud.strokeCircle(base.x, base.y, this.controls.radius);
+    }
+    // Fast-forward greys out on boss rounds (GDD 15.7).
+    this.speedText.setVisible(this.fastForward && !isTouchPrimary()).setAlpha(this.speedAllowed() ? 1 : 0.35);
+    // The trial's priority target carries a label (GDD 3.11).
+    const target = this.sim.priorityId >= 0 ? this.sim.enemies.items.find((enemy) => enemy.active && enemy.id === this.sim.priorityId) : undefined;
+    this.priorityLabel.setVisible(target !== undefined);
+    if (target) this.priorityLabel.setPosition(target.x, target.y - target.radius - 22);
 
     // Floating joystick.
     const joystick = this.controls?.joystick;
     if (joystick?.active) {
       hud.fillStyle(PARCHMENT, 0.35);
-      hud.fillCircle(joystick.baseX, joystick.baseY, JOYSTICK_RADIUS);
+      hud.fillCircle(joystick.baseX, joystick.baseY, this.controls.radius);
       hud.lineStyle(3, INK, 0.7);
-      hud.strokeCircle(joystick.baseX, joystick.baseY, JOYSTICK_RADIUS);
+      hud.strokeCircle(joystick.baseX, joystick.baseY, this.controls.radius);
       hud.fillStyle(BRASS, 0.9);
       hud.fillCircle(joystick.knobX, joystick.knobY, 30);
       hud.lineStyle(3, INK, 1);
@@ -697,7 +2001,7 @@ export class Combat extends Phaser.Scene {
     }
 
     // Screen-edge warning at low health (GDD 15.7).
-    if (low && player.health > 0) {
+    if (low && player.health > 0 && this.prefs.lowHealthWarning) {
       const pulse = 0.35 + 0.3 * (0.5 + 0.5 * Math.sin(this.clock * 6));
       hud.lineStyle(14, DANGER, pulse);
       hud.strokeRect(7, 7, SCREEN.width - 14, SCREEN.height - 14);
@@ -709,9 +2013,19 @@ export class Combat extends Phaser.Scene {
     const lines = [
       `${Math.round(this.game.loop.actualFps)} fps`,
       `Seed ${formatSeed(this.run.seed)}  Round ${sim.round}  Step ${sim.steps}`,
-      `Enemies ${sim.enemies.activeCount}  Projectiles ${sim.projectiles.activeCount}`,
+      `Enemies ${sim.enemies.activeCount} of ${sim.activeLimit}  Squads ${sim.squads.size}  Tokens ${sim.tokensHeld} of ${sim.tokenLimit}  Spawns left ${sim.spawnsLeft}`,
+      `Projectiles ${sim.projectiles.activeCount}  Constructs ${sim.constructs.activeCount}  Traps ${sim.traps.activeCount}  Area effects ${sim.zones.activeCount}`,
+      `Enemy shots ${sim.enemyShots.activeCount}  Hazards ${sim.hazards.activeCount}  Pickups ${sim.pickups.activeCount}  Roster ${kingdomForRound(this.run)}`,
+      `Round loot: gold ${sim.loot.gold}, materials ${Object.values(sim.loot.materials).reduce((sum, value) => sum + value, 0)}, components ${sim.loot.components.length}`,
       `Kills ${sim.stats.kills}  Shots ${sim.stats.shotsFired}  Hits taken ${sim.stats.hitsTaken}`,
       sim.invincible ? STRINGS.debug.invincibleOn : STRINGS.debug.invincibleOff,
+      // Economy logger (CLAUDE.md "Testing"): the last finished rounds.
+      ...this.run.ledger
+        .slice(-2)
+        .map(
+          (entry) =>
+            `Round ${entry.round}: ${entry.kills} kills, gold +${entry.goldEarned} -${entry.goldSpent}, materials +${entry.materialsEarned} -${entry.materialsSpent}`,
+        ),
     ];
     this.debugText.setText(lines.join('\n'));
   }

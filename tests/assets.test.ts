@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { ASSETS, ASSET_FOLDERS, assetFileName, assetKey, assetPath } from '../src/data/assets';
 import type { AssetEntry, AssetGroup } from '../src/data/assets';
 import { ENEMIES } from '../src/data/enemies';
-import { PLAYER_KEY, PLAYER_PROJECTILE_KEY, enemyKey } from '../src/render/placeholders';
+import { PLAYER_KEY, enemyKey } from '../src/render/placeholders';
 
 describe('asset manifest (ART_PROMPTS.md)', () => {
   it('turns GDD names into kebab-case file names', () => {
@@ -43,7 +43,7 @@ describe('asset manifest (ART_PROMPTS.md)', () => {
   it('lists every key the placeholder textures use', () => {
     const keys = Object.keys(ASSETS);
     expect(keys).toContain(PLAYER_KEY);
-    expect(keys).toContain(PLAYER_PROJECTILE_KEY);
+    expect(keys).toContain('projectile.player');
     for (const enemy of Object.values(ENEMIES)) {
       expect(keys).toContain(enemyKey(enemy));
       expect(enemyKey(enemy)).toBe(assetKey('enemy', enemy.name));

@@ -30,7 +30,6 @@ function drawTexture(
 }
 
 export const PLAYER_KEY = 'player.the-inventor';
-export const PLAYER_PROJECTILE_KEY = 'projectile.player';
 const PLAYER_RING_GAP = 7;
 const OUTLINE = 3;
 
@@ -83,21 +82,5 @@ export function ensureEnemyTexture(scene: Phaser.Scene, def: EnemyDef): void {
     context.textAlign = 'center';
     context.textBaseline = 'middle';
     context.fillText(def.name.charAt(0), centre, centre + 1);
-  });
-}
-
-/** Logical size of the player projectile placeholder. */
-export const PROJECTILE_TEXTURE_SIZE = (COMBAT.projectileRadius + 2) * 2;
-
-/** Player projectile: gold with an ink outline. */
-export function ensureProjectileTexture(scene: Phaser.Scene): void {
-  drawTexture(scene, PLAYER_PROJECTILE_KEY, PROJECTILE_TEXTURE_SIZE, (context, centre) => {
-    context.beginPath();
-    context.arc(centre, centre, COMBAT.projectileRadius, 0, Math.PI * 2);
-    context.fillStyle = PALETTE.playerEffects;
-    context.fill();
-    context.lineWidth = 1.5;
-    context.strokeStyle = PALETTE.ink;
-    context.stroke();
   });
 }
