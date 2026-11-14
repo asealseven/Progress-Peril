@@ -10,6 +10,7 @@ The same 174 images as ART_PROMPTS.md, in the same order, rewritten for Midjourn
 - Story cards describe a scene. Quoted story text made Midjourney letter the words into the image.
 - Component and relic prompts each describe a distinct object. The generic wording gave near-identical results.
 - Boss phases 2 and 3 describe the figure in full and add `--oref` with the phase 1 image, since Midjourney reads each prompt on its own.
+- Characters, creatures, constructs and boss parts open with full-body framing from the game's top-down camera, and `--no` bans close-ups, headshots and cropping. Midjourney defaults to portraits without this.
 - Aspect ratios match the game: 1:1 sprites and icons, 3:4 shopkeepers, 3:2 arenas (2400 by 1600), 16:9 cards and the hub.
 
 ## Workflow
@@ -31,7 +32,7 @@ Folder: `sprites/player`. Parameters: `--ar 1:1`, no reference: this image becom
 `the-inventor.png`
 
 ```
-a young travelling inventor in a leather apron, brass goggles pushed up on the forehead, a satchel of tools, ink-stained sleeves, warm brown leather, parchment and gold palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, top-down three-quarter view from slightly above, single subject centred and fully visible, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects
+full-body game sprite of the whole figure from head to feet, seen from above at a 45 degree top-down angle like a top-down arena game camera, the figure small in the frame with white space all around, a young travelling inventor in a leather apron, brass goggles pushed up on the forehead, a satchel of tools, ink-stained sleeves, warm brown leather, parchment and gold palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects, close-up, headshot, portrait, bust, cropped
 ```
 
 ## Enemies
@@ -41,139 +42,139 @@ Folder: `sprites/enemies`. Parameters: `--ar 1:1`, `--sref <SPRITE_REF>`.
 `royal-footman.png`
 
 ```
-a foot soldier in dented steel half-plate with a tall kite shield and a short sword, steel grey and ember orange cloth palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, top-down three-quarter view from slightly above, single subject centred and fully visible, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects --sref <SPRITE_REF>
+full-body game sprite of the whole figure from head to feet, seen from above at a 45 degree top-down angle like a top-down arena game camera, the figure small in the frame with white space all around, a foot soldier in dented steel half-plate with a tall kite shield and a short sword, steel grey and ember orange cloth palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects, close-up, headshot, portrait, bust, cropped --sref <SPRITE_REF>
 ```
 
 `royal-longbowman.png`
 
 ```
-a lean archer in a padded gambeson and open helm, drawing a tall longbow, steel grey and ember orange cloth palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, top-down three-quarter view from slightly above, single subject centred and fully visible, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects --sref <SPRITE_REF>
+full-body game sprite of the whole figure from head to feet, seen from above at a 45 degree top-down angle like a top-down arena game camera, the figure small in the frame with white space all around, a lean archer in a padded gambeson and open helm, drawing a tall longbow, steel grey and ember orange cloth palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects, close-up, headshot, portrait, bust, cropped --sref <SPRITE_REF>
 ```
 
 `royal-bastion.png`
 
 ```
-a broad knight crouched behind a huge riveted iron tower shield, steel grey and ember orange cloth palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, top-down three-quarter view from slightly above, single subject centred and fully visible, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects --sref <SPRITE_REF>
+full-body game sprite of the whole figure from head to feet, seen from above at a 45 degree top-down angle like a top-down arena game camera, the figure small in the frame with white space all around, a broad knight crouched behind a huge riveted iron tower shield, steel grey and ember orange cloth palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects, close-up, headshot, portrait, bust, cropped --sref <SPRITE_REF>
 ```
 
 `clockwork-crawler.png`
 
 ```
-a small spider-like machine of brass gears on six thin legs, one glowing eye, brass and dark iron palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, top-down three-quarter view from slightly above, single subject centred and fully visible, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects --sref <SPRITE_REF>
+full-body game sprite of the whole figure from head to feet, seen from above at a 45 degree top-down angle like a top-down arena game camera, the figure small in the frame with white space all around, a small spider-like machine of brass gears on six thin legs, one glowing eye, brass and dark iron palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects, close-up, headshot, portrait, bust, cropped --sref <SPRITE_REF>
 ```
 
 `iron-sentinel.png`
 
 ```
-a hulking riveted iron automaton with thick arms and a furnace glow in the chest, brass and dark iron palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, top-down three-quarter view from slightly above, single subject centred and fully visible, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects --sref <SPRITE_REF>
+full-body game sprite of the whole figure from head to feet, seen from above at a 45 degree top-down angle like a top-down arena game camera, the figure small in the frame with white space all around, a hulking riveted iron automaton with thick arms and a furnace glow in the chest, brass and dark iron palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects, close-up, headshot, portrait, bust, cropped --sref <SPRITE_REF>
 ```
 
 `mechanist.png`
 
 ```
-an engineer in a soot-stained coat with a large wrench and a crate of crawler parts, brass and dark iron palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, top-down three-quarter view from slightly above, single subject centred and fully visible, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects --sref <SPRITE_REF>
+full-body game sprite of the whole figure from head to feet, seen from above at a 45 degree top-down angle like a top-down arena game camera, the figure small in the frame with white space all around, an engineer in a soot-stained coat with a large wrench and a crate of crawler parts, brass and dark iron palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects, close-up, headshot, portrait, bust, cropped --sref <SPRITE_REF>
 ```
 
 `chemical-crawler.png`
 
 ```
-a slimy crawling creature leaking acid, with bloated sacs on its back, sickly acid green and amber palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, top-down three-quarter view from slightly above, single subject centred and fully visible, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects --sref <SPRITE_REF>
+full-body game sprite of the whole figure from head to feet, seen from above at a 45 degree top-down angle like a top-down arena game camera, the figure small in the frame with white space all around, a slimy crawling creature leaking acid, with bloated sacs on its back, sickly acid green and amber palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects, close-up, headshot, portrait, bust, cropped --sref <SPRITE_REF>
 ```
 
 `regenerator.png`
 
 ```
-a muscular pale experiment covered in stitches, fresh flesh knitting closed, sickly acid green and amber palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, top-down three-quarter view from slightly above, single subject centred and fully visible, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects --sref <SPRITE_REF>
+full-body game sprite of the whole figure from head to feet, seen from above at a 45 degree top-down angle like a top-down arena game camera, the figure small in the frame with white space all around, a muscular pale experiment covered in stitches, fresh flesh knitting closed, sickly acid green and amber palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects, close-up, headshot, portrait, bust, cropped --sref <SPRITE_REF>
 ```
 
 `volatile-specimen.png`
 
 ```
-a hunched creature covered in glowing orange pustules, ready to burst, sickly acid green and amber palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, top-down three-quarter view from slightly above, single subject centred and fully visible, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects --sref <SPRITE_REF>
+full-body game sprite of the whole figure from head to feet, seen from above at a 45 degree top-down angle like a top-down arena game camera, the figure small in the frame with white space all around, a hunched creature covered in glowing orange pustules, ready to burst, sickly acid green and amber palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects, close-up, headshot, portrait, bust, cropped --sref <SPRITE_REF>
 ```
 
 `hunting-hound.png`
 
 ```
-a lean wild hound with bristling fur, mid-lunge, moss green and earthy brown palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, top-down three-quarter view from slightly above, single subject centred and fully visible, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects --sref <SPRITE_REF>
+full-body game sprite of the whole figure from head to feet, seen from above at a 45 degree top-down angle like a top-down arena game camera, the figure small in the frame with white space all around, a lean wild hound with bristling fur, mid-lunge, moss green and earthy brown palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects, close-up, headshot, portrait, bust, cropped --sref <SPRITE_REF>
 ```
 
 `ironback-beetle.png`
 
 ```
-a giant beetle with a dark grey armoured shell and a front horn, moss green and earthy brown palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, top-down three-quarter view from slightly above, single subject centred and fully visible, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects --sref <SPRITE_REF>
+full-body game sprite of the whole figure from head to feet, seen from above at a 45 degree top-down angle like a top-down arena game camera, the figure small in the frame with white space all around, a giant beetle with a dark grey armoured shell and a front horn, moss green and earthy brown palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects, close-up, headshot, portrait, bust, cropped --sref <SPRITE_REF>
 ```
 
 `spore-mother.png`
 
 ```
-a squat fungal creature crowned with mushroom caps, releasing a cloud of spores, moss green and earthy brown palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, top-down three-quarter view from slightly above, single subject centred and fully visible, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects --sref <SPRITE_REF>
+full-body game sprite of the whole figure from head to feet, seen from above at a 45 degree top-down angle like a top-down arena game camera, the figure small in the frame with white space all around, a squat fungal creature crowned with mushroom caps, releasing a cloud of spores, moss green and earthy brown palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects, close-up, headshot, portrait, bust, cropped --sref <SPRITE_REF>
 ```
 
 `highwayman.png`
 
 ```
-a masked bandit in a long coat with a short blade and a bag of stolen coins, worn leather brown and faded red palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, top-down three-quarter view from slightly above, single subject centred and fully visible, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects --sref <SPRITE_REF>
+full-body game sprite of the whole figure from head to feet, seen from above at a 45 degree top-down angle like a top-down arena game camera, the figure small in the frame with white space all around, a masked bandit in a long coat with a short blade and a bag of stolen coins, worn leather brown and faded red palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects, close-up, headshot, portrait, bust, cropped --sref <SPRITE_REF>
 ```
 
 `rogue-inventor.png`
 
 ```
-a scruffy outlaw tinkerer holding an odd improvised weapon, a belt of traps at the waist, worn leather brown and faded red palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, top-down three-quarter view from slightly above, single subject centred and fully visible, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects --sref <SPRITE_REF>
+full-body game sprite of the whole figure from head to feet, seen from above at a 45 degree top-down angle like a top-down arena game camera, the figure small in the frame with white space all around, a scruffy outlaw tinkerer holding an odd improvised weapon, a belt of traps at the waist, worn leather brown and faded red palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects, close-up, headshot, portrait, bust, cropped --sref <SPRITE_REF>
 ```
 
 `mercenary-captain.png`
 
 ```
-a veteran mercenary in mismatched plate and a feathered hat, pointing to command, worn leather brown and faded red palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, top-down three-quarter view from slightly above, single subject centred and fully visible, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects --sref <SPRITE_REF>
+full-body game sprite of the whole figure from head to feet, seen from above at a 45 degree top-down angle like a top-down arena game camera, the figure small in the frame with white space all around, a veteran mercenary in mismatched plate and a feathered hat, pointing to command, worn leather brown and faded red palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects, close-up, headshot, portrait, bust, cropped --sref <SPRITE_REF>
 ```
 
 `anomaly.png`
 
 ```
-a flickering geometric shape, half solid and half missing, like a tear in the air, violet and starlight white palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, top-down three-quarter view from slightly above, single subject centred and fully visible, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects --sref <SPRITE_REF>
+full-body game sprite of the whole figure from head to feet, seen from above at a 45 degree top-down angle like a top-down arena game camera, the figure small in the frame with white space all around, a flickering geometric shape, half solid and half missing, like a tear in the air, violet and starlight white palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects, close-up, headshot, portrait, bust, cropped --sref <SPRITE_REF>
 ```
 
 `ancient-guardian.png`
 
 ```
-a towering stone construct carved with star charts, glowing seams, violet and starlight white palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, top-down three-quarter view from slightly above, single subject centred and fully visible, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects --sref <SPRITE_REF>
+full-body game sprite of the whole figure from head to feet, seen from above at a 45 degree top-down angle like a top-down arena game camera, the figure small in the frame with white space all around, a towering stone construct carved with star charts, glowing seams, violet and starlight white palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects, close-up, headshot, portrait, bust, cropped --sref <SPRITE_REF>
 ```
 
 `the-unstable.png`
 
 ```
-a crackling humanoid silhouette of light with loose stone fragments in orbit, violet and starlight white palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, top-down three-quarter view from slightly above, single subject centred and fully visible, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects --sref <SPRITE_REF>
+full-body game sprite of the whole figure from head to feet, seen from above at a 45 degree top-down angle like a top-down arena game camera, the figure small in the frame with white space all around, a crackling humanoid silhouette of light with loose stone fragments in orbit, violet and starlight white palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects, close-up, headshot, portrait, bust, cropped --sref <SPRITE_REF>
 ```
 
 `forgeguard-knight.png`
 
 ```
-a heavy knight in red-hot glowing plate armour carrying a forge hammer, steel grey and ember orange cloth palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, top-down three-quarter view from slightly above, single subject centred and fully visible, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects --sref <SPRITE_REF>
+full-body game sprite of the whole figure from head to feet, seen from above at a 45 degree top-down angle like a top-down arena game camera, the figure small in the frame with white space all around, a heavy knight in red-hot glowing plate armour carrying a forge hammer, steel grey and ember orange cloth palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects, close-up, headshot, portrait, bust, cropped --sref <SPRITE_REF>
 ```
 
 `vat-chimera.png`
 
 ```
-a patchwork creature stitched from several animals, glass tubes in its back, sickly acid green and amber palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, top-down three-quarter view from slightly above, single subject centred and fully visible, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects --sref <SPRITE_REF>
+full-body game sprite of the whole figure from head to feet, seen from above at a 45 degree top-down angle like a top-down arena game camera, the figure small in the frame with white space all around, a patchwork creature stitched from several animals, glass tubes in its back, sickly acid green and amber palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects, close-up, headshot, portrait, bust, cropped --sref <SPRITE_REF>
 ```
 
 `gear-lancer.png`
 
 ```
-a clockwork cavalry machine on wheels with a long spinning brass lance, brass and dark iron palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, top-down three-quarter view from slightly above, single subject centred and fully visible, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects --sref <SPRITE_REF>
+full-body game sprite of the whole figure from head to feet, seen from above at a 45 degree top-down angle like a top-down arena game camera, the figure small in the frame with white space all around, a clockwork cavalry machine on wheels with a long spinning brass lance, brass and dark iron palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects, close-up, headshot, portrait, bust, cropped --sref <SPRITE_REF>
 ```
 
 `static-mote.png`
 
 ```
-a small floating ball of yellow lightning inside a cracked glass shell, violet and starlight white palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, top-down three-quarter view from slightly above, single subject centred and fully visible, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects --sref <SPRITE_REF>
+full-body game sprite of the whole figure from head to feet, seen from above at a 45 degree top-down angle like a top-down arena game camera, the figure small in the frame with white space all around, a small floating ball of yellow lightning inside a cracked glass shell, violet and starlight white palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects, close-up, headshot, portrait, bust, cropped --sref <SPRITE_REF>
 ```
 
 `thornling.png`
 
 ```
-a small running sapling creature with thorny branches for arms, moss green and earthy brown palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, top-down three-quarter view from slightly above, single subject centred and fully visible, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects --sref <SPRITE_REF>
+full-body game sprite of the whole figure from head to feet, seen from above at a 45 degree top-down angle like a top-down arena game camera, the figure small in the frame with white space all around, a small running sapling creature with thorny branches for arms, moss green and earthy brown palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects, close-up, headshot, portrait, bust, cropped --sref <SPRITE_REF>
 ```
 
 ## Mini-bosses
@@ -183,31 +184,31 @@ Folder: `sprites/minibosses`. Parameters: `--ar 1:1`, `--sref <SPRITE_REF>`.
 `forge-marshal.png`
 
 ```
-a towering knight commander with a flaming halberd and a war banner on the back, ember orange and soot black palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, top-down three-quarter view from slightly above, single subject centred and fully visible, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects --sref <SPRITE_REF>
+full-body game sprite of the whole figure from head to feet, seen from above at a 45 degree top-down angle like a top-down arena game camera, the figure small in the frame with white space all around, a towering knight commander with a flaming halberd and a war banner on the back, ember orange and soot black palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects, close-up, headshot, portrait, bust, cropped --sref <SPRITE_REF>
 ```
 
 `mad-alchemist.png`
 
 ```
-a wild-haired alchemist in a stained robe juggling flasks of green, orange and yellow liquid, acid green and amber palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, top-down three-quarter view from slightly above, single subject centred and fully visible, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects --sref <SPRITE_REF>
+full-body game sprite of the whole figure from head to feet, seen from above at a 45 degree top-down angle like a top-down arena game camera, the figure small in the frame with white space all around, a wild-haired alchemist in a stained robe juggling flasks of green, orange and yellow liquid, acid green and amber palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects, close-up, headshot, portrait, bust, cropped --sref <SPRITE_REF>
 ```
 
 `siege-spider.png`
 
 ```
-an eight-legged brass walking cannon with a mortar on its back, teal and polished brass palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, top-down three-quarter view from slightly above, single subject centred and fully visible, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects --sref <SPRITE_REF>
+full-body game sprite of the whole figure from head to feet, seen from above at a 45 degree top-down angle like a top-down arena game camera, the figure small in the frame with white space all around, an eight-legged brass walking cannon with a mortar on its back, teal and polished brass palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects, close-up, headshot, portrait, bust, cropped --sref <SPRITE_REF>
 ```
 
 `tesla-warden.png`
 
 ```
-a robed scholar-guard holding a staff topped with a crackling coil, small pylons at the feet, violet and starlight white palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, top-down three-quarter view from slightly above, single subject centred and fully visible, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects --sref <SPRITE_REF>
+full-body game sprite of the whole figure from head to feet, seen from above at a 45 degree top-down angle like a top-down arena game camera, the figure small in the frame with white space all around, a robed scholar-guard holding a staff topped with a crackling coil, small pylons at the feet, violet and starlight white palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects, close-up, headshot, portrait, bust, cropped --sref <SPRITE_REF>
 ```
 
 `thornback-matriarch.png`
 
 ```
-a huge boar-like beast covered in a shell of thorns, moss green and gold palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, top-down three-quarter view from slightly above, single subject centred and fully visible, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects --sref <SPRITE_REF>
+full-body game sprite of the whole figure from head to feet, seen from above at a 45 degree top-down angle like a top-down arena game camera, the figure small in the frame with white space all around, a huge boar-like beast covered in a shell of thorns, moss green and gold palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects, close-up, headshot, portrait, bust, cropped --sref <SPRITE_REF>
 ```
 
 ## Bosses
@@ -217,91 +218,91 @@ Folder: `sprites/bosses`. Parameters: `--ar 1:1`, `--sref <SPRITE_REF>`.
 `iron-regent-phase-1.png`
 
 ```
-a crowned king in full ornate plate armour, sword and great shield, large and imposing, ember orange and soot black palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, top-down three-quarter view from slightly above, single subject centred and fully visible, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects --sref <SPRITE_REF>
+full-body game sprite of the whole figure from head to feet, seen from above at a 45 degree top-down angle like a top-down arena game camera, the figure small in the frame with white space all around, a crowned king in full ornate plate armour, sword and great shield, large and imposing, ember orange and soot black palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects, close-up, headshot, portrait, bust, cropped --sref <SPRITE_REF>
 ```
 
 `iron-regent-phase-2.png`
 
 ```
-a crowned king in ornate plate armour glowing orange-hot, molten metal dripping, large and imposing, ember orange and soot black palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, top-down three-quarter view from slightly above, single subject centred and fully visible, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects --sref <SPRITE_REF> --oref <IRON_REGENT_PHASE_1>
+full-body game sprite of the whole figure from head to feet, seen from above at a 45 degree top-down angle like a top-down arena game camera, the figure small in the frame with white space all around, a crowned king in ornate plate armour glowing orange-hot, molten metal dripping, large and imposing, ember orange and soot black palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects, close-up, headshot, portrait, bust, cropped --sref <SPRITE_REF> --oref <IRON_REGENT_PHASE_1>
 ```
 
 `iron-regent-phase-3.png`
 
 ```
-a crowned king stripped of his armour, in a padded doublet, furious, swinging a war hammer, large and imposing, ember orange and soot black palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, top-down three-quarter view from slightly above, single subject centred and fully visible, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects --sref <SPRITE_REF> --oref <IRON_REGENT_PHASE_1>
+full-body game sprite of the whole figure from head to feet, seen from above at a 45 degree top-down angle like a top-down arena game camera, the figure small in the frame with white space all around, a crowned king stripped of his armour, in a padded doublet, furious, swinging a war hammer, large and imposing, ember orange and soot black palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects, close-up, headshot, portrait, bust, cropped --sref <SPRITE_REF> --oref <IRON_REGENT_PHASE_1>
 ```
 
 `abomination-phase-1.png`
 
 ```
-a large shifting creature of fused flesh with colour-shifting patches, large and imposing, acid green and amber palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, top-down three-quarter view from slightly above, single subject centred and fully visible, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects --sref <SPRITE_REF>
+full-body game sprite of the whole figure from head to feet, seen from above at a 45 degree top-down angle like a top-down arena game camera, the figure small in the frame with white space all around, a large shifting creature of fused flesh with colour-shifting patches, large and imposing, acid green and amber palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects, close-up, headshot, portrait, bust, cropped --sref <SPRITE_REF>
 ```
 
 `abomination-phase-2.png`
 
 ```
-a huge shifting creature of fused flesh, grown larger, extra limbs and glass vats fused to the body, large and imposing, acid green and amber palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, top-down three-quarter view from slightly above, single subject centred and fully visible, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects --sref <SPRITE_REF> --oref <ABOMINATION_PHASE_1>
+full-body game sprite of the whole figure from head to feet, seen from above at a 45 degree top-down angle like a top-down arena game camera, the figure small in the frame with white space all around, a huge shifting creature of fused flesh, grown larger, extra limbs and glass vats fused to the body, large and imposing, acid green and amber palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects, close-up, headshot, portrait, bust, cropped --sref <SPRITE_REF> --oref <ABOMINATION_PHASE_1>
 ```
 
 `abomination-phase-3.png`
 
 ```
-a huge creature of fused flesh melting and frenzied, a glowing core exposed in the chest, large and imposing, acid green and amber palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, top-down three-quarter view from slightly above, single subject centred and fully visible, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects --sref <SPRITE_REF> --oref <ABOMINATION_PHASE_1>
+full-body game sprite of the whole figure from head to feet, seen from above at a 45 degree top-down angle like a top-down arena game camera, the figure small in the frame with white space all around, a huge creature of fused flesh melting and frenzied, a glowing core exposed in the chest, large and imposing, acid green and amber palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects, close-up, headshot, portrait, bust, cropped --sref <SPRITE_REF> --oref <ABOMINATION_PHASE_1>
 ```
 
 `grand-automaton-phase-1.png`
 
 ```
-a giant clockwork war machine with a frontal shield and two turret arms, large and imposing, teal and polished brass palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, top-down three-quarter view from slightly above, single subject centred and fully visible, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects --sref <SPRITE_REF>
+full-body game sprite of the whole figure from head to feet, seen from above at a 45 degree top-down angle like a top-down arena game camera, the figure small in the frame with white space all around, a giant clockwork war machine with a frontal shield and two turret arms, large and imposing, teal and polished brass palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects, close-up, headshot, portrait, bust, cropped --sref <SPRITE_REF>
 ```
 
 `grand-automaton-phase-2.png`
 
 ```
-a giant clockwork war machine overheating, steam venting from cracked armour plates, large and imposing, teal and polished brass palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, top-down three-quarter view from slightly above, single subject centred and fully visible, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects --sref <SPRITE_REF> --oref <GRAND_AUTOMATON_PHASE_1>
+full-body game sprite of the whole figure from head to feet, seen from above at a 45 degree top-down angle like a top-down arena game camera, the figure small in the frame with white space all around, a giant clockwork war machine overheating, steam venting from cracked armour plates, large and imposing, teal and polished brass palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects, close-up, headshot, portrait, bust, cropped --sref <SPRITE_REF> --oref <GRAND_AUTOMATON_PHASE_1>
 ```
 
 `grand-automaton-phase-3.png`
 
 ```
-a giant clockwork war machine damaged and missing armour plates, sparks flying, small crawler machines pouring out, large and imposing, teal and polished brass palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, top-down three-quarter view from slightly above, single subject centred and fully visible, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects --sref <SPRITE_REF> --oref <GRAND_AUTOMATON_PHASE_1>
+full-body game sprite of the whole figure from head to feet, seen from above at a 45 degree top-down angle like a top-down arena game camera, the figure small in the frame with white space all around, a giant clockwork war machine damaged and missing armour plates, sparks flying, small crawler machines pouring out, large and imposing, teal and polished brass palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects, close-up, headshot, portrait, bust, cropped --sref <SPRITE_REF> --oref <GRAND_AUTOMATON_PHASE_1>
 ```
 
 `the-unmaking-phase-1.png`
 
 ```
-a tall figure made of empty space outlined in violet light, like a hole cut in the world, large and imposing, violet and starlight white palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, top-down three-quarter view from slightly above, single subject centred and fully visible, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects --sref <SPRITE_REF>
+full-body game sprite of the whole figure from head to feet, seen from above at a 45 degree top-down angle like a top-down arena game camera, the figure small in the frame with white space all around, a tall figure made of empty space outlined in violet light, like a hole cut in the world, large and imposing, violet and starlight white palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects, close-up, headshot, portrait, bust, cropped --sref <SPRITE_REF>
 ```
 
 `the-unmaking-phase-2.png`
 
 ```
-a tall figure made of empty space outlined in violet light, ringed by circles of null energy and floating debris, large and imposing, violet and starlight white palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, top-down three-quarter view from slightly above, single subject centred and fully visible, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects --sref <SPRITE_REF> --oref <THE_UNMAKING_PHASE_1>
+full-body game sprite of the whole figure from head to feet, seen from above at a 45 degree top-down angle like a top-down arena game camera, the figure small in the frame with white space all around, a tall figure made of empty space outlined in violet light, ringed by circles of null energy and floating debris, large and imposing, violet and starlight white palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects, close-up, headshot, portrait, bust, cropped --sref <SPRITE_REF> --oref <THE_UNMAKING_PHASE_1>
 ```
 
 `the-unmaking-phase-3.png`
 
 ```
-three identical tall figures made of empty space outlined in violet light, standing side by side, large and imposing, violet and starlight white palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, top-down three-quarter view from slightly above, single subject centred and fully visible, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery --sref <SPRITE_REF> --oref <THE_UNMAKING_PHASE_1>
+full-body game sprite of the whole figure from head to feet, seen from above at a 45 degree top-down angle like a top-down arena game camera, the figure small in the frame with white space all around, three identical tall figures made of empty space outlined in violet light, standing side by side, large and imposing, violet and starlight white palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, close-up, headshot, portrait, bust, cropped --sref <SPRITE_REF> --oref <THE_UNMAKING_PHASE_1>
 ```
 
 `spore-sovereign-phase-1.png`
 
 ```
-a colossal fungal monarch rooted in a stone fountain, a crown of mushrooms, large and imposing, moss green and gold palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, top-down three-quarter view from slightly above, single subject centred and fully visible, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects --sref <SPRITE_REF>
+full-body game sprite of the whole figure from head to feet, seen from above at a 45 degree top-down angle like a top-down arena game camera, the figure small in the frame with white space all around, a colossal fungal monarch rooted in a stone fountain, a crown of mushrooms, large and imposing, moss green and gold palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects, close-up, headshot, portrait, bust, cropped --sref <SPRITE_REF>
 ```
 
 `spore-sovereign-phase-2.png`
 
 ```
-a colossal fungal monarch with a crown of mushrooms, pulled free from a fountain and walking on legs of roots, large and imposing, moss green and gold palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, top-down three-quarter view from slightly above, single subject centred and fully visible, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects --sref <SPRITE_REF> --oref <SPORE_SOVEREIGN_PHASE_1>
+full-body game sprite of the whole figure from head to feet, seen from above at a 45 degree top-down angle like a top-down arena game camera, the figure small in the frame with white space all around, a colossal fungal monarch with a crown of mushrooms, pulled free from a fountain and walking on legs of roots, large and imposing, moss green and gold palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects, close-up, headshot, portrait, bust, cropped --sref <SPRITE_REF> --oref <SPORE_SOVEREIGN_PHASE_1>
 ```
 
 `spore-sovereign-phase-3.png`
 
 ```
-a colossal fungal monarch with a crown of mushrooms in full bloom, covered in glowing flowers, large and imposing, moss green and gold palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, top-down three-quarter view from slightly above, single subject centred and fully visible, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects --sref <SPRITE_REF> --oref <SPORE_SOVEREIGN_PHASE_1>
+full-body game sprite of the whole figure from head to feet, seen from above at a 45 degree top-down angle like a top-down arena game camera, the figure small in the frame with white space all around, a colossal fungal monarch with a crown of mushrooms in full bloom, covered in glowing flowers, large and imposing, moss green and gold palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects, close-up, headshot, portrait, bust, cropped --sref <SPRITE_REF> --oref <SPORE_SOVEREIGN_PHASE_1>
 ```
 
 ## Boss parts
@@ -311,25 +312,25 @@ Folder: `sprites/bosses`. Parameters: `--ar 1:1`, `--sref <SPRITE_REF>`.
 `arm-turret.png`
 
 ```
-a detached brass gatling arm with a rotating barrel cluster on a heavy shoulder joint, teal and polished brass palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, top-down three-quarter view from slightly above, single subject centred and fully visible, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects --sref <SPRITE_REF>
+the whole object fully in frame, seen from above at a 45 degree top-down angle like a top-down arena game camera, small in the frame with white space all around, a detached brass gatling arm with a rotating barrel cluster on a heavy shoulder joint, teal and polished brass palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects, close-up, headshot, portrait, bust, cropped --sref <SPRITE_REF>
 ```
 
 `belt-motor.png`
 
 ```
-a squat iron motor housing with a large flywheel and a drive belt, steam vents on top, teal and polished brass palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, top-down three-quarter view from slightly above, single subject centred and fully visible, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects --sref <SPRITE_REF>
+the whole object fully in frame, seen from above at a 45 degree top-down angle like a top-down arena game camera, small in the frame with white space all around, a squat iron motor housing with a large flywheel and a drive belt, steam vents on top, teal and polished brass palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects, close-up, headshot, portrait, bust, cropped --sref <SPRITE_REF>
 ```
 
 `war-banner.png`
 
 ```
-a tall iron pole planted in the ground with a torn ember-orange banner bearing a hammer crest, ember orange and soot black palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, top-down three-quarter view from slightly above, single subject centred and fully visible, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects --sref <SPRITE_REF>
+the whole object fully in frame, seen from above at a 45 degree top-down angle like a top-down arena game camera, small in the frame with white space all around, a tall iron pole planted in the ground with a torn ember-orange banner bearing a hammer crest, ember orange and soot black palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects, close-up, headshot, portrait, bust, cropped --sref <SPRITE_REF>
 ```
 
 `pylon.png`
 
 ```
-a slender stone and copper pylon topped with a glass sphere of crackling light, violet and starlight white palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, top-down three-quarter view from slightly above, single subject centred and fully visible, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects --sref <SPRITE_REF>
+the whole object fully in frame, seen from above at a 45 degree top-down angle like a top-down arena game camera, small in the frame with white space all around, a slender stone and copper pylon topped with a glass sphere of crackling light, violet and starlight white palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects, close-up, headshot, portrait, bust, cropped --sref <SPRITE_REF>
 ```
 
 ## Constructs
@@ -339,25 +340,25 @@ Folder: `sprites/constructs`. Parameters: `--ar 1:1`, `--sref <SPRITE_REF>`.
 `clockwork-turret.png`
 
 ```
-a small brass turret on three splayed legs with a wind-up key on the back and a crossbow barrel, brass and warm gold palette, facing right, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, top-down three-quarter view from slightly above, single subject centred and fully visible, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects --sref <SPRITE_REF>
+full-body game sprite of the whole figure from head to feet, seen from above at a 45 degree top-down angle like a top-down arena game camera, the figure small in the frame with white space all around, a small brass turret on three splayed legs with a wind-up key on the back and a crossbow barrel, brass and warm gold palette, facing right, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects, close-up, headshot, portrait, bust, cropped --sref <SPRITE_REF>
 ```
 
 `clockwork-hound.png`
 
 ```
-a mechanical brass hound with visible gears in the chest, a wind-up key on the back and snapping steel jaws, brass and warm gold palette, facing right, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, top-down three-quarter view from slightly above, single subject centred and fully visible, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects --sref <SPRITE_REF>
+full-body game sprite of the whole figure from head to feet, seen from above at a 45 degree top-down angle like a top-down arena game camera, the figure small in the frame with white space all around, a mechanical brass hound with visible gears in the chest, a wind-up key on the back and snapping steel jaws, brass and warm gold palette, facing right, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects, close-up, headshot, portrait, bust, cropped --sref <SPRITE_REF>
 ```
 
 `living-arsenal.png`
 
 ```
-a small agile beast with tendrils and armoured plates, half animal, half weapon, ready to pounce, magenta, moss green and warm gold palette, facing right, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, top-down three-quarter view from slightly above, single subject centred and fully visible, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects --sref <SPRITE_REF>
+full-body game sprite of the whole figure from head to feet, seen from above at a 45 degree top-down angle like a top-down arena game camera, the figure small in the frame with white space all around, a small agile beast with tendrils and armoured plates, half animal, half weapon, ready to pounce, magenta, moss green and warm gold palette, facing right, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects, close-up, headshot, portrait, bust, cropped --sref <SPRITE_REF>
 ```
 
 `spring-trap.png`
 
 ```
-an open steel snap trap with jagged teeth and a coiled spring, seen from above, dark iron and warm gold palette, facing right, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, top-down three-quarter view from slightly above, single subject centred and fully visible, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects --sref <SPRITE_REF>
+full-body game sprite of the whole figure from head to feet, seen from above at a 45 degree top-down angle like a top-down arena game camera, the figure small in the frame with white space all around, an open steel snap trap with jagged teeth and a coiled spring, seen from above, dark iron and warm gold palette, facing right, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, plain flat white background --ar 1:1 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects, close-up, headshot, portrait, bust, cropped --sref <SPRITE_REF>
 ```
 
 ## Weapon icons
@@ -973,19 +974,19 @@ Folder: `portraits/shopkeepers`. Parameters: `--ar 3:4`, `--sref <SPRITE_REF>`.
 `blacksmith.png`
 
 ```
-a gruff broad-shouldered blacksmith with a soot-stained leather apron and a hammer over one shoulder, ember orange and iron grey palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, top-down three-quarter view from slightly above, single subject centred and fully visible, plain flat white background --ar 3:4 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects --sref <SPRITE_REF>
+a gruff broad-shouldered blacksmith with a soot-stained leather apron and a hammer over one shoulder, ember orange and iron grey palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, plain flat white background --ar 3:4 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects --sref <SPRITE_REF>
 ```
 
 `alchemist.png`
 
 ```
-a twitchy wiry alchemist in round green goggles holding a bubbling flask, acid green and amber palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, top-down three-quarter view from slightly above, single subject centred and fully visible, plain flat white background --ar 3:4 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects --sref <SPRITE_REF>
+a twitchy wiry alchemist in round green goggles holding a bubbling flask, acid green and amber palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, plain flat white background --ar 3:4 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects --sref <SPRITE_REF>
 ```
 
 `royal-inventor.png`
 
 ```
-a pompous royal inventor in a velvet coat with a ruff collar and a brass monocle, violet and polished brass palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, top-down three-quarter view from slightly above, single subject centred and fully visible, plain flat white background --ar 3:4 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects --sref <SPRITE_REF>
+a pompous royal inventor in a velvet coat with a ruff collar and a brass monocle, violet and polished brass palette, hand-drawn ink and watercolour illustration from a Renaissance inventor's notebook, even black ink linework, light cross-hatching, flat muted watercolour fills, plain flat white background --ar 3:4 --no text, letters, words, frame, border, ground shadow, scenery, multiple subjects --sref <SPRITE_REF>
 ```
 
 ## Arenas
