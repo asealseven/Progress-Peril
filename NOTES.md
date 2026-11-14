@@ -577,3 +577,16 @@ Every choice below is mine and easy to reverse. Each names its GDD section.
 - **Pause settings (GDD 15.9).** Settings open over the paused round without the Saves tab, so a profile switch or import never happens mid-round. Remapped controls take hold on return.
 - **Character portrait (GDD 15.9).** GDD 16.7 lists no traits, so the portrait shows the highest mastery rank across disciplines and the character's endless best.
 - **Dialogs.** Save code dialogs are page elements over the canvas, so phones show their own keyboard and copy menu.
+
+## Milestone 12
+
+- **Summoned enemies (GDD 14.2).** Drops follow GDD 14.2 for bought enemies only. Enemies summoned by Mechanists, Warlords, bosses, events and seeds drop nothing, since GDD 14.3 models kills from the threat budget.
+- **Summon cap.** Boss summons stop at 10 living summoned enemies. Spore Burst seeds count toward it.
+- **Full Bloom (GDD 10.3).** Heals 0.01 per cent of max Health per second per fungal patch, counting 8 patches at most.
+- **Round end (GDD 4.9).** Remaining enemies must fall, so the game makes sure they can: dormant Ancient Guardians wake when the timer runs out, and retreating and kiting enemies close in during the clean-up. Ten seconds into the clean-up, overtime starts: non-boss enemies stop healing, ranged enemies close in, and damage they take rises 25 per cent every 10 seconds. After 60 seconds of overtime, stragglers flee with no loot, as they do when a boss falls.
+- **Stuck enemies.** An enemy that tries to move but covers under a quarter of its speed in a second walks sideways for 1.5 seconds, alternating sides.
+- **Director timing.** Trickle and assault end at 70 per cent of the timer, groups between 12 and 60 per cent, so the last wave can fall inside the GDD 4.3 round length.
+- **Average kill cost (GDD 14.3).** The director weights enemy picks by threat cost to the power 0, 0.5 and 1 in Territories 1, 2 and 3.
+- **Tier tuning (CLAUDE.md, Milestone 12).** Enemy Health Extreme is 220, keeping the 2.5 ratio used above Extreme. Weapon Damage is 5/9/15/25/44 and Attack Speed 0.45/0.8/1.25/2.0/3.3, for kill speed close to the GDD 4.3 round lengths. Territory bosses have 3,200 Health in Territory 1.
+- **Mobile effects (GDD 15.4).** Phones multiply effect density by 0.6 and cap particles at 300.
+- **Precache.** Unhashed files under public/assets carry revisions, so replaced art updates installed copies.

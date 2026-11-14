@@ -128,11 +128,11 @@ describe('enemy roster (GDD 9.8, 9.10, 9.16)', () => {
 describe('ranks and scaling (GDD 9.10, 9.12, 9.13)', () => {
   it('raises Health and Damage one step per territory', () => {
     const health = [1, 8, 15].map((round) => enemyAt(quiet({ round }), 'Royal Footman', 500, 0).maxHealth);
-    expect(health).toEqual([35, 90, 400]);
+    expect(health).toEqual([35, 90, 220]);
     const damage = [1, 8, 15].map((round) => enemyAt(quiet({ round }), 'Royal Footman', 500, 0).damage);
     expect(damage).toEqual([7, 12, 20]);
     // Above Extreme each step multiplies by 2.5.
-    expect(enemyAt(quiet({ round: 8 }), 'Ancient Guardian', 500, 0).maxHealth).toBe(1000);
+    expect(enemyAt(quiet({ round: 8 }), 'Ancient Guardian', 500, 0).maxHealth).toBe(550);
   });
 
   it('gives elites one Health step, larger meters and modifiers by territory', () => {
@@ -141,13 +141,13 @@ describe('ranks and scaling (GDD 9.10, 9.12, 9.13)', () => {
     expect(first.meterScale).toBe(2);
     expect(first.modifiers).toHaveLength(1);
     const second = enemyAt(quiet({ round: 8 }), 'Royal Footman', 500, 0, { rank: 'elite' });
-    expect(second.maxHealth).toBe(400);
+    expect(second.maxHealth).toBe(220);
     expect(second.modifiers).toHaveLength(2);
   });
 
   it('gives champions two Health steps, two modifiers and one trait', () => {
     const champion = enemyAt(quiet({ round: 15 }), 'Royal Footman', 500, 0, { rank: 'champion' });
-    expect(champion.maxHealth).toBe(2500);
+    expect(champion.maxHealth).toBe(1375);
     expect(champion.meterScale).toBe(3);
     expect(champion.modifiers).toHaveLength(2);
     expect(champion.championTrait).toBeDefined();

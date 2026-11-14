@@ -228,6 +228,8 @@ export function hitEnemy(world: World, enemy: Enemy, weaponIndex: number, option
 
   const x = enemy.x;
   const y = enemy.y;
+  // Overtime: stragglers take more damage the longer the clean-up runs (NOTES.md).
+  if (!enemy.boss) amount *= world.overtimeFactor;
   const dealt = Math.min(amount, enemy.health);
   enemy.health -= amount;
   enemy.hitFlash = HIT_FLASH_SECONDS;
@@ -590,7 +592,7 @@ export function killEnemy(
   dropLoot(world, enemy, weaponIndex);
 
   world.stats.kills++;
-  world.emit({ type: 'enemyKilled', x, y, enemyId: enemy.def.id });
+  world.emit({ type: 'enemyKilled', x, y, enemyId: enemy.def.id, bought: !enemy.minion && !enemy.noLegacy && !enemy.boss });
   world.enemies.release(enemy);
   if (splits) splitEnemy(world, def, x, y, maxHealth, squadId);
 

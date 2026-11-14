@@ -125,9 +125,9 @@ export function rollDroppedComponent(territory: number, rng: Rng, atLeast = 0): 
 /** A mini-boss drops a Rare component one time in four (GDD 14.2). */
 const MINI_BOSS_RARE_CHANCE = 0.25;
 
-/** Drops for a defeated enemy (GDD 14.1, 14.2). Split copies and sprouted Thornlings drop nothing. */
+/** Drops for a defeated enemy (GDD 14.1, 14.2). Split copies, sprouted Thornlings and summoned minions drop nothing. */
 export function dropLoot(world: World, enemy: Enemy, weaponIndex: number): void {
-  if (enemy.noLegacy) return;
+  if (enemy.noLegacy || enemy.minion) return;
   const { x, y } = enemy;
   // Bloom Crown: kills sometimes drop healing blooms (GDD 5.12).
   if (world.relic('bloomDrops') > 0 && world.luck(RELIC_RULES.bloomChance)) world.environment.addBloom(x, y, RELIC_RULES.bloomSeconds);

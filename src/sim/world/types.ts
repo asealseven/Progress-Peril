@@ -260,6 +260,13 @@ export interface Enemy extends Poolable {
   mutated: boolean;
   /** Sprouted Thornlings and split copies leave nothing behind on death. */
   noLegacy: boolean;
+  /** Summoned, not bought from the threat budget: drops nothing (NOTES.md). */
+  minion: boolean;
+  /** Stuck check: position a second ago, seconds to the next check and seconds of detour left. */
+  checkX: number;
+  checkY: number;
+  checkTimer: number;
+  detour: number;
   /** Speed before Swift and Overclocked. */
   baseSpeed: number;
 
@@ -552,7 +559,7 @@ export type WorldEvent =
       readonly critical: boolean;
       readonly damageType: DamageType;
     }
-  | { readonly type: 'enemyKilled'; readonly x: number; readonly y: number; readonly enemyId: string }
+  | { readonly type: 'enemyKilled'; readonly x: number; readonly y: number; readonly enemyId: string; /** Bought from the threat budget, not summoned, split or a boss body. */ readonly bought: boolean }
   | { readonly type: 'projectileBlocked'; readonly x: number; readonly y: number }
   | { readonly type: 'hazardBurst'; readonly hazard: HazardId; readonly x: number; readonly y: number; readonly radius: number }
   | { readonly type: 'hazardArc'; readonly fromX: number; readonly fromY: number; readonly toX: number; readonly toY: number }

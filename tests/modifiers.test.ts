@@ -100,9 +100,9 @@ describe('component slot rules (GDD 7.12)', () => {
 describe('weapon resolution', () => {
   it('reads base numbers from the tier tables', () => {
     const crossbow = resolved('Crossbow');
-    expect(crossbow.damage).toBe(20);
-    expect(crossbow.damageParts).toEqual([{ type: 'Piercing', amount: 20 }]);
-    expect(crossbow.attacksPerSecond).toBeCloseTo(0.7, 10);
+    expect(crossbow.damage).toBe(25);
+    expect(crossbow.damageParts).toEqual([{ type: 'Piercing', amount: 25 }]);
+    expect(crossbow.attacksPerSecond).toBeCloseTo(0.8, 10);
     expect(crossbow.range).toBe(340);
     expect(crossbow.area).toBe(0);
     expect(crossbow.criticalChance).toBeCloseTo(0.2, 10);
@@ -114,19 +114,19 @@ describe('weapon resolution', () => {
 
   it('splits two damage types evenly', () => {
     expect(resolved('Field Cannon').damageParts).toEqual([
-      { type: 'Impact', amount: 17.5 },
-      { type: 'Fire', amount: 17.5 },
+      { type: 'Impact', amount: 22 },
+      { type: 'Fire', amount: 22 },
     ]);
   });
 
   it('applies "up" and "down" stat effects by modifier size', () => {
-    expect(resolved('Crossbow', 'Tempered Steel Frame').damage).toBeCloseTo(22, 10);
+    expect(resolved('Crossbow', 'Tempered Steel Frame').damage).toBeCloseTo(27.5, 10);
     const light = resolved('Crossbow', 'Lightweight Frame');
-    expect(light.attacksPerSecond).toBeCloseTo(0.7 * 1.2, 10);
-    expect(light.damage).toBeCloseTo(18, 10);
+    expect(light.attacksPerSecond).toBeCloseTo(0.8 * 1.2, 10);
+    expect(light.damage).toBeCloseTo(22.5, 10);
     const hammer = resolved('War Hammer', 'Counterweight Assembly');
-    expect(hammer.damage).toBeCloseTo(24, 10);
-    expect(hammer.attacksPerSecond).toBeCloseTo(0.7 * 0.9, 10);
+    expect(hammer.damage).toBeCloseTo(30, 10);
+    expect(hammer.attacksPerSecond).toBeCloseTo(0.8 * 0.9, 10);
     const barrel = resolved('Crossbow', 'Reinforced Barrel');
     expect(barrel.range).toBeCloseTo(408, 10);
     expect(barrel.projectileSpeed).toBeCloseTo(840, 10);
@@ -135,10 +135,10 @@ describe('weapon resolution', () => {
   });
 
   it('adds component bonuses together, since components are one source type', () => {
-    expect(resolved('Crossbow', 'Tempered Steel Frame', 'Iron Bolts').damage).toBeCloseTo(24, 10);
-    expect(resolved('Crossbow', 'Lightweight Frame', 'Torsion Spring').attacksPerSecond).toBeCloseTo(0.7 * 1.4, 10);
+    expect(resolved('Crossbow', 'Tempered Steel Frame', 'Iron Bolts').damage).toBeCloseTo(30, 10);
+    expect(resolved('Crossbow', 'Lightweight Frame', 'Torsion Spring').attacksPerSecond).toBeCloseTo(0.8 * 1.4, 10);
     const overclock = resolved('Crossbow', 'Tempered Steel Frame', 'Prototype Overclock');
-    expect(overclock.damage).toBeCloseTo(20 * 1.45, 10);
+    expect(overclock.damage).toBeCloseTo(25 * 1.45, 10);
     expect(overclock.triggers.jam).toBe(true);
   });
 
@@ -159,15 +159,15 @@ describe('weapon resolution', () => {
 
   it('adds extra damage types as a share of weapon damage', () => {
     expect(resolved('Crossbow', 'Copper Coil Housing').damageParts).toEqual([
-      { type: 'Piercing', amount: 20 },
-      { type: 'Electric', amount: 2 },
+      { type: 'Piercing', amount: 25 },
+      { type: 'Electric', amount: 2.5 },
     ]);
   });
 
   it('applies a damage bonus tied to one damage type to the matching part', () => {
     const cannon = resolved('Field Cannon', 'Heat Sink Housing');
-    expect(cannon.damageParts[0]).toEqual({ type: 'Impact', amount: 17.5 });
-    expect(cannon.damageParts[1]?.amount).toBeCloseTo(19.25, 10);
+    expect(cannon.damageParts[0]).toEqual({ type: 'Impact', amount: 22 });
+    expect(cannon.damageParts[1]?.amount).toBeCloseTo(24.2, 10);
     expect(cannon.statusDurationFor.Burning).toBeCloseTo(1.2, 10);
     expect(cannon.inactive).toEqual([]);
   });
@@ -175,11 +175,11 @@ describe('weapon resolution', () => {
   it('changes projectile counts, penetration and bounces', () => {
     const multishot = resolved('Crossbow', 'Multishot Rack');
     expect(multishot.projectiles).toBe(2);
-    expect(multishot.damage).toBeCloseTo(18, 10);
+    expect(multishot.damage).toBeCloseTo(22.5, 10);
     expect(multishot.spreadDegrees).toBe(8);
     expect(resolved('Crossbow', 'Piercing Rail').penetration).toBe(1);
     const meteoric = resolved('Crossbow', 'Meteoric Iron Frame');
-    expect(meteoric.damage).toBeCloseTo(27, 10);
+    expect(meteoric.damage).toBeCloseTo(33.75, 10);
     expect(meteoric.penetration).toBe(1);
     expect(resolved('Crossbow', 'Ricochet Deflector').bounces).toBe(1);
     expect(resolved('Sawblade Launcher', 'Ricochet Deflector').bounces).toBe(4);
@@ -220,7 +220,7 @@ describe('weapon resolution', () => {
   it('applies the Electromagnetic Accelerator and the Magnetised Core', () => {
     const accelerator = resolved('Crossbow', 'Electromagnetic Accelerator');
     expect(accelerator.projectileSpeed).toBeCloseTo(700 * 1.35, 10);
-    expect(accelerator.damage).toBeCloseTo(22, 10);
+    expect(accelerator.damage).toBeCloseTo(27.5, 10);
     expect(accelerator.tags).toContain('Electric');
     const core = resolved('Crossbow', 'Magnetised Core');
     expect(core.homing).toBe(5);
@@ -234,17 +234,17 @@ describe('weapon resolution', () => {
       weapon.components.Structure!.rounds = rounds;
       return resolveLoadout([weapon], BASE_STATS).weapons[0]!.damage;
     };
-    expect(damageAfter(0)).toBeCloseTo(20, 10);
-    expect(damageAfter(3)).toBeCloseTo(23, 10);
-    expect(damageAfter(7)).toBeCloseTo(27, 10);
-    expect(damageAfter(20)).toBeCloseTo(27, 10);
+    expect(damageAfter(0)).toBeCloseTo(25, 10);
+    expect(damageAfter(3)).toBeCloseTo(25 * 1.15, 10);
+    expect(damageAfter(7)).toBeCloseTo(25 * 1.35, 10);
+    expect(damageAfter(20)).toBeCloseTo(25 * 1.35, 10);
   });
 
   it('adapts the Living Arsenal each round as a separate source type', () => {
     const weapon = arm('Living Arsenal', 'Tempered Steel Frame');
     weapon.rounds = 2;
     // Components give 10 per cent and the weapon gives 10 per cent: different source types multiply.
-    expect(resolveLoadout([weapon], BASE_STATS).weapons[0]!.damage).toBeCloseTo(12 * 1.1 * 1.1, 10);
+    expect(resolveLoadout([weapon], BASE_STATS).weapons[0]!.damage).toBeCloseTo(15 * 1.1 * 1.1, 10);
   });
 
   it('records conditional and construct effects', () => {

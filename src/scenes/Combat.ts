@@ -3,7 +3,7 @@ import { assetKey } from '../data/assets';
 import { CombatAudio } from '../audio/combatAudio';
 import { music } from '../audio/music';
 import { SPRITE_IMAGE_SCALE, fitImage, hasImage } from '../render/images';
-import { drawDamageIcon, drawStatusIcon } from '../render/damageIcons';
+import { drawDamageIcon, ensureStatusIconTextures, statusIconKey } from '../render/damageIcons';
 import { DAMAGE_TYPE_COLOURS, KINGDOM_COLOURS, PALETTE, hexToNumber } from '../data/palette';
 import type { DamageTypeName } from '../data/palette';
 import { SCREEN } from '../data/screen';
@@ -36,6 +36,7 @@ import { ENEMIES, ENEMY_LIST } from '../data/enemies';
 import type { EnemyId } from '../data/enemies';
 import { territorySlot } from '../data/rounds';
 import { REACTION_DEFS, STATUS_DEFS, STATUS_EFFECTS } from '../data/statusEffects';
+import type { StatusEffect } from '../data/statusEffects';
 import { SYNERGIES } from '../data/synergies';
 import { meterSize, trailStatuses } from '../sim/world/status';
 import type { Enemy, EnemyRank, Hazard } from '../sim/world/types';
@@ -50,7 +51,7 @@ import type { GameSettings } from '../data/modes';
 import { RESEARCH_NODES } from '../data/research';
 import { RELICS } from '../data/relics';
 import { installedComponents } from '../sim/loadout';
-import { isTouchPrimary, uiScale } from './platform';
+import { MOBILE_EFFECT_SHARE, isTouchPrimary, uiScale } from './platform';
 
 export interface CombatData {
   run: RunState;
@@ -104,6 +105,7 @@ const SQUASH = 0.06;
 const LEAN = 0.12;
 const MAX_GHOSTS = 24;
 const FLOURISH_SECONDS = 1.4;
+const MAX_STATUS_ICONS = 160;
 const CAPTION_MS = 2600;
 /** Chance per frame that a player shot leaves a trail puff (GDD 15.4). */
 const TRAIL_CHANCE = 0.35;
@@ -140,6 +142,7 @@ export class Combat extends Phaser.Scene {
   private playerSprite!: Phaser.GameObjects.Image;
   private enemySprites: Array<Phaser.GameObjects.Image | undefined> = [];
   private ghosts: Phaser.GameObjects.Image[] = [];
+  private statusIcons: Phaser.GameObjects.Image[] = [];
   private audio!: CombatAudio;
   private captionText!: Phaser.GameObjects.Text;
   private captions: string[] = [];
@@ -213,6 +216,7 @@ export class Combat extends Phaser.Scene {
     this.scale1 = uiScale();
     this.enemySprites = [];
     this.ghosts = [];
+    this.statusIcons = [];
     this.captions = [];
     this.weaponLabels = [];
     this.debugButtons = [];
@@ -243,6 +247,7 @@ export class Combat extends Phaser.Scene {
     this.uiCamera = this.cameras.add(0, 0, SCREEN.width, SCREEN.height);
 
     ensurePlayerTexture(this);
+    ensureStatusIconTextures(this);
 
     this.drawArena();
     this.under = this.inWorld(this.add.graphics()).setDepth(DEPTH.under);
@@ -257,13 +262,14 @@ export class Combat extends Phaser.Scene {
     this.createPauseOverlay();
     this.setPaused(false);
 
+    if (isTouchPrimary()) this.effects.maxParticles = 300;
     this.controls = new CombatInput(this, this.prefs);
     // Back from Settings: remapped controls and effect density take hold at once.
     const onResume = (): void => {
       this.controls.destroy();
       this.controls = new CombatInput(this, this.prefs);
       this.controls.enabled = !this.paused;
-      this.effects.density = this.prefs.effectDensity;
+      this.effects.density = this.prefs.effectDensity * (isTouchPrimary() ? MOBILE_EFFECT_SHARE : 1);
     };
     this.events.on(Phaser.Scenes.Events.RESUME, onResume);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.events.off(Phaser.Scenes.Events.RESUME, onResume));
@@ -280,7 +286,7 @@ export class Combat extends Phaser.Scene {
     );
     this.followMusic();
     this.audio.roundStart();
-    this.effects.density = this.prefs.effectDensity;
+    this.effects.density = this.prefs.effectDensity * (isTouchPrimary() ? MOBILE_EFFECT_SHARE : 1);
     const keyboard = this.input.keyboard;
     const pauseKey = `keydown-${this.prefs.keys.pause}`;
     const speedKey = `keydown-${this.prefs.keys.fastForward}`;
@@ -337,7 +343,15 @@ export class Combat extends Phaser.Scene {
     const key = assetKey('arena', arena.kingdom);
     const painted = hasImage(key);
     if (painted) this.inWorld(this.add.image(0, 0, key).setOrigin(0).setDisplaySize(arena.width, arena.height).setDepth(DEPTH.floor));
-    drawArenaFloor(this.inWorld(this.add.graphics()).setDepth(DEPTH.floor), arena, painted);
+    // The floor never changes in a round: bake it into a texture once, so it costs one image a frame (Milestone 12).
+    const floorKey = `floor.${arena.kingdom}${painted ? '.painted' : ''}`;
+    if (!this.textures.exists(floorKey)) {
+      const floor = this.make.graphics({}, false);
+      drawArenaFloor(floor, arena, painted);
+      floor.generateTexture(floorKey, arena.width, arena.height);
+      floor.destroy();
+    }
+    this.inWorld(this.add.image(0, 0, floorKey).setOrigin(0).setDepth(DEPTH.floor));
     this.hazardLayer = this.inWorld(this.add.graphics()).setDepth(DEPTH.floor + 1);
   }
 
@@ -1123,6 +1137,17 @@ export class Combat extends Phaser.Scene {
     sprite.setScale(baseX * (1 + squash * 0.6), baseY * (1 - squash));
   }
 
+  /** One pooled status icon above an enemy, from the baked icon textures. */
+  private statusIcon(index: number, status: StatusEffect, x: number, y: number, alpha: number): void {
+    let icon = this.statusIcons[index];
+    if (!icon) {
+      if (index >= MAX_STATUS_ICONS) return;
+      icon = this.inWorld(this.add.image(0, 0, statusIconKey(status))).setDepth(DEPTH.bars + 0.5);
+      this.statusIcons[index] = icon;
+    }
+    icon.setTexture(statusIconKey(status)).setPosition(x, y).setDisplaySize((PIP_SIZE + 1.5) * 2, (PIP_SIZE + 1.5) * 2).setAlpha(alpha).setVisible(true);
+  }
+
   /** Ink curls grow from each corner of a tile, then fade. Progress runs from 0 to 1. */
   private drawFlourish(g: Phaser.GameObjects.Graphics, x: number, y: number, size: number, progress: number): void {
     const grow = Math.min(1, progress * 2);
@@ -1218,6 +1243,7 @@ export class Combat extends Phaser.Scene {
     bars.clear();
 
     let labels = 0;
+    let pipCount = 0;
     const enemies = this.sim.enemies.items;
     for (let slot = 0; slot < enemies.length; slot++) {
       const enemy = enemies[slot];
@@ -1302,9 +1328,7 @@ export class Combat extends Phaser.Scene {
         const pipX = enemy.x - enemy.radius + 4 + pip * (PIP_SIZE * 2 + 3);
         const pipY = enemy.y - enemy.radius - 20;
         const fill = active ? 1 : Math.min(1, meter / meterSize(enemy, status));
-        bars.fillStyle(PARCHMENT, 0.85);
-        bars.fillCircle(pipX, pipY, PIP_SIZE + 1.5);
-        drawStatusIcon(bars, status, pipX, pipY, PIP_SIZE, active ? 1 : 0.3 + 0.7 * fill);
+        this.statusIcon(pipCount++, status, pipX, pipY, active ? 1 : 0.3 + 0.7 * fill);
         if (!active) {
           bars.fillStyle(INK, 0.8);
           bars.fillRect(pipX - PIP_SIZE, pipY + PIP_SIZE + 2, PIP_SIZE * 2 * fill, 2);
@@ -1334,6 +1358,7 @@ export class Combat extends Phaser.Scene {
       }
     }
     for (let index = labels; index < this.championLabels.length; index++) this.championLabels[index]?.setVisible(false);
+    for (let index = pipCount; index < this.statusIcons.length; index++) this.statusIcons[index]?.setVisible(false);
 
     for (const body of this.sim.bosses) drawBossMarks(bars, body, this.sim.elapsed);
     drawBossTelegraphs(telegraphs, this.sim.bossTelegraphs);

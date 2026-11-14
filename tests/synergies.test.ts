@@ -135,8 +135,8 @@ describe('internal synergies', () => {
     triggerStatus(world, bleeding, -1, 'Bleeding');
     stepSeconds(world, 2.1);
     // Damage 12: Poisoned deals 1.2 per tick. Four ticks on the plain enemy, eight on the Bleeding one.
-    expect(lost(plain)).toBeCloseTo(4 * 1.2, 6);
-    expect(lost(bleeding)).toBeCloseTo(8 * 1.2, 6);
+    expect(lost(plain)).toBeCloseTo(5 * 1.2, 6);
+    expect(lost(bleeding)).toBeCloseTo(10 * 1.2, 6);
   });
 
   it('Flashpoint: Burning enemies explode on death', () => {
@@ -150,7 +150,7 @@ describe('internal synergies', () => {
     stepSeconds(world, 0.1);
     expect(explosions(world).map((event) => event.generation)).toEqual([1]);
     // Half of 12, as Impact and Fire.
-    expect(lost(neighbour)).toBeCloseTo(6, 6);
+    expect(lost(neighbour)).toBeCloseTo(7.5, 6);
   });
 
   it('Rail Shot: Penetration plus two', () => {
@@ -193,9 +193,9 @@ describe('internal synergies', () => {
     expect(world.weapons[0]!.resolved.synergies).toContain('steady-hand');
     const enemy = dummyAt(world, 200, 0);
     hitEnemy(world, enemy, 0);
-    expect(lost(enemy)).toBeCloseTo(20 * 1.75, 10);
+    expect(lost(enemy)).toBeCloseTo(25 * 1.75, 10);
     hitEnemy(world, enemy, 0);
-    expect(lost(enemy)).toBeCloseTo(20 * 1.75 + 20, 10);
+    expect(lost(enemy)).toBeCloseTo(25 * 1.75 + 25, 10);
     expect(world.stats.criticalHits).toBe(1);
   });
 });
@@ -210,9 +210,9 @@ describe('cross-weapon synergies', () => {
     triggerStatus(world, target, 0, 'Corroded');
     hitEnemy(world, target, 1, { primary: false });
     // Electric damage up 35 per cent, doubled to 70 per cent.
-    expect(lost(target)).toBeCloseTo(7 * 1.7, 10);
+    expect(lost(target)).toBeCloseTo(9 * 1.7, 10);
     // Half of the hit arcs to one nearby enemy.
-    expect(lost(neighbour)).toBeCloseTo((7 * 1.7) / 2, 10);
+    expect(lost(neighbour)).toBeCloseTo((9 * 1.7) / 2, 10);
   });
 
   it('Thermal Shock: Shatter and Steam Burst reactions deal Damage up, High', () => {
@@ -224,7 +224,7 @@ describe('cross-weapon synergies', () => {
     triggerStatus(world, frozen, 2, 'Frozen');
     hitEnemy(world, frozen, 0);
     // Shatter adds 100 per cent, raised by 35 per cent.
-    expect(lost(frozen)).toBeCloseTo(7 * (1 + 1.35), 10);
+    expect(lost(frozen)).toBeCloseTo(9 * (1 + 1.35), 10);
   });
 
   it('Fungal Network: damage to one Infected enemy spreads in part to other Infected enemies nearby', () => {
@@ -236,8 +236,8 @@ describe('cross-weapon synergies', () => {
     triggerStatus(world, target, -1, 'Infected');
     triggerStatus(world, infected, -1, 'Infected');
     hitEnemy(world, target, 2);
-    expect(lost(target)).toBeCloseTo(20, 10);
-    expect(lost(infected)).toBeCloseTo(5, 10);
+    expect(lost(target)).toBeCloseTo(25, 10);
+    expect(lost(infected)).toBeCloseTo(6.25, 10);
     expect(lost(healthy)).toBe(0);
   });
 
@@ -251,8 +251,8 @@ describe('cross-weapon synergies', () => {
     const before = lost(trapped);
     hitEnemy(world, trapped, 1, { fromConstruct: true });
     hitEnemy(world, free, 1, { fromConstruct: true });
-    expect(lost(free)).toBeCloseTo(12, 10);
-    expect(lost(trapped) - before).toBeCloseTo(12 * 1.2, 10);
+    expect(lost(free)).toBeCloseTo(15, 10);
+    expect(lost(trapped) - before).toBeCloseTo(15 * 1.2, 10);
   });
 
   it('Kill Zone: constructs pick trapped enemies first', () => {
@@ -301,7 +301,7 @@ describe('cross-weapon synergies', () => {
     world.weapons[1]!.cooldown = 0;
     stepSeconds(world, 0.8);
     expect(lost(strong)).toBe(0);
-    expect(lost(poked) - before).toBeCloseTo(20 * 1.1, 6);
+    expect(lost(poked) - before).toBeCloseTo(25 * 1.1, 6);
   });
 
   it('Magnetic Field: Pickup Radius up, High. Metallic enemies slow down near the player', () => {
@@ -329,7 +329,7 @@ describe('cross-weapon synergies', () => {
     hitEnemy(world, frozen, 0);
     // Shatter adds 100 per cent, raised by Catalytic Mix (20) and Thermal Shock (35): one source type, so they add.
     expect(world.synergies.has('thermal-shock')).toBe(true);
-    expect(lost(frozen)).toBeCloseTo(20 * (1 + 1.55), 10);
+    expect(lost(frozen)).toBeCloseTo(25 * (1 + 1.55), 10);
   });
 });
 
@@ -368,7 +368,7 @@ describe('research synergies', () => {
     const world = makeWorld({ weapons: [weapon], invincible: true, research: 'all' });
     const resolved = world.weapons[0]!.resolved;
     expect(resolved.synergies).toContain('bioengineering');
-    expect(resolved.damage).toBeCloseTo(12 * 1.15, 10);
+    expect(resolved.damage).toBeCloseTo(15 * 1.15, 10);
     world.step(IDLE);
     const hound = world.constructs.items[0]!;
     hound.health = 30;
@@ -399,7 +399,7 @@ describe('research synergies', () => {
     expect(blasts.map((event) => event.generation)).toEqual([0, 1]);
     expect(blasts[1]!.radius).toBeCloseTo(blasts[0]!.radius * 0.6, 10);
     // 35 from the blast, then half of 35 from the copy, at chain falloff generation 1.
-    expect(lost(target)).toBeCloseTo(35 + 17.5, 6);
+    expect(lost(target)).toBeCloseTo(44 + 22, 6);
   });
 
   it('Kinetic Probability: knockback into walls or enemies counts as a critical hit', () => {
@@ -418,9 +418,9 @@ describe('research synergies', () => {
     const off = run([]);
     expect(off.blocked).toBeCloseTo(off.open, 10);
     const on = run('all');
-    expect(on.open).toBeCloseTo(20, 10);
+    expect(on.open).toBeCloseTo(25, 10);
     // Critical Damage 1.75, plus 0.20 from the Precision-Ground Frame.
-    expect(on.blocked).toBeCloseTo(20 * 1.95, 10);
+    expect(on.blocked).toBeCloseTo(25 * 1.95, 10);
     expect(on.criticals).toBe(1);
   });
 

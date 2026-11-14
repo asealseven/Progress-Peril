@@ -72,7 +72,7 @@ describe('boss data (GDD 5.6, 10.3 to 10.5)', () => {
   });
 
   it('sets boss health from CLAUDE.md: 4000 and 1200 in Territory 1, times 2 and 3.5, escorts at 70 per cent', () => {
-    expect([0, 1, 2].map((t) => bossHealth('boss', t))).toEqual([4000, 8000, 14000]);
+    expect([0, 1, 2].map((t) => bossHealth('boss', t))).toEqual([3200, 6400, 11200]);
     expect([0, 1, 2].map((t) => bossHealth('mini', t))).toEqual([1200, 2400, 4200]);
     expect(bossHealth('escort', 0)).toBeCloseTo(840);
   });
@@ -105,7 +105,7 @@ describe('boss fights', () => {
     stepSeconds(world, BOSS_RULES.entrySeconds + 0.1);
     const boss = body(world, 'boss');
     const escort = body(world, 'escort');
-    expect(boss.enemy.maxHealth).toBe(4000);
+    expect(boss.enemy.maxHealth).toBe(3200);
     expect(escort.enemy.maxHealth).toBeCloseTo(840);
     expect(escort.name).toBe('Forge Marshal');
     // Bosses resist statuses through larger meters (GDD 9.14).

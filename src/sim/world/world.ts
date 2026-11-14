@@ -7,7 +7,7 @@ import type { Discipline } from '../../data/weapons';
 import type { DamageType } from '../../data/damageTypes';
 import { ENEMIES } from '../../data/enemies';
 import { roundInTerritory, territoryIndex } from '../../data/rounds';
-import { COMBAT, DIRECTOR_RULES, PERFORMANCE_LIMITS, WEAPON_RULES, activeEnemyLimit } from '../../data/tiers';
+import { COMBAT, DIRECTOR_RULES, ENEMY_RULES, PERFORMANCE_LIMITS, WEAPON_RULES, activeEnemyLimit } from '../../data/tiers';
 import type { PerformanceLimits } from '../../data/tiers';
 import { attackTokens } from '../ai';
 import type { ResolvedWeapon } from '../loadout';
@@ -294,6 +294,17 @@ export class World {
     return this.steps * STEP_SECONDS;
   }
 
+  /** True once the clean-up has run past its grace period (NOTES.md). Non-boss enemies stop healing. */
+  get overtime(): boolean {
+    return this.elapsed - this.duration > ENEMY_RULES.overtimeGrace;
+  }
+
+  /** Damage multiplier on non-boss enemies in overtime. */
+  get overtimeFactor(): number {
+    const over = this.elapsed - this.duration - ENEMY_RULES.overtimeGrace;
+    return over > 0 ? 1 + ENEMY_RULES.overtimeBonus * (over / ENEMY_RULES.overtimeStep) : 1;
+  }
+
   /** Seconds left on the round timer. Stays at zero during the clean-up. */
   get timeLeft(): number {
     return Math.max(0, this.duration - this.elapsed);
@@ -435,7 +446,10 @@ export class World {
       this.phase = 'defeat';
     } else if (this.bossFallen) {
       // The boss falls: remaining enemies flee and the round ends (GDD 5.8 step 1).
-      this.endBossRound();
+      this.stragglersFlee();
+    } else if (this.bossPlan === undefined && this.spawningFinished && this.elapsed - this.duration > ENEMY_RULES.overtimeGrace + ENEMY_RULES.overtimeFlee) {
+      // The last fail-safe: a minute into overtime, stragglers out of reach flee with no loot (NOTES.md).
+      this.stragglersFlee();
     } else if (
       (this.bossPlan === undefined || this.bossesIn) &&
       this.spawningFinished &&
@@ -518,8 +532,8 @@ export class World {
     for (const weapon of this.weapons) weapon.resolved = weapon[mode];
   }
 
-  /** Remaining enemies flee: they leave with no loot and no death effects. */
-  private endBossRound(): void {
+  /** Remaining enemies flee: they leave with no loot and no death effects. Ends the round. */
+  private stragglersFlee(): void {
     for (const enemy of this.enemies.items) {
       if (!enemy.active) continue;
       enemy.noLegacy = true;

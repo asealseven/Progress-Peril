@@ -112,12 +112,12 @@ describe('Crossbow against a Royal Footman', () => {
     expect(world.stats.shotsFired).toBe(0);
   });
 
-  it('deals 18 damage per normal hit and kills in two hits without a critical', () => {
+  it('deals 22.5 damage per normal hit and kills in two hits without a critical', () => {
     const world = makeWorld({ spawns: HOLD_OPEN, invincible: true, noCriticals: true });
     const enemy = spawnEnemy(world, FOOTMAN, world.player.x + 200, world.player.y)!;
     enemy.speed = 0;
     stepSeconds(world, 1);
-    expect(enemy.health).toBeCloseTo(35 - 18, 6);
+    expect(enemy.health).toBeCloseTo(35 - 22.5, 6);
     stepSeconds(world, 2);
     expect(world.stats.kills).toBe(1);
     expect(enemy.active).toBe(false);

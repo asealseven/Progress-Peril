@@ -374,8 +374,11 @@ export function updateHazards(world: World, dt: number): void {
           seeds--;
           if (def && world.enemies.activeCount < world.activeLimit) {
             const sprout = spawnEnemy(world, def, hazard.x, hazard.y);
-            // A sprouted Thornling leaves no seed, so a round always ends.
-            if (sprout) sprout.noLegacy = true;
+            // A sprouted Thornling leaves no seed, so a round always ends. It counts toward the summon cap.
+            if (sprout) {
+              sprout.noLegacy = true;
+              sprout.minion = true;
+            }
           }
           continue;
         }

@@ -224,6 +224,22 @@ class Planner {
   }
 
   /**
+   * Picks an enemy type, weighted toward costlier types in later territories,
+   * so the average kill cost rises by territory as GDD 14.3 assumes (NOTES.md).
+   */
+  pickEnemy(choices: readonly EnemyDef[]): EnemyDef {
+    const bias = DIRECTOR_RULES.costBias[Math.min(territoryIndex(this.round), DIRECTOR_RULES.costBias.length - 1)] ?? 0;
+    if (bias === 0) return this.rng.pick(choices);
+    const weights = choices.map((enemy) => threatCost(enemy) ** bias);
+    let roll = this.rng.next() * weights.reduce((sum, weight) => sum + weight, 0);
+    for (let index = 0; index < choices.length; index++) {
+      roll -= weights[index] ?? 0;
+      if (roll <= 0) return choices[index] as EnemyDef;
+    }
+    return choices[choices.length - 1] as EnemyDef;
+  }
+
+  /**
    * Builds one group for a budget: a core of one enemy type, then one or two
    * other types from the same faction. Returns the purchases and the cost.
    */
@@ -243,7 +259,7 @@ class Planner {
     let cores = this.affordable(slot, remaining / 2);
     if (cores.length === 0) cores = this.affordable(slot, remaining);
     if (cores.length === 0) return { purchases, cost: budget - remaining };
-    const core = this.rng.pick(cores);
+    const core = this.pickEnemy(cores);
     const coreCost = threatCost(core);
     const others = this.affordable(slot, remaining).filter((enemy) => enemy !== core);
     const mixed = others.length > 0 && this.round >= 2;
@@ -262,7 +278,7 @@ class Planner {
       for (let i = 0; i < types; i++) {
         const choices = this.affordable(slot, remaining).filter((enemy) => enemy !== core);
         if (choices.length === 0) break;
-        const enemy = this.rng.pick(choices);
+        const enemy = this.pickEnemy(choices);
         const count = THREAT_COST[enemy.threat] <= THREAT_COST.Low ? 2 : 1;
         for (let n = 0; n < count && threatCost(enemy) <= remaining; n++) {
           const purchase = this.buy(slot, enemy, remaining);
@@ -327,7 +343,7 @@ export function planRound(
   for (;;) {
     const slot = planner.pickSlot(Math.min(remaining, trickleCap));
     if (!slot) break;
-    const enemy = rng.pick(planner.affordable(slot, Math.min(remaining, trickleCap)));
+    const enemy = planner.pickEnemy(planner.affordable(slot, Math.min(remaining, trickleCap)));
     // Minimal enemies swarm in packs (GDD 9.11).
     const pack = THREAT_COST[enemy.threat] === THREAT_COST.Minimal ? 3 : 1;
     const purchases: Purchase[] = [];

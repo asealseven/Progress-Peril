@@ -325,7 +325,9 @@ export const BOSS_RULES = {
   /** Gravity flips between pull and push this often in Null and gravity. */
   gravityFlipSeconds: 4,
   /** Full Bloom: health per second per fungal patch, share of max. */
-  bloomHeal: 0.0002,
+  bloomHeal: 0.0001,
+  /** Full Bloom counts at most this many patches. */
+  bloomPatchCap: 8,
   // Mini-bosses.
   bannerHealthShare: 0.1,
   bannerDamage: 0.25,

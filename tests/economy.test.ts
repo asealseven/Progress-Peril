@@ -407,7 +407,7 @@ describe('weapon grades (GDD 7.8, 7.22)', () => {
     const weapon = run.weapons[0]!;
     upgradeWeapon(run, weapon, 'damage');
     upgradeWeapon(run, weapon, 'damage');
-    expect(resolveLoadout(run.weapons, BASE_STATS).weapons[0]!.damage).toBeCloseTo(35 * (35 / 20));
+    expect(resolveLoadout(run.weapons, BASE_STATS).weapons[0]!.damage).toBeCloseTo(44 * (44 / 25));
   });
 
   it('offers Status Build-up only to weapons building a status', () => {

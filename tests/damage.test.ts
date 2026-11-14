@@ -19,8 +19,8 @@ describe('tiers', () => {
 
   it('multiplies by 2.5 per step above Extreme (GDD 9.10)', () => {
     expect(scaledTierValue('enemyHealth', 'Medium', 1)).toBe(90);
-    expect(scaledTierValue('enemyHealth', 'High', 2)).toBe(400 * 2.5);
-    expect(scaledTierValue('enemyHealth', 'Extreme', 2)).toBe(400 * 2.5 * 2.5);
+    expect(scaledTierValue('enemyHealth', 'High', 2)).toBe(220 * 2.5);
+    expect(scaledTierValue('enemyHealth', 'Extreme', 2)).toBe(220 * 2.5 * 2.5);
   });
 });
 
@@ -108,7 +108,7 @@ describe('damage order (GDD 7.14)', () => {
       base: tierValue('weaponDamage', 'High'),
       armour: effectiveArmour(tierValue('armour', 'Medium'), 'Piercing'),
     });
-    expect(damage).toBeCloseTo(18, 10);
+    expect(damage).toBeCloseTo(22.5, 10);
   });
 
   it('never returns negative damage', () => {

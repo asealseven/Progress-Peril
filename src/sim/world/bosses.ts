@@ -131,6 +131,16 @@ interface BodyOptions {
   readonly owner?: BossBody;
 }
 
+/** Living summoned enemies stay at or under this number, so a boss never buries the arena (NOTES.md). */
+export const MINION_CAP = 10;
+
+/** Room for more summoned enemies under the cap. */
+function minionRoom(world: World): number {
+  let alive = 0;
+  for (const enemy of world.enemies.items) if (enemy.active && enemy.minion) alive++;
+  return Math.max(0, MINION_CAP - alive);
+}
+
 function addBody(world: World, x: number, y: number, options: BodyOptions): BossBody | undefined {
   const enemy = spawnEnemy(world, options.def, x, y);
   if (!enemy) return undefined;
@@ -270,7 +280,7 @@ function enterPhase(world: World, body: BossBody): void {
       if (phase === 1) {
         // Two engineers repair the Regent's armour.
         for (let index = 0; index < BOSS_RULES.engineers; index++) {
-          spawnEnemy(world, ENEMIES.mechanist, enemy.x + (index === 0 ? -90 : 90), enemy.y - 40);
+          spawnEnemy(world, ENEMIES.mechanist, enemy.x + (index === 0 ? -90 : 90), enemy.y - 40, { minion: true });
         }
       } else if (phase === 2) {
         // Glowing Plate: Fire resistance, Cold weakness. Molten channels open around the throne.
@@ -284,7 +294,7 @@ function enterPhase(world: World, body: BossBody): void {
         enemy.extraWeak = EMPTY;
         enemy.speed = enemy.baseSpeed * 1.5;
         for (let index = 0; index < BOSS_RULES.forgeguardJoin; index++) {
-          spawnEnemy(world, ENEMIES['forgeguard-knight'], enemy.x + (index - 1) * 80, enemy.y + 60);
+          spawnEnemy(world, ENEMIES['forgeguard-knight'], enemy.x + (index - 1) * 80, enemy.y + 60, { minion: true });
         }
       }
       break;
@@ -662,8 +672,9 @@ function startAttack(world: World, body: BossBody, attack: BossAttackId, style?:
       break;
     }
     case 'spore-burst': {
-      // A ring of pods hatching Thornlings (GDD 10.3). Fire burns the pods first.
-      for (let index = 0; index < rules.sporePods; index++) {
+      // A ring of pods hatching Thornlings (GDD 10.3). Fire burns the pods first. Seeds waiting count toward the summon cap.
+      const pods = Math.min(rules.sporePods, Math.max(0, minionRoom(world) - world.seedCount));
+      for (let index = 0; index < pods; index++) {
         const a = (index / rules.sporePods) * Math.PI * 2 + angle;
         const x = enemy.x + Math.cos(a) * rules.sporeRingRadius;
         const y = enemy.y + Math.sin(a) * rules.sporeRingRadius;
@@ -730,7 +741,7 @@ function startAttack(world: World, body: BossBody, attack: BossAttackId, style?:
         radius: vat ? 110 : 60,
         land: (w, t) => {
           if (vat) w.environment.shatterVat(w, vat);
-          for (let index = 0; index < 2; index++) spawnEnemy(w, ENEMIES['chemical-crawler'], t.x + (index - 0.5) * 50, t.y + 40);
+          for (let index = 0; index < Math.min(2, minionRoom(w)); index++) spawnEnemy(w, ENEMIES['chemical-crawler'], t.x + (index - 0.5) * 50, t.y + 40, { minion: true });
         },
       });
       break;
@@ -839,9 +850,9 @@ function startAttack(world: World, body: BossBody, attack: BossAttackId, style?:
       break;
     }
     case 'call-thornlings': {
-      for (let index = 0; index < rules.thornlingCalls; index++) {
+      for (let index = 0; index < Math.min(rules.thornlingCalls, minionRoom(world)); index++) {
         const a = (index / rules.thornlingCalls) * Math.PI * 2;
-        spawnEnemy(world, ENEMIES.thornling, enemy.x + Math.cos(a) * 70, enemy.y + Math.sin(a) * 70);
+        spawnEnemy(world, ENEMIES.thornling, enemy.x + Math.cos(a) * 70, enemy.y + Math.sin(a) * 70, { minion: true });
       }
       body.hold = 0.6;
       break;
@@ -1054,9 +1065,9 @@ function phaseUpkeep(world: World, body: BossBody, dt: number): void {
         if (timers.adds <= 0) {
           timers.adds = rules.overgrowthSeconds;
           const vats = world.arena.obstacles.filter((obstacle) => obstacle.kind === 'vat');
-          for (let index = 0; index < rules.overgrowthCrawlers; index++) {
+          for (let index = 0; index < Math.min(rules.overgrowthCrawlers, minionRoom(world)); index++) {
             const vat = vats.length > 0 ? world.rng.pick(vats) : undefined;
-            spawnEnemy(world, ENEMIES['chemical-crawler'], (vat?.x ?? enemy.x) + 50, (vat?.y ?? enemy.y) + 50);
+            spawnEnemy(world, ENEMIES['chemical-crawler'], (vat?.x ?? enemy.x) + 50, (vat?.y ?? enemy.y) + 50, { minion: true });
           }
         }
       }
@@ -1068,9 +1079,9 @@ function phaseUpkeep(world: World, body: BossBody, dt: number): void {
         timers.adds -= dt;
         if (timers.adds <= 0) {
           timers.adds = rules.crawlerSwarmSeconds;
-          for (let index = 0; index < rules.crawlerSwarm; index++) {
+          for (let index = 0; index < Math.min(rules.crawlerSwarm, minionRoom(world)); index++) {
             const a = (index / rules.crawlerSwarm) * Math.PI * 2;
-            spawnEnemy(world, ENEMIES['clockwork-crawler'], enemy.x + Math.cos(a) * 120, enemy.y + Math.sin(a) * 120);
+            spawnEnemy(world, ENEMIES['clockwork-crawler'], enemy.x + Math.cos(a) * 120, enemy.y + Math.sin(a) * 120, { minion: true });
           }
         }
         const motors = body.parts.filter((part) => part.partId === 'belt-motor' && bodyAlive(part)).length;
@@ -1122,6 +1133,8 @@ function phaseUpkeep(world: World, body: BossBody, dt: number): void {
         // Full Bloom: heals from fungal growth. Burning the growth stops the healing.
         let patches = 0;
         for (const zone of world.environment.zones) if (zone.hazard === 'fungal-growth') patches++;
+        // Healing counts at most a set number of patches, so it never outgrows every build (NOTES.md).
+        patches = Math.min(patches, rules.bloomPatchCap);
         enemy.health = Math.min(enemy.maxHealth, enemy.health + enemy.maxHealth * rules.bloomHeal * patches * dt);
       }
       break;

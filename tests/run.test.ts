@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { CHARACTERS } from '../src/data/characters';
 import { roundKind } from '../src/data/rounds';
-import { RESEARCH_NODES } from '../src/data/research';
 import { STARTING_WEAPONS, WEAPONS } from '../src/data/weapons';
 import type { WeaponDef } from '../src/data/weapons';
 import { GRADE_NUMERALS, MATERIALS } from '../src/data/economy';
@@ -16,64 +15,9 @@ import {
   kingdomForRound,
   runTotals,
 } from '../src/sim/run';
-import { captureChoices, captureNode, nodeCost, nodeState, researchNodeNow } from '../src/sim/research';
 import type { RunState } from '../src/sim/run';
-import {
-  buyItem,
-  buyProblem,
-  installFromInventory,
-  openShop,
-  shopItemAt,
-  upgradeProblem,
-  upgradeWeapon,
-} from '../src/sim/economy';
-import { installProblem } from '../src/sim/loadout';
-import { lineOfSight } from '../src/sim/world/hazards';
-import type { StepInput } from '../src/sim/world/types';
 import type { World } from '../src/sim/world/world';
-
-const MAX_ROUND_STEPS = 60 * 60 * 10;
-
-/**
- * A simple bot: circle the arena centre at a fixed radius. With no enemy well
- * inside weapon range, walk toward a target, so the last enemies of a round
- * never trail behind the circle forever. The target is the weakest enemy
- * nearby, so repairing Mechanists fall before the Sentinel they mend.
- */
-function circleBot(world: World): StepInput {
-  const player = world.player;
-  const range = world.weapons[0]?.resolved.range ?? 0;
-  let nearestX = 0;
-  let nearestY = 0;
-  let nearest = Infinity;
-  let weakest = Infinity;
-  for (const enemy of world.enemies.items) {
-    if (!enemy.active) continue;
-    const distance = Math.hypot(enemy.x - player.x, enemy.y - player.y);
-    // Inside 500 pixels the lowest Health wins. Outside, the nearest enemy.
-    const score = distance <= 500 ? enemy.health : 1e9 + distance;
-    if (score < weakest) {
-      weakest = score;
-      nearest = distance;
-      nearestX = enemy.x;
-      nearestY = enemy.y;
-    }
-  }
-  // A pillar between the bot and its target blocks Straight shots, so the bot walks round.
-  const blocked = nearest !== Infinity && !lineOfSight(world.arena, player.x, player.y, nearestX, nearestY, 8);
-  if (nearest !== Infinity && (nearest > range * 0.6 || blocked)) {
-    return { moveX: (nearestX - player.x) / nearest, moveY: (nearestY - player.y) / nearest };
-  }
-
-  const dx = player.x - world.arena.width / 2;
-  const dy = player.y - world.arena.height / 2;
-  const distance = Math.hypot(dx, dy) || 1;
-  const radial = (420 - distance) / 100;
-  return {
-    moveX: -dy / distance + (dx / distance) * radial,
-    moveY: dx / distance + (dy / distance) * radial,
-  };
-}
+import { MAX_ROUND_STEPS, circleBot, prepare } from './bot';
 
 /** Steps a round to the end with the bot. Fails when the round never ends. */
 function playRound(world: World): void {
@@ -94,58 +38,6 @@ function playRun(seed: number, invincible: boolean, weapon: WeaponDef = WEAPONS.
     finishRound(run, world);
   }
   return run;
-}
-
-/**
- * The bot's preparation phase (CLAUDE.md "Testing"): buy weapon grades, visit a
- * shop and buy the first affordable item, then fit components into free slots.
- */
-function prepare(run: RunState): void {
-  // Research the cheapest available node, again and again while points last (CLAUDE.md "Testing").
-  for (;;) {
-    const cheapest = RESEARCH_NODES.filter((entry) => nodeState(run, entry) === 'available').sort(
-      (a, b) => nodeCost(run, a).points - nodeCost(run, b).points,
-    )[0];
-    if (!cheapest) break;
-    researchNodeNow(run, cheapest);
-  }
-  const capture = captureChoices(run)[0];
-  if (capture) captureNode(run, capture);
-
-  // Grades first, lowest grade first, always in Damage.
-  for (;;) {
-    const weapon = [...run.weapons]
-      .sort((a, b) => a.grade - b.grade)
-      .find((entry) => upgradeProblem(run, entry, 'damage') === undefined);
-    if (!weapon) break;
-    upgradeWeapon(run, weapon, 'damage');
-  }
-
-  // One shop per phase: a free visit, or a paid one when the gold covers the fee and a purchase.
-  const shopId = SHOP_IDS[run.round % SHOP_IDS.length] ?? 'blacksmith';
-  if (run.freeVisit || run.gold >= 80) {
-    openShop(run, shopId);
-    const slots: Array<number | 'specialist'> = [...run.shops[shopId].stock.keys(), 'specialist'];
-    // A weapon for a free slot comes first.
-    if (run.weapons.length < 3) {
-      const weaponSlot = slots.find(
-        (slot) => shopItemAt(run, shopId, slot)?.kind === 'weapon' && buyProblem(run, shopId, slot) === undefined,
-      );
-      if (weaponSlot !== undefined) buyItem(run, shopId, weaponSlot);
-    }
-    for (const slot of slots) {
-      const item = shopItemAt(run, shopId, slot);
-      if (!item || item.kind === 'weapon') continue;
-      if (buyProblem(run, shopId, slot) === undefined) buyItem(run, shopId, slot);
-    }
-  }
-
-  for (const component of [...run.inventory]) {
-    const weapon = run.weapons.find(
-      (entry) => !entry.components[component.def.slot] && installProblem(entry, component.def) === undefined,
-    );
-    if (weapon) installFromInventory(run, weapon, component);
-  }
 }
 
 describe('headless run', () => {
@@ -258,7 +150,12 @@ describe('headless run', () => {
         const entries = run.ledger.filter((entry) => territoryIndex(entry.round) === index);
         const sum = (pick: (entry: (typeof entries)[number]) => number): number =>
           entries.reduce((total, entry) => total + pick(entry), 0);
-        return `Territory ${index + 1}: ${sum((entry) => entry.kills)} kills, ${sum((entry) => entry.goldEarned)} gold, ${sum((entry) => entry.materialsEarned)} materials, ${sum((entry) => entry.goldSpent)} gold spent`;
+        const seconds = run.history.filter((result) => territoryIndex(result.round) === index).reduce((total, result) => total + result.seconds, 0);
+        return (
+          `Territory ${index + 1}: ${sum((entry) => entry.kills)} kills, ${sum((entry) => entry.goldEarned)} gold, ` +
+          `${sum((entry) => entry.researchEarned).toFixed(0)} research, ${sum((entry) => entry.materialsEarned)} materials, ` +
+          `${sum((entry) => entry.goldSpent)} gold spent, ${(seconds / 60).toFixed(1)} minutes`
+        );
       });
       console.log(
         [

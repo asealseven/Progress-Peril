@@ -73,6 +73,7 @@ type Shape =
 
 type TimedShape = Shape & { colour: number; life: number; maxLife: number };
 
+/** Particle cap. Phones use a lower cap through `maxParticles`. */
 const MAX_PARTICLES = 500;
 const MAX_SHAPES = 80;
 const DRAG = 3;
@@ -82,6 +83,8 @@ export class Effects {
   private readonly shapes: TimedShape[] = [];
   /** Scales particle counts (GDD 3.10). 1 means full density. */
   density = 1;
+  /** Most particles alive at once. */
+  maxParticles = MAX_PARTICLES;
 
   constructor(private readonly graphics: Phaser.GameObjects.Graphics) {}
 
@@ -90,7 +93,7 @@ export class Effects {
     const scaled = count * this.density;
     const total = Math.floor(scaled) + (Math.random() < scaled % 1 ? 1 : 0);
     for (let i = 0; i < total; i++) {
-      if (this.particles.length >= MAX_PARTICLES) this.particles.shift();
+      if (this.particles.length >= this.maxParticles) this.particles.shift();
       const angle = Math.random() * Math.PI * 2;
       const velocity = speed * (0.4 + Math.random() * 0.6);
       this.particles.push({

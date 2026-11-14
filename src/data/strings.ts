@@ -7,6 +7,7 @@ export const STRINGS = {
   rotatePrompt: 'Rotate your device to play.',
 
   boot: {
+    loading: 'Loading the notebook…',
     startKeyboard: 'Press any key to begin',
     startTouch: 'Tap to begin',
     controlsKeyboard: 'Move with WASD or the arrow keys. Weapons fire on their own. Hold a mouse button to focus fire. Esc pauses.',

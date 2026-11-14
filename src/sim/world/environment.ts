@@ -357,7 +357,7 @@ export class Environment {
       this.addCircle('fungal-growth', x, y, rules.fungalRadius, rules.warningSeconds, Infinity, now);
       if (flags.bloomEvent) {
         // Thornlings sprout from every patch (GDD 5.11).
-        for (let index = 0; index < rules.fungalSprouts; index++) spawnEnemy(world, ENEMIES.thornling, x, y);
+        for (let index = 0; index < rules.fungalSprouts; index++) spawnEnemy(world, ENEMIES.thornling, x, y, { minion: true });
       }
     }
     if (flags.movingWells && due('wells', rules.gravityMoveSeconds)) this.placeWells(world);

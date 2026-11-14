@@ -163,7 +163,7 @@ describe('damage types against enemies (GDD 9.11)', () => {
     const footman = footmanAt(world, 60, 0);
     hitEnemy(world, footman, 0);
     // Damage 12, Slashing: resisted (0.6), then Armour 25 per cent.
-    expect(lost(footman)).toBeCloseTo(12 * 0.6 * 0.75, 10);
+    expect(lost(footman)).toBeCloseTo(15 * 0.6 * 0.75, 10);
   });
 
   it('gives an immune enemy no damage and no status', () => {
@@ -182,10 +182,10 @@ describe('status effects (GDD 9.14)', () => {
     const enemy = dummyAt(world, 200, 0);
     triggerStatus(world, enemy, 0, 'Burning');
     stepSeconds(world, 2.1);
-    expect(lost(enemy)).toBeCloseTo(10, 6);
+    expect(lost(enemy)).toBeCloseTo(12.5, 6);
     stepSeconds(world, 2.1);
     // The Crossbow deals 20 per hit: Burning deals the same again over 4 seconds.
-    expect(lost(enemy)).toBeCloseTo(20, 6);
+    expect(lost(enemy)).toBeCloseTo(25, 6);
     expect(hasStatus(enemy, 'Burning')).toBe(false);
   });
 
@@ -197,8 +197,8 @@ describe('status effects (GDD 9.14)', () => {
     triggerStatus(world, burning, 0, 'Burning');
     triggerStatus(world, poisoned, 0, 'Poisoned');
     stepSeconds(world, 5.2);
-    expect(lost(burning)).toBeCloseTo(20 * 0.6, 6);
-    expect(lost(poisoned)).toBeCloseTo(20, 6);
+    expect(lost(burning)).toBeCloseTo(25 * 0.6, 6);
+    expect(lost(poisoned)).toBeCloseTo(25, 6);
   });
 
   it('Corroded: lowers Armour, more against Metallic enemies', () => {
@@ -226,7 +226,7 @@ describe('status effects (GDD 9.14)', () => {
       stepSeconds(world, 4.1);
     }
     // 75 per cent of 20 per trigger.
-    expect(lost(enemy)).toBeCloseTo(6 * 15, 6);
+    expect(lost(enemy)).toBeCloseTo(7.5 * 15, 6);
     // 48 ticks at a 25 per cent arc chance.
     const arcs = lost(neighbour) / (15 / 8);
     expect(arcs).toBeGreaterThan(4);
@@ -258,11 +258,11 @@ describe('status effects (GDD 9.14)', () => {
     triggerStatus(world, still, 0, 'Bleeding');
     triggerStatus(world, moving, 0, 'Bleeding');
     stepSeconds(world, 4.2);
-    // 75 per cent of 20 over 4 seconds, twice as fast for the moving target.
-    expect(lost(still)).toBeCloseTo(15, 6);
+    // 75 per cent of 25 over 4 seconds, twice as fast for the moving target.
+    expect(lost(still)).toBeCloseTo(18.75, 6);
     // Movement shows one step late, so the moving target gains 15 or 16 ticks.
-    expect(lost(moving)).toBeGreaterThanOrEqual(15 * 1.875 - 1e-6);
-    expect(lost(moving)).toBeLessThanOrEqual(30 + 1e-6);
+    expect(lost(moving)).toBeGreaterThanOrEqual(15 * 2.34375 - 1e-6);
+    expect(lost(moving)).toBeLessThanOrEqual(37.5 + 1e-6);
   });
 
   it('Stunned: a brief stop, and the Stun meter grows after each stun', () => {
@@ -299,7 +299,7 @@ describe('status effects (GDD 9.14)', () => {
     const far = dummyAt(world, 200, 600);
     triggerStatus(world, host, 0, 'Infected');
     stepSeconds(world, 3.1);
-    expect(lost(host)).toBeCloseTo(6 * 1.25, 6);
+    expect(lost(host)).toBeCloseTo(7.5 * 1.25, 6);
     stepSeconds(world, 3);
     // 75 per cent of 20 over 6 seconds kills the 12 health host near the end.
     expect(host.active).toBe(false);
@@ -327,7 +327,7 @@ describe('status effects (GDD 9.14)', () => {
     // The test weapon has Critical Chance 0. Marked adds 10 points.
     expect(onMarked).toBeGreaterThan(20);
     expect(onMarked).toBeLessThan(70);
-    expect(lost(plain)).toBeCloseTo(400 * 20, 4);
+    expect(lost(plain)).toBeCloseTo(400 * 25, 4);
     stepSeconds(world, 6.1);
     expect(marked.marked).toBe(false);
   });
@@ -392,8 +392,8 @@ describe('status reactions (GDD 9.14)', () => {
     triggerStatus(world, frozen, 0, 'Frozen');
     hitEnemy(world, frozen, 0);
     hitEnemy(world, plain, 0);
-    expect(lost(plain)).toBeCloseTo(20, 10);
-    expect(lost(frozen)).toBeCloseTo(40, 10);
+    expect(lost(plain)).toBeCloseTo(25, 10);
+    expect(lost(frozen)).toBeCloseTo(50, 10);
     expect(hasStatus(frozen, 'Frozen')).toBe(false);
     expect(reactions(world)).toEqual(['Shatter']);
   });
@@ -408,8 +408,8 @@ describe('status reactions (GDD 9.14)', () => {
     expect(reactions(world)).toEqual(['Steam Burst']);
     expect(hasStatus(frozen, 'Frozen')).toBe(false);
     // The Burning Mirror deals 7. The burst deals half of 7 to everything in 60 pixels.
-    expect(lost(neighbour)).toBeCloseTo(3.5, 10);
-    expect(lost(frozen)).toBeCloseTo(7 + 3.5, 10);
+    expect(lost(neighbour)).toBeCloseTo(4.5, 10);
+    expect(lost(frozen)).toBeCloseTo(9 + 4.5, 10);
     expect(lost(far)).toBe(0);
   });
 
@@ -434,7 +434,7 @@ describe('status reactions (GDD 9.14)', () => {
     expect(world.zones.items.filter((zone) => zone.active && zone.kind === 'fumes')).toHaveLength(1);
     stepSeconds(world, 3.2);
     // Six ticks of a quarter of 20 as Toxic damage.
-    expect(lost(neighbour)).toBeCloseTo(6 * 5, 6);
+    expect(lost(neighbour)).toBeCloseTo(7.5 * 5, 6);
     expect(lost(far)).toBe(0);
   });
 
@@ -446,8 +446,8 @@ describe('status reactions (GDD 9.14)', () => {
     triggerStatus(world, target, 0, 'Corroded');
     hitEnemy(world, target, 0, { primary: false });
     hitEnemy(world, plain, 0, { primary: false });
-    expect(lost(plain)).toBeCloseTo(7, 10);
-    expect(lost(target)).toBeCloseTo(7 * 1.35, 10);
+    expect(lost(plain)).toBeCloseTo(9, 10);
+    expect(lost(target)).toBeCloseTo(9 * 1.35, 10);
     world.step(IDLE);
     expect(reactions(world)).toContain('Galvanic Surge');
   });
@@ -475,7 +475,7 @@ describe('status reactions (GDD 9.14)', () => {
     expect(reactions(world)).toEqual(['Short Circuit']);
     expect(hasStatus(automaton, 'Stunned')).toBe(true);
     // Damage 7, up 20 per cent on an Overheated enemy, doubled by the reaction.
-    expect(lost(automaton)).toBeCloseTo(7 * 1.2 * 2, 10);
+    expect(lost(automaton)).toBeCloseTo(9 * 1.2 * 2, 10);
     // A stunned enemy sets off no second Short Circuit.
     hitEnemy(world, automaton, 0, { primary: false });
     expect(reactions(world)).toHaveLength(1);
@@ -490,8 +490,8 @@ describe('status reactions (GDD 9.14)', () => {
     triggerStatus(world, marked, 0, 'Marked');
     hitEnemy(world, marked, 0);
     hitEnemy(world, plain, 0);
-    expect(lost(plain)).toBeCloseTo(20 * 1.75, 10);
-    expect(lost(marked)).toBeCloseTo(20 * (1.75 + 0.35), 10);
+    expect(lost(plain)).toBeCloseTo(25 * 1.75, 10);
+    expect(lost(marked)).toBeCloseTo(25 * (1.75 + 0.35), 10);
     expect(marked.marked).toBe(false);
     expect(reactions(world)).toEqual(['Calculated Strike']);
   });
@@ -521,9 +521,9 @@ describe('components acting on statuses (GDD 7.18)', () => {
     triggerStatus(world, frozen, 0, 'Frozen');
     hitEnemy(world, frozen, 0);
     hitEnemy(world, plain, 0);
-    expect(lost(plain)).toBeCloseTo(22, 10);
+    expect(lost(plain)).toBeCloseTo(27.5, 10);
     // The Fork's 20 per cent joins the frame's 10 per cent: one source type, so they add.
-    expect(lost(frozen)).toBeCloseTo(20 * 1.3, 10);
+    expect(lost(frozen)).toBeCloseTo(25 * 1.3, 10);
   });
 
   it('Marking Chalk: builds Marked, and Precise weapons take Marked enemies first', () => {

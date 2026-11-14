@@ -45,9 +45,9 @@ describe('melee shapes', () => {
     const target = footmanAt(world, 90, 0);
     const neighbour = footmanAt(world, 130, 20);
     stepSeconds(world, 0.5);
-    // Damage 20, Impact, Armour 25 per cent.
-    expect(target.health).toBeCloseTo(35 - 15, 6);
-    expect(neighbour.health).toBeCloseTo(35 - 15, 6);
+    // Damage 25, Impact, Armour 25 per cent.
+    expect(target.health).toBeCloseTo(35 - 18.75, 6);
+    expect(neighbour.health).toBeCloseTo(35 - 18.75, 6);
     expect(eventsOf(world.events, 'slam')).toHaveLength(1);
   });
 
@@ -56,8 +56,8 @@ describe('melee shapes', () => {
     const line = [60, 110, 160, 210].map((x) => footmanAt(world, x, 0));
     const off = footmanAt(world, 120, 90);
     stepSeconds(world, 0.5);
-    // Damage 12, Piercing: Armour 25 drops to 10 per cent.
-    for (const enemy of line) expect(enemy.health).toBeCloseTo(35 - 10.8, 6);
+    // Damage 15, Piercing: Armour 25 drops to 10 per cent.
+    for (const enemy of line) expect(enemy.health).toBeCloseTo(35 - 13.5, 6);
     expect(off.health).toBe(off.maxHealth);
   });
 
@@ -185,8 +185,8 @@ describe('projectile behaviours (GDD 7.16)', () => {
     const world = makeWorld({ weapons: [arm('Tesla Rod')], invincible: true, noCriticals: true });
     const enemies = [150, 250, 350, 450, 550].map((x) => footmanAt(world, x, 0));
     stepSeconds(world, 0.45);
-    // Damage 7, Electric, Armour 25 per cent, against a weakness to Electric, then 75 per cent per jump.
-    const first = 7 * 0.75 * 1.7;
+    // Damage 9, Electric, Armour 25 per cent, against a weakness to Electric, then 75 per cent per jump.
+    const first = 9 * 0.75 * 1.7;
     const lost = enemies.map((enemy) => enemy.maxHealth - enemy.health);
     expect(lost[0]).toBeCloseTo(first, 6);
     expect(lost[1]).toBeCloseTo(first * 0.75, 6);
@@ -203,8 +203,8 @@ describe('projectile behaviours (GDD 7.16)', () => {
     stepSeconds(world, 2);
     const hits = eventsOf(world.events, 'enemyHit').map((event) => event.amount);
     expect(hits.length).toBeGreaterThanOrEqual(4);
-    expect(hits[0]).toBeCloseTo(7 * 0.75, 6);
-    expect(hits[1]).toBeCloseTo(7 * 0.75 * 1.1, 6);
+    expect(hits[0]).toBeCloseTo(9 * 0.75, 6);
+    expect(hits[1]).toBeCloseTo(9 * 0.75 * 1.1, 6);
     expect(hits[3]).toBeGreaterThan(hits[2]!);
     expect(world.weapons[0]!.beamActive).toBe(true);
   });
@@ -240,8 +240,8 @@ describe('blasts, zones and chain explosions', () => {
     for (const enemy of [target, neighbour]) enemy.health = enemy.maxHealth = 1000;
     stepSeconds(world, 1);
     // 17.5 Impact and 17.5 Fire, each against Armour 25 per cent.
-    expect(1000 - target.health).toBeCloseTo(35 * 0.75, 6);
-    expect(1000 - neighbour.health).toBeCloseTo(35 * 0.75, 6);
+    expect(1000 - target.health).toBeCloseTo(44 * 0.75, 6);
+    expect(1000 - neighbour.health).toBeCloseTo(44 * 0.75, 6);
   });
 
   it('the Firebomb Satchel leaves a burning pool', () => {
@@ -279,7 +279,7 @@ describe('blasts, zones and chain explosions', () => {
     stepSeconds(world, 1.2);
     expect(fragile.active).toBe(false);
     // Damage 12 Fire, 60 per cent, Armour 25 per cent.
-    expect(bystander.maxHealth - bystander.health).toBeCloseTo(12 * 0.6 * 0.75, 6);
+    expect(bystander.maxHealth - bystander.health).toBeCloseTo(15 * 0.6 * 0.75, 6);
     const generations = eventsOf(world.events, 'explosion').map((event) => event.generation);
     expect(generations).toEqual([0, 1]);
   });

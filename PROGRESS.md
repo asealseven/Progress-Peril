@@ -162,6 +162,19 @@
 - Checked in the browser on desktop and an emulated phone. Eight test images replaced their placeholders with no code change, then came out again.
 - 545 tests. New: 14 for the manifest against ART_PROMPTS.md, the mixer limits, music layers, icon shapes, effect styles and explosion sizes.
 
+### Milestone 12: Balance and polish
+
+- Balance report (`BALANCE=1 npm run test -- balance`): bot campaigns averaged per territory beside GDD 14.3 and GDD 4.3, with boss times by boss, enemies left at the timer and clean-up length. `BALANCE_RUNS`, `BALANCE_FRESH` and `BALANCE_MORTAL` change the runs. The bot now focuses bosses and their parts, circles cover, and dodges.
+- Economy against GDD 14.3 over 12 experienced-profile campaigns: gold 1,542 against 1,634, Research Points 1,981 against 2,052, materials 197 against 216, bought kills 1,105 against 1,204. Every total sits 4 to 12 per cent under the estimate.
+- Bot combat time: 24.5 minutes per campaign, from 27.8 before. Encounters 53, 64 and 80 seconds per territory. Bosses 108, 70 and 64 seconds.
+- Tuning in `tiers.ts`: Weapon Damage 5/9/15/25/44, Weapon Attack Speed 0.45/0.8/1.25/2.0/3.3, Enemy Health Extreme 220, territory boss Health 3,200. The director lands its last spawns by 70 per cent of the timer and leans toward costlier enemies in Territories 2 and 3.
+- Summoned enemies drop nothing. Boss summons stay at 10 or under. Full Bloom heals from 8 patches at most, at half the old rate.
+- Soft-locks fixed: dormant Ancient Guardians wake at the timer, retreating enemies close in during the clean-up, enemies pinned between obstacles detour, and overtime ends any round in 70 seconds of clean-up at most.
+- Performance: the arena floor bakes into one texture, status icons come from baked textures, phones run effects at 60 per cent density with a 300 particle cap, and images load behind the title.
+- Offline: a duplicate precache entry stopped the service worker from caching anything, so offline play failed. Fixed and checked: 18 files cached, and the game reloads and plays with the network off on an emulated phone.
+- Download: 2.3 MB before art and music.
+- 545 tests pass. Hard-coded expectations now follow the new tier values.
+
 ### Asset folders
 
 - ART_PROMPTS.md sits in the repo root.
@@ -169,14 +182,17 @@
 
 ## Known issues
 
+- No real phone check yet. Headless Chromium renders in software at about 20 frames per second in a heavy round, and every draw call counts as script time there, so these numbers do not predict a phone. Open the debug overlay (F3, or a three-finger tap) on your phone to read the frame rate.
+- Difficulty has no human playtest. The bot dies by Round 4 to 7 when it can be hit, mostly to the first mini-boss, but it dodges far worse than a person. Enemy Damage stays at the CLAUDE.md values.
+- A full campaign by a person likely runs 30 to 35 minutes: about 22 to 25 minutes of combat plus preparation. That sits at the top of the GDD 5.1 target.
+- Sounds are untuned. Headless checks cannot hear them.
+- With all 164 images, the download grows past 2.3 MB. Arenas, cards and the hub as large PNG files could approach the 40 MB budget in GDD 15.11.
+
 - Phone checks ran in an emulated phone viewport with touch events. No test on a physical phone yet.
 - Controller input has no automated test. The preparation screen has no controller navigation yet.
 - Absolute Precision and The Philosopher's Engine can be found, but their effects wait for Milestones 8 and 9.
 - Cross nodes for disciplines with no shared border sit inside a third sector.
-- Scrap limits weapon grades. Orthelyn and Nymora drop Crystals and Specimens, so the test bot ends a run with about 75 Crystals and 100 Specimens unused and no weapon at Grade IV. Dismantling and Scrap recipes help a player. Milestone 12 tunes this.
-- Economy against GDD 14.3: Territory 1 earns about 200 gold against 337, with no mini-boss and no boss. Territories 2 and 3 earn about 750 and 830 against 544 and 753.
-- Rounds run long. The test bot plays the campaign in 25 minutes of combat. Territory 3 rounds take 80 to 148 seconds against targets of 50 to 75.
-- Boss balance is untuned. The test bot needs 90 to 150 seconds for a boss round. Milestone 12 tunes this.
+- A new profile cannot reach weapon Grades III and IV: they need middle and outer nodes, which the Archive discovers over several campaigns (GDD 11.10). The balance report plays an experienced profile, as GDD 14.3 assumes.
 - The hub is a placeholder of coloured boxes until the hub illustration exists. On phones the side list covers part of the hall.
 - Challenge cosmetics and the Grandmaster decoration have no design yet.
 - Melee swings do not break volatile vats. Projectiles, explosions and blasts do.
@@ -187,14 +203,11 @@
 - Weapons fire at targets behind pillars, and the pillar blocks Straight shots.
 - The HUD covers the player in the top left arena corner.
 - The debug menu uses small arrow buttons on a phone.
-- Headless Chromium draws about 30 frames per second with software rendering. The simulation step takes about 0.14 milliseconds. Frame rate on real hardware waits for Milestone 12.
 - Colour-blind palettes recolour damage types only. Faction and kingdom colours stay.
 - Text size and the readable font cover the research web, item cards and tooltips, as GDD 3.10 lists. Other screens keep fixed sizes.
 - Node labels on the research web overlap at middle zoom.
 - Boss bars and labels sit large on a phone screen.
-- Sound presets are untuned. Headless checks cannot hear them: the first listen on a real device decides Milestone 12 tuning.
 - Boss images by phase, music files and the hub illustration are untested with real art. Boss and menu music paths are a gap decision (NOTES.md).
-- Boot loads every image found at once. With all 164 images the first load grows. Milestone 12 measures it on the phone.
 - The round summary moves on after two seconds, so the detailed table is brief. Campaign totals stay on the final results and Victory screens.
 - Character traits: GDD 16.7 has none, so the portrait shows the highest mastery rank and the endless best.
 - Controller remapping has no automated test. Remapped keys must not clash: the game does not check.
@@ -202,4 +215,4 @@
 
 ## Next step
 
-Milestone 12: Balance and polish. Read GDD 5.1, 14.3, 15.11 and 16.
+All 12 milestones are built. Next: deploy `dist/` to a static host, install on your phone, play a campaign, and read the frame rate in the debug overlay. Then add generated art and music from ART_PROMPTS.md and retune with the balance report.

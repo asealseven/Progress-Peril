@@ -200,3 +200,29 @@ export function drawStatusIcon(
   g.lineBetween(x - r, y, x + r, y);
   g.lineBetween(x, y - r, x, y + r);
 }
+
+/** Pixel size of the baked status icon textures. Drawn smaller in the world. */
+const ICON_TEXTURE = 32;
+
+export function statusIconKey(status: StatusEffect): string {
+  return `icon.status.${status}`;
+}
+
+/**
+ * Bakes every status icon into a small texture once (Milestone 12): drawing a
+ * shape anew each frame costs more than one image.
+ */
+export function ensureStatusIconTextures(scene: Phaser.Scene): void {
+  const statuses = Object.keys(STATUS_ICONS) as StatusEffect[];
+  if (statuses.every((status) => scene.textures.exists(statusIconKey(status)))) return;
+  const g = scene.make.graphics({}, false);
+  for (const status of statuses) {
+    if (scene.textures.exists(statusIconKey(status))) continue;
+    g.clear();
+    g.fillStyle(hexToNumber(PALETTE.parchment), 0.9);
+    g.fillCircle(ICON_TEXTURE / 2, ICON_TEXTURE / 2, ICON_TEXTURE / 2 - 1);
+    drawStatusIcon(g, status, ICON_TEXTURE / 2, ICON_TEXTURE / 2, ICON_TEXTURE * 0.36);
+    g.generateTexture(statusIconKey(status), ICON_TEXTURE, ICON_TEXTURE);
+  }
+  g.destroy();
+}

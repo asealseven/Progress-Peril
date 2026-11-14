@@ -11,7 +11,7 @@ function row(minimal: number, low: number, medium: number, high: number, extreme
 
 export const TIER_TABLES = {
   /** Enemy Health in Territory 1. */
-  enemyHealth: row(6, 15, 35, 90, 400),
+  enemyHealth: row(6, 15, 35, 90, 220),
   /** Enemy Damage per hit. */
   enemyDamage: row(2, 4, 7, 12, 20),
   /** Enemy Speed, pixels per second. */
@@ -21,9 +21,9 @@ export const TIER_TABLES = {
   /** Armour, damage reduction for enemies and the player. */
   armour: row(0, 0.1, 0.25, 0.4, 0.6),
   /** Weapon Damage per hit. */
-  weaponDamage: row(4, 7, 12, 20, 35),
+  weaponDamage: row(5, 9, 15, 25, 44),
   /** Weapon Attack Speed, attacks per second. */
-  weaponAttackSpeed: row(0.4, 0.7, 1.1, 1.8, 3.0),
+  weaponAttackSpeed: row(0.45, 0.8, 1.25, 2.0, 3.3),
   /** Weapon Range, pixels. */
   weaponRange: row(60, 120, 220, 340, 480),
   /** Weapon Area radius, pixels. Minimal means single target. */
@@ -106,7 +106,7 @@ export const RANK_HEALTH_STEPS = { elite: 1, champion: 2 } as const;
 export const TERRITORY_HEALTH_FACTOR = [1, 2, 3.5] as const;
 export const MINI_BOSS_HEALTH = 1200;
 export const MINI_BOSS_ESCORT_SHARE = 0.7;
-export const TERRITORY_BOSS_HEALTH = 4000;
+export const TERRITORY_BOSS_HEALTH = 3200;
 
 /** Threat units in Round 1 (GDD 14.3). */
 export const ROUND_ONE_THREAT = 40;
@@ -511,6 +511,16 @@ export const ENEMY_RULES = {
   regenPerSecond: 0.06,
   /** Regenerating elites heal this share of Health per second. */
   eliteRegenPerSecond: 0.01,
+  /**
+   * Overtime (NOTES.md): this many seconds into the clean-up, non-boss enemies
+   * stop healing and take more damage, rising by overtimeBonus every
+   * overtimeStep seconds, so every round ends (GDD 4.9).
+   */
+  overtimeGrace: 10,
+  overtimeStep: 10,
+  overtimeBonus: 0.25,
+  /** Seconds of overtime before stragglers flee and the round ends. */
+  overtimeFlee: 60,
 
   /** Cosine of the half-angle of a frontal shield or shell: 60 degrees each side. */
   frontCos: 0.5,
@@ -610,11 +620,14 @@ export const AI_RULES = {
 /** Encounter director numbers with no value in GDD.md (GDD 4.11, 4.12, 9.12, 9.13). */
 export const DIRECTOR_RULES = {
   /** Share of the round duration: trickle end, groups window and the closing assault. */
-  trickleEnd: 0.8,
-  groupsStart: 0.15,
-  groupsEnd: 0.7,
-  assaultTime: 0.85,
+  // Milestone 12: the last spawns land by 70 per cent, so the clean-up fits inside the GDD 4.3 round length.
+  trickleEnd: 0.7,
+  groupsStart: 0.12,
+  groupsEnd: 0.6,
+  assaultTime: 0.7,
   firstSpawnSeconds: 1,
+  /** Pick weight is threat cost to this power, by territory: no bias, then a lean toward costlier enemies (Milestone 12). */
+  costBias: [0, 0.5, 1] as readonly number[],
   groupSizeMin: 3,
   groupSizeMax: 5,
   /** Threat units one group spends, as a share of the Round 1 budget. */

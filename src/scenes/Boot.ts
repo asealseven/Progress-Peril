@@ -19,10 +19,7 @@ export class Boot extends Phaser.Scene {
     super('Boot');
   }
 
-  /** Generated images load once, under their manifest keys (CLAUDE.md rule 8). */
-  preload(): void {
-    queueImages(this);
-  }
+  private loaded = false;
 
   create(): void {
     // The quiet Archive theme plays in menus (GDD 15.10).
@@ -73,6 +70,18 @@ export class Boot extends Phaser.Scene {
       wrapWidth: 900,
     }).setOrigin(0.5);
 
+    // Generated images load behind the title, under their manifest keys (CLAUDE.md rule 8).
+    // The title shows at once. The game starts once the pages have loaded.
+    this.loaded = false;
+    const loading = addText(this, centreX, 660, STRINGS.boot.loading, { size: 15, colour: PALETTE.brass }).setOrigin(0.5);
+    this.load.once(Phaser.Loader.Events.COMPLETE, () => {
+      this.loaded = true;
+      loading.destroy();
+      if (this.pending) this.startRun();
+    });
+    queueImages(this);
+    this.load.start();
+
     this.readyAt = this.time.now + START_GUARD_MS;
     this.time.delayedCall(START_GUARD_MS, () => {
       this.input.once('pointerup', this.startRun, this);
@@ -91,8 +100,15 @@ export class Boot extends Phaser.Scene {
     }
   }
 
+  /** Input arrived before the images finished loading. */
+  private pending = false;
+
   private startRun(): void {
     if (!this.scene.isActive()) return;
+    if (!this.loaded) {
+      this.pending = true;
+      return;
+    }
     // The title opens the Grand Archive hub (GDD 15.6).
     this.scene.start('Hub');
   }

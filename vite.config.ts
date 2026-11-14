@@ -53,10 +53,15 @@ export default defineConfig({
     assetFiles(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['icons/*.png'],
+      // The glob below already lists every icon. Listing them twice makes Workbox reject the
+      // precache list, and the game would not work offline (Milestone 12).
+      includeManifestIcons: false,
       workbox: {
         globPatterns: ['**/*.{js,css,html,png,svg,webp,woff,woff2,ogg,json}'],
         maximumFileSizeToCacheInBytes: 8 * 1024 * 1024,
+        // Only files with a content hash in the name skip revisions. Generated art in
+        // public/assets keeps its name, so a replaced image still updates installed copies.
+        dontCacheBustURLsMatching: /-(?=[\w-]*[A-Z0-9])[\w-]{8}\.\w+$/,
       },
       manifest: {
         name: 'Progress & Peril',

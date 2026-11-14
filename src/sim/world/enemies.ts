@@ -117,6 +117,11 @@ export function createEnemy(slot: number, def: EnemyDef): Enemy {
     hardened: undefined,
     mutated: false,
     noLegacy: false,
+    minion: false,
+    checkX: 0,
+    checkY: 0,
+    checkTimer: 0,
+    detour: 0,
     baseSpeed: 0,
     purifyTimer: 0,
     burstDamage: 0,
@@ -222,6 +227,8 @@ export interface SpawnOptions {
   /** Champion trait. Default: a random trait. */
   readonly trait?: ChampionTraitId;
   readonly squad?: Squad;
+  /** Summoned by another enemy, a boss or an event: no drops (GDD 14.2 counts bought enemies, NOTES.md). */
+  readonly minion?: boolean;
 }
 
 /** Puts one enemy into the arena. Returns undefined when the pool is full. */
@@ -234,6 +241,11 @@ export function spawnEnemy(world: World, def: EnemyDef, x: number, y: number, op
 
   enemy.id = world.nextEnemyId++;
   enemy.def = def;
+  enemy.minion = options.minion ?? false;
+  enemy.checkX = x;
+  enemy.checkY = y;
+  enemy.checkTimer = STUCK_CHECK;
+  enemy.detour = 0;
   enemy.radius = def.radius;
   // Territory 2 raises Health and Damage one step, Territory 3 two steps (GDD 9.10).
   // Challenge Tiers, Assist mode and endless loops add whole steps (GDD 3.9, 13.3).
@@ -557,7 +569,7 @@ function summon(world: World, owner: Enemy, def: EnemyDef, count: number): numbe
     const angle = world.rng.range(0, Math.PI * 2);
     const distance = owner.radius + def.radius + 6;
     const squad = world.squads.get(owner.squad);
-    if (spawnEnemy(world, def, owner.x + Math.cos(angle) * distance, owner.y + Math.sin(angle) * distance, { squad })) {
+    if (spawnEnemy(world, def, owner.x + Math.cos(angle) * distance, owner.y + Math.sin(angle) * distance, { squad, minion: true })) {
       spawned++;
     }
   }
@@ -624,7 +636,7 @@ function shiftResistance(world: World, enemy: Enemy): void {
 function tickPassives(world: World, enemy: Enemy, distance: number, dt: number): void {
   const burningOrCorroded = hasStatus(enemy, 'Burning') || hasStatus(enemy, 'Corroded');
 
-  if (enemy.health < enemy.maxHealth && !burningOrCorroded) {
+  if (enemy.health < enemy.maxHealth && !burningOrCorroded && !world.overtime) {
     // Regenerator: heals after a short time without damage (GDD 9.11).
     if (hasTrait(enemy, 'regenerate') && enemy.sinceDamage >= ENEMY_RULES.regenDelay) {
       enemy.health = Math.min(enemy.maxHealth, enemy.health + enemy.maxHealth * ENEMY_RULES.regenPerSecond * dt);
@@ -893,6 +905,8 @@ function decide(world: World, enemy: Enemy, distance: number): void {
     def.personality,
     world.rng,
   );
+  // Clean-up: once the timer runs out, the last enemies stop retreating and close in, so a round always ends (GDD 4.9, NOTES.md).
+  if (world.timeLeft <= 0 && enemy.ai === 'retreat') enemy.ai = 'attack';
 
   if (enemy.ai === 'flank' && slot >= 0) {
     enemy.flankSlot = slot;
@@ -945,7 +959,7 @@ function strikePlayer(world: World, enemy: Enemy): boolean {
     }
   }
   // Vampiric elites heal on each hit against the player (GDD 9.12).
-  if (hasModifier(enemy, 'vampiric')) {
+  if (hasModifier(enemy, 'vampiric') && !world.overtime) {
     enemy.health = Math.min(enemy.maxHealth, enemy.health + enemy.maxHealth * ENEMY_RULES.vampiricHealShare);
   }
   return true;
@@ -1219,7 +1233,7 @@ function performAbility(world: World, enemy: Enemy, kind: AbilityKind): void {
       // Mechanist: repairs mechanical allies (GDD 9.11).
       const target = repairTarget(world, enemy);
       if (target) {
-        target.health = Math.min(target.maxHealth, target.health + target.maxHealth * ENEMY_RULES.repairShare);
+        if (!world.overtime) target.health = Math.min(target.maxHealth, target.health + target.maxHealth * ENEMY_RULES.repairShare);
         world.emit({ type: 'repair', x1: enemy.x, y1: enemy.y, x2: target.x, y2: target.y });
       }
       enemy.abilityCooldown = ENEMY_RULES.repairCooldown;
@@ -1317,6 +1331,35 @@ function seek(enemy: Enemy, x: number, y: number, arrive: number, share = 1): bo
   return false;
 }
 
+/** Seconds between stuck checks, seconds of detour, and the share of a second's travel that counts as moving. */
+const STUCK_CHECK = 1;
+const DETOUR_SECONDS = 1.5;
+const STUCK_SHARE = 0.25;
+
+/**
+ * An enemy that tries to move but stays put for a second, pinned in a pocket
+ * of obstacles, walks sideways for a moment to find a way round (NOTES.md).
+ */
+function unstick(enemy: Enemy, toPlayerX: number, toPlayerY: number, dt: number): void {
+  if (enemy.detour > 0) {
+    enemy.detour -= dt;
+    setMove(enemy, -toPlayerY * enemy.strafe, toPlayerX * enemy.strafe, 1);
+    return;
+  }
+  enemy.checkTimer -= dt;
+  if (enemy.checkTimer > 0) return;
+  enemy.checkTimer = STUCK_CHECK;
+  const wants = enemy.action === 'chase' && Math.hypot(enemy.moveX, enemy.moveY) > 0.5;
+  const moved = Math.hypot(enemy.x - enemy.checkX, enemy.y - enemy.checkY);
+  enemy.checkX = enemy.x;
+  enemy.checkY = enemy.y;
+  if (wants && moved < enemy.speed * STUCK_CHECK * STUCK_SHARE) {
+    enemy.detour = DETOUR_SECONDS;
+    // Try the other side next time.
+    enemy.strafe = -enemy.strafe;
+  }
+}
+
 /** Simple avoidance around obstacles (GDD 9.15): slide along the side the enemy heads for. */
 function avoidObstacles(world: World, enemy: Enemy): void {
   if (enemy.moveX === 0 && enemy.moveY === 0) return;
@@ -1399,10 +1442,11 @@ function steer(world: World, enemy: Enemy, toPlayerX: number, toPlayerY: number,
 
   // Attack, and every action with no goal left.
   if (def.attack === 'ranged' || def.attack === 'shockwave') {
-    const hold = enemy.range * ENEMY_RULES.holdShare;
+    // In overtime, ranged enemies close in too, so a round never waits on an enemy out of reach (NOTES.md).
+    const hold = world.overtime ? 0 : enemy.range * ENEMY_RULES.holdShare;
     if (gap > hold) {
       setMove(enemy, toPlayerX, toPlayerY, 1);
-    } else if (hasTrait(enemy, 'kite') && gap < enemy.range * ENEMY_RULES.kiteShare) {
+    } else if (hasTrait(enemy, 'kite') && gap < enemy.range * ENEMY_RULES.kiteShare && world.timeLeft > 0) {
       setMove(enemy, -toPlayerX, -toPlayerY, 0.8);
     } else if (def.attack === 'ranged') {
       // Sidestep while the next shot readies. Without a line of sight the sidestep finds one.
@@ -1563,8 +1607,9 @@ export function updateEnemies(world: World, dt: number): void {
     }
 
     // The Ancient Guardian sleeps until the player comes close or a hit lands (GDD 9.11).
+    // When the timer runs out it wakes too, so a sleeping Guardian never holds a round open (GDD 4.9, NOTES.md).
     if (enemy.action === 'dormant') {
-      if (distance <= ENEMY_RULES.wakeRadius) enemy.action = 'chase';
+      if (distance <= ENEMY_RULES.wakeRadius || world.timeLeft <= 0) enemy.action = 'chase';
       continue;
     }
 
@@ -1597,6 +1642,7 @@ export function updateEnemies(world: World, dt: number): void {
           steer(world, enemy, toPlayerX, toPlayerY, distance);
           avoidObstacles(world, enemy);
         }
+        unstick(enemy, toPlayerX, toPlayerY, dt);
         if (enemy.action === 'chase') {
           const step = enemy.speed * pace * dt;
           // Melee enemies stop at the player's edge.

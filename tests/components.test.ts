@@ -26,7 +26,7 @@ describe('components changing shots', () => {
   it('Ratchet Repeater: every third attack fires one extra projectile', () => {
     const world = makeWorld({ weapons: [arm('Crossbow', 'Ratchet Repeater')], invincible: true });
     dummy(world, 150, 0);
-    // Three attacks at 0.7 per second: 0.4, 1.83 and 3.26 seconds.
+    // Three attacks at 0.8 per second: 0.4, 1.65 and 2.9 seconds.
     stepSeconds(world, 3.8);
     expect(world.stats.shotsFired).toBe(3);
     expect(eventsOf(world.events, 'enemyHit')).toHaveLength(4);
@@ -94,9 +94,9 @@ describe('components acting on hits', () => {
     const target = dummy(world, 150, 0);
     const neighbour = dummy(world, 170, 30);
     stepSeconds(world, 1);
-    // The neighbour takes half of 20, split into Impact and Fire, against Armour 25 per cent.
-    expect(neighbour.maxHealth - neighbour.health).toBeCloseTo(10 * 0.75, 6);
-    expect(target.maxHealth - target.health).toBeCloseTo(18, 6);
+    // The neighbour takes half of 25, split into Impact and Fire, against Armour 25 per cent.
+    expect(neighbour.maxHealth - neighbour.health).toBeCloseTo(12.5 * 0.75, 6);
+    expect(target.maxHealth - target.health).toBeCloseTo(22.5, 6);
     expect(eventsOf(world.events, 'explosion')).toHaveLength(1);
   });
 
@@ -106,8 +106,8 @@ describe('components acting on hits', () => {
     const neighbour = dummy(world, 150, 100);
     const far = dummy(world, 150, -400);
     stepSeconds(world, 1);
-    // Half of 20 as Electric, against Armour 25 per cent. Royal Footmen are weak to Electric.
-    expect(neighbour.maxHealth - neighbour.health).toBeCloseTo(10 * 0.75 * 1.7, 6);
+    // Half of 25 as Electric, against Armour 25 per cent. Royal Footmen are weak to Electric.
+    expect(neighbour.maxHealth - neighbour.health).toBeCloseTo(12.5 * 0.75 * 1.7, 6);
     expect(far.health).toBe(far.maxHealth);
   });
 
@@ -166,7 +166,7 @@ describe('components acting on hits', () => {
     const stabs = eventsOf(world.events, 'thrust');
     expect(stabs).toHaveLength(1);
     // Low damage 7, Piercing: Armour drops to 10 per cent.
-    expect(adjacent.maxHealth - adjacent.health).toBeCloseTo(6.3, 6);
+    expect(adjacent.maxHealth - adjacent.health).toBeCloseTo(8.1, 6);
   });
 
   it('Tesla Capacitor: discharges a lightning chain every few seconds', () => {
@@ -176,7 +176,7 @@ describe('components acting on hits', () => {
     stepSeconds(world, 2.5);
     expect(eventsOf(world.events, 'chain')).toHaveLength(1);
     // Medium damage 12, Electric, Armour 25 per cent, against a weakness to Electric.
-    expect(target.maxHealth - target.health).toBeCloseTo(9 * 1.7, 6);
+    expect(target.maxHealth - target.health).toBeCloseTo(11.25 * 1.7, 6);
     stepSeconds(world, 4);
     expect(eventsOf(world.events, 'chain')).toHaveLength(2);
   });
@@ -192,7 +192,7 @@ describe('components acting on kills', () => {
     stepSeconds(world, 1);
     expect(victim.active).toBe(false);
     // The bolt deals 18. The explosion adds half of 20, split into Impact and Fire, against Armour 25 per cent.
-    expect(neighbour.maxHealth - neighbour.health).toBeCloseTo(18 + 10 * 0.75, 6);
+    expect(neighbour.maxHealth - neighbour.health).toBeCloseTo(22.5 + 12.5 * 0.75, 6);
     expect(eventsOf(world.events, 'explosion').map((event) => event.generation)).toEqual([1]);
   });
 
@@ -224,14 +224,14 @@ describe('components acting on kills', () => {
   it('Feedback Loop Gear: each kill raises Attack Speed briefly', () => {
     const world = makeWorld({ weapons: [arm('Crossbow', 'Feedback Loop Gear')], invincible: true });
     const weapon = world.weapons[0]!;
-    expect(currentAttackSpeed(world, weapon)).toBeCloseTo(0.7, 10);
+    expect(currentAttackSpeed(world, weapon)).toBeCloseTo(0.8, 10);
     const victim = footmanAt(world, 150, 0);
     victim.health = 1;
     stepSeconds(world, 0.8);
     expect(weapon.killStacks).toBe(1);
-    expect(currentAttackSpeed(world, weapon)).toBeCloseTo(0.7 * 1.05, 10);
+    expect(currentAttackSpeed(world, weapon)).toBeCloseTo(0.8 * 1.05, 10);
     stepSeconds(world, 3.2);
-    expect(currentAttackSpeed(world, weapon)).toBeCloseTo(0.7, 10);
+    expect(currentAttackSpeed(world, weapon)).toBeCloseTo(0.8, 10);
   });
 
   it('Feedback Loop Gear: stacks up to a cap', () => {
@@ -239,7 +239,7 @@ describe('components acting on kills', () => {
     const weapon = world.weapons[0]!;
     weapon.killStacks = 50;
     weapon.killStackTimer = 1;
-    expect(currentAttackSpeed(world, weapon)).toBeCloseTo(0.7 * 1.35, 10);
+    expect(currentAttackSpeed(world, weapon)).toBeCloseTo(0.8 * 1.35, 10);
   });
 });
 
@@ -252,20 +252,20 @@ describe('components changing Attack Speed', () => {
     expect(weapon.rampStacks).toBeGreaterThanOrEqual(5);
     expect(currentAttackSpeed(world, weapon)).toBeGreaterThan(1.8 * 1.2);
     stepSeconds(world, 6);
-    expect(currentAttackSpeed(world, weapon)).toBeCloseTo(1.8 * 1.35, 10);
+    expect(currentAttackSpeed(world, weapon)).toBeCloseTo(2.0 * 1.35, 10);
     // The target leaves range. The climb resets.
     target.x += 2000;
     stepSeconds(world, 2);
     expect(weapon.rampStacks).toBe(0);
-    expect(currentAttackSpeed(world, weapon)).toBeCloseTo(1.8, 10);
+    expect(currentAttackSpeed(world, weapon)).toBeCloseTo(2.0, 10);
   });
 
   it('Nerve Fibre Trigger: Attack Speed up, High, while player health is below half', () => {
     const world = makeWorld({ weapons: [arm('Crossbow', 'Nerve Fibre Trigger')], playerStats: { regeneration: 0 } });
     const weapon = world.weapons[0]!;
-    expect(currentAttackSpeed(world, weapon)).toBeCloseTo(0.7, 10);
+    expect(currentAttackSpeed(world, weapon)).toBeCloseTo(0.8, 10);
     world.player.health = world.player.stats.maxHealth * 0.4;
-    expect(currentAttackSpeed(world, weapon)).toBeCloseTo(0.7 * 1.35, 10);
+    expect(currentAttackSpeed(world, weapon)).toBeCloseTo(0.8 * 1.35, 10);
   });
 
   it('Prototype Overclock: the weapon jams briefly at random', () => {
@@ -336,7 +336,7 @@ describe('growth between rounds', () => {
     const run = createRun(11, CHARACTERS.inventor, WEAPONS.crossbow);
     installComponent(run.weapons[0]!, componentByName('Living Wood Frame')!);
     const first = createWorldForRound(run);
-    expect(first.weapons[0]!.resolved.damage).toBeCloseTo(20, 10);
+    expect(first.weapons[0]!.resolved.damage).toBeCloseTo(25, 10);
     // Clear the round by hand.
     while (!first.spawningFinished) first.step(IDLE);
     for (const enemy of first.enemies.items) if (enemy.active) first.enemies.release(enemy);
@@ -344,6 +344,6 @@ describe('growth between rounds', () => {
     expect(first.phase).toBe('cleared');
     finishRound(run, first);
     expect(run.weapons[0]!.rounds).toBe(1);
-    expect(createWorldForRound(run).weapons[0]!.resolved.damage).toBeCloseTo(21, 10);
+    expect(createWorldForRound(run).weapons[0]!.resolved.damage).toBeCloseTo(26.25, 10);
   });
 });
