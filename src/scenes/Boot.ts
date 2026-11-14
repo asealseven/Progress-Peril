@@ -84,6 +84,7 @@ export class Boot extends Phaser.Scene {
 
   private startRun(): void {
     if (!this.scene.isActive()) return;
-    this.scene.start('CharacterSelect');
+    // The title opens the Grand Archive hub (GDD 15.6).
+    this.scene.start('Hub');
   }
 }

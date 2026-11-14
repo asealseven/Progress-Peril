@@ -142,8 +142,10 @@ export function hitEnemy(world: World, enemy: Enemy, weaponIndex: number, option
   if (!weapon || !enemy.active) return false;
   const resolved = weapon.resolved;
   // Construct Strength raises the damage of turrets, traps and companions (GDD 3.6).
-  const scale = (options.scale ?? 1) * (options.fromConstruct ? world.player.stats.constructStrength : 1);
   const primary = options.primary ?? true;
+  // Toxicologist: direct hit damage down, Low (GDD 11.12).
+  const direct = primary ? 1 - tierValue('modifierSize', 'Low') * world.spec('directHitDown') : 1;
+  const scale = (options.scale ?? 1) * direct * (options.fromConstruct ? world.player.stats.constructStrength : 1);
   const generation = options.generation ?? 0;
   const parts: readonly DamagePart[] =
     options.parts ??
@@ -179,7 +181,11 @@ export function hitEnemy(world: World, enemy: Enemy, weaponIndex: number, option
       criticalExtra += tierValue('modifierSize', 'Medium');
     }
   }
-  const criticalMultiplier = critical ? resolved.criticalDamage + criticalExtra : 1;
+  let criticalMultiplier = critical ? resolved.criticalDamage + criticalExtra : 1;
+  // Mathematics Master: a critical hit rolls again for a double critical (GDD 8.13).
+  if (critical && world.master('Mathematics') && world.luck(resolved.criticalChance)) {
+    criticalMultiplier = 1 + (criticalMultiplier - 1) * 2;
+  }
   const wasElite = enemy.rank === 'elite';
 
   // Step 3 extras decided per hit. Component bonuses join the component sum. Synergies multiply.
@@ -209,7 +215,9 @@ export function hitEnemy(world: World, enemy: Enemy, weaponIndex: number, option
       percentBonuses: synergyBonuses,
       criticalMultiplier,
       typeMultiplier:
-        typeMultiplier(enemy, part.type) *
+        typeMultiplier(enemy, part.type, world) *
+        // Physics Master: Magnetic effects ignore the Resistant elite modifier too (GDD 8.13).
+        (magnetic && enemy.resistType === part.type && world.master('Physics') && hasModifier(enemy, 'resistant') ? 1 / DAMAGE_STEP.resist : 1) *
         (directional ? hitMultiplier(world, enemy, part.type, magnetic, options.dirX, options.dirY) : 1),
       armour: enemyArmour(enemy, part.type, world),
       reactionBonus: reactions.bonus + (part.type === 'Electric' ? reactions.electricBonus : 0),
@@ -550,6 +558,8 @@ export function killEnemy(
 ): void {
   if (!enemy.active) return;
   if (enemy.boss) bossDefeated(world, enemy.boss);
+  // Mechanical Menace counts mechanical enemies (GDD 11.7).
+  if (enemy.def.properties.includes('Mechanical')) world.findings.mechanicalKills++;
   // Hidden node conditions (GDD 8.12).
   if (enemy.def.id === 'spore-mother') {
     world.findings.sporeMotherKilled = true;

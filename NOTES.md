@@ -497,3 +497,53 @@ Every choice below is mine and easy to reverse. Each names its GDD section.
 - **Bars.** The boss bar sits under the round with phase marks, the escort bar under it. Boss rounds zoom out to 85 per cent.
 - **Victory.** A new scene after Round 21: the ending of the final kingdom, the route, the campaign statistics and the relics.
 - **Folder layout.** New files from the layout: `src/data/bosses.ts`, `src/data/miniBosses.ts`, `src/data/relics.ts` and the `Victory` scene. Two files outside it: `src/sim/world/bosses.ts` (the boss controller) and `src/render/bosses.ts` (boss placeholders and telegraphs).
+
+## Milestone 9
+
+Every choice below is mine and easy to reverse. Each names its GDD section.
+
+### Archive Points (GDD 3.8, 11.3)
+
+- **Rounds.** An encounter round pays 2, a mini-boss round 10, a boss round 20. Round 21 pays 40 for the final boss plus 25 for the campaign. Points arrive at the end of each completed round, so a death keeps them.
+- **Discover technology.** Read as the first research of a node in any run: 3 points once per node. Buying discoveries with points and earning points for the same act would loop.
+- **Hidden technology.** 8 points when a hidden node's condition is met.
+
+### Discoveries and upgrades (GDD 11.10, 11.11)
+
+- **Conditions.** A middle or outer node needs the rank in every linked discipline. A cross node needs every required node discovered. Required nodes inside a discipline also need to be discovered first.
+- **Upgrades.** Research efficiency adds 1 per cent Research Yield per step. Material collection multiplies material drop chances by 1 per cent per step. Maximum health multiplies Max Health.
+- **Respec.** A reset returns 90 per cent of everything spent on that upgrade, rounded down. Specialisations sell back in full.
+
+### Specialisations (GDD 11.12)
+
+- **Equipping.** In the Archive, between campaigns. A run keeps the set it started with.
+- **Sizes.** "Up, Medium" and "down, Low" use the modifier size row. Armour and Max Health drawbacks multiply the stat. Fortune and Research Yield add the size.
+- **Rules.** The Toxicologist's faster meters fill 20 per cent more per hit. "Direct hit damage" means weapon hits, not status ticks. The Naturalist's gold drops lose 10 per cent, with fractions rounded by chance. The Accountant's discount adds to the Royal Writ's.
+
+### Mastery (GDD 8.13)
+
+- **Expert and Experimental components.** An Experimental component appears in shops once any discipline of the node opening it reaches Expert.
+- **Chemistry Master.** Each reaction builds 20 per cent of a Normal meter of the chosen status, Burning by default. The trophy cabinet changes the choice. The extra build never sets off a second extra build.
+- **Physics Master.** Covers Electric and Cold damage, and hits from Magnetic weapons.
+- **Biology Master.** 3 per cent of Organic kills drop a herb healing 5 per cent of Max Health.
+- **Engineering Master.** Turret and companion weapons place their first construct at the start of the round, at half health. Constructs are not carried over as objects.
+- **Mathematics Master.** A critical hit rolls Critical Chance again. A second success doubles the critical bonus.
+- **Grandmaster.** The title shows in the trophy cabinet. The third specialisation slot works. The Archive decoration waits for art.
+- **The Philosopher's Engine.** Once researched in any run, each new campaign starts with one random discovered middle-ring node already researched.
+
+### Challenges (GDD 11.7, 11.13)
+
+- **The four named in GDD 11.7.** First Invention and Scientific Perfection count cross nodes discovered in the Archive. Mechanical Menace counts enemies with the Mechanical property. Against All Odds needs three equipped weapons at no grade when the boss falls.
+- **Rewards.** Archive Points by band. The skin, decoration and exclusive equipment have no GDD design yet, so the cabinet lists them as text.
+
+### The revival (GDD 3.8)
+
+- **Return.** At 50 per cent of Max Health with 3 seconds of invulnerability, once per campaign. Challenge Tier limits arrive with Milestone 10.
+
+### Saves (GDD 15.13)
+
+- **Format.** JSON in local storage under one key, with the previous save under a backup key. Content definitions save as ids. Sets save as lists. A run's Archive saves once, with its profile.
+- **Version 1.** Version 0 is the Milestone 6 to 8 Archive shape. The migration fills every missing field with its starting value.
+- **When.** The run saves when each preparation phase opens and when a campaign starts. The Archive saves after every round, at the end of every run and after every Archive purchase. Continue returns to the last preparation phase, or to the first kingdom reveal before Round 1.
+- **Export and import.** A file holds the save text. A code is the same text in base64 with a "PP1:" prefix. Importing replaces all three profiles after a confirmation.
+- **Folder layout.** New files from the layout: `src/data/archive.ts`, `src/data/specialisations.ts`, `src/sim/save.ts`, and the `Hub` and `Settings` scenes. One file outside it: `src/scenes/session.ts`, the save file shared by the scenes. The Archive, Codex and trophy cabinet are panels of the Hub scene.

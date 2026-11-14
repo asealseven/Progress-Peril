@@ -1,6 +1,7 @@
 // Constructs: turrets, companions and trap laying (GDD 7.17).
 // Constructs use their own targeting rule and ignore manual focus (GDD 7.15).
 
+import { ARCHIVE_RULES } from '../../data/archive';
 import { SYNERGY_RULES, WEAPON_RULES } from '../../data/tiers';
 import { blastRadius, currentAttackSpeed, projectileRadius } from './attacks';
 import { explode, hitEnemy } from './damage';
@@ -68,6 +69,8 @@ function spawnConstruct(
   // Construct Strength raises construct health (GDD 3.6).
   construct.maxHealth = health * world.player.stats.constructStrength;
   construct.health = construct.maxHealth;
+  // Engineering Master: the construct carried from the last round keeps half its health (GDD 8.13).
+  if (world.carryHalf.delete(weaponIndex)) construct.health = construct.maxHealth * ARCHIVE_RULES.constructCarry;
   construct.cooldown = 0.2;
   construct.targetSlot = -1;
   construct.targetId = -1;

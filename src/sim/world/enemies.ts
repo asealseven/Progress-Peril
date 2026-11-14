@@ -336,6 +336,7 @@ export function spawnEnemy(world: World, def: EnemyDef, x: number, y: number, op
 
   if (options.squad) joinSquad(world, enemy, options.squad);
   world.maxEnemyRadius = Math.max(world.maxEnemyRadius, enemy.radius);
+  world.findings.enemies.add(def.id);
   world.emit({ type: 'enemySpawned', x: enemy.x, y: enemy.y });
   return enemy;
 }

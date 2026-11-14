@@ -121,6 +121,19 @@
 - Victory scene with the five endings from GDD 2.4.
 - 486 tests. New: 21 for boss data, round plans, entry, phases, telegraphs, rewards, Convergence, The Unmaking's copies, the Automaton's arms, the Null Field, every boss beatable, Absolute Precision and relics.
 
+### Milestone 9: Grand Archive and saves
+
+- The Grand Archive hub replaces the title flow: map table, continue seal, Archive shelves, lectern, trophy cabinet and desk lamp, with a side list on phones.
+- Archive Points for rounds, mini-bosses, bosses, the final boss, the campaign, new technology, hidden technology and challenges.
+- Discoveries from the GDD 11.10 starting knowledge, with mastery and requirement conditions, in six research areas.
+- All seven permanent upgrades with the 90 per cent respec, including the revival.
+- All ten specialisations with bonuses and drawbacks, two slots or three after Grandmaster, full refunds.
+- Mastery ranks with the Expert shop rule and the five Master mechanics.
+- The four GDD challenges, the Codex of enemies, synergies, reactions, relics, lore and endings, and the trophy cabinet.
+- Saves: three profiles, run autosave at preparation, Archive saves after every round, a backup copy, versions with migrations, export as a file or a code, import on another device, persistent storage.
+- Checked in the browser: progress survives a reload, and an exported code moves the save to a second browser.
+- 512 tests. New: 26 for the catalogue totals, discovery conditions, upgrades and respec, specialisations, Archive Points, the revival, mastery, challenges, the Codex and saves.
+
 ### Asset folders
 
 - ART_PROMPTS.md sits in the repo root.
@@ -141,6 +154,9 @@
 - Bosses have no generated images yet: the phase swap shows as a flash and a shake.
 - The final boss offers no relic. Endless mode in Milestone 10 needs one.
 - Boss bars and labels sit large on a phone screen. Milestone 11 revisits the HUD.
+- The hub is a placeholder of coloured boxes until the hub illustration exists. On phones the side list covers part of the hall.
+- Import and code copy use the browser's prompt and confirm boxes. Milestone 11 replaces them with notebook dialogs.
+- Challenge cosmetics and the Grandmaster decoration have no design yet.
 - Melee swings do not break volatile vats. Projectiles, explosions and blasts do.
 - The campaign count for the first-campaign rule lives in memory until Milestone 9 adds saves.
 - Preparation uses pick-then-place for components. Dragging on PC waits for Milestone 11.
@@ -158,4 +174,4 @@
 
 ## Next step
 
-Milestone 9: Grand Archive and saves. Read GDD 3.8, 8.13, 11.1 to 11.14, 15.6 and 15.13.
+Milestone 10: Modes, options and tutorial. Read GDD 3.9 to 3.12 and 13.1 to 13.3.

@@ -91,6 +91,7 @@ const TOUCH_ZOOM = 0.85;
 /** Boss rounds zoom out this far (GDD 15.2). */
 const BOSS_ZOOM = 0.85;
 const LOW_HEALTH = 0.3;
+const HERB = 0x4fa34a;
 const END_DELAY_MS = 1100;
 const PIP_SIZE = 6;
 const MAX_FLOATERS = 10;
@@ -540,7 +541,8 @@ export class Combat extends Phaser.Scene {
       width: 320 * s,
       height: 64 * s,
       textSize: 28 * s,
-      onClick: () => this.scene.start('Boot'),
+      // The run stays saved at its last preparation phase (GDD 15.13).
+      onClick: () => this.scene.start('Hub'),
     });
 
     this.pauseObjects = [dim, panel, title, seed, synergies];
@@ -788,6 +790,11 @@ export class Combat extends Phaser.Scene {
           break;
         case 'goldReturned':
           this.showFloater(STRINGS.hud.goldReturned(event.amount), event.x, event.y);
+          break;
+        case 'revived':
+          // The Archive's revival (GDD 3.8).
+          this.cameras.main.flash(400, 255, 255, 255);
+          this.showFloater(STRINGS.results.revived, this.sim.player.x, this.sim.player.y - 60);
           break;
         case 'pickup':
           this.effects.burst(event.x, event.y, event.kind === 'gold' ? GOLD : BRASS, event.kind === 'gold' ? 3 : 6, 90, 2, 0.25);
@@ -1291,6 +1298,15 @@ export class Combat extends Phaser.Scene {
         g.fillRect(pickup.x - 6, pickup.y - 6, 12, 12);
         g.lineStyle(1.5, INK, 1);
         g.strokeRect(pickup.x - 6, pickup.y - 6, 12, 12);
+      } else if (pickup.kind === 'herb') {
+        // Biology Master: a healing herb, three green leaves.
+        g.fillStyle(HERB, 1);
+        for (let leaf = 0; leaf < 3; leaf++) {
+          const angle = (leaf / 3) * Math.PI * 2 - Math.PI / 2;
+          g.fillEllipse(pickup.x + Math.cos(angle) * 5, pickup.y + Math.sin(angle) * 5, 9, 9);
+        }
+        g.lineStyle(1.5, INK, 1);
+        g.strokeCircle(pickup.x, pickup.y, 10);
       } else {
         const pulse = 0.6 + 0.4 * Math.sin(this.clock * 6);
         g.lineStyle(3, GOLD, pulse);

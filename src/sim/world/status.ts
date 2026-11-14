@@ -1,5 +1,7 @@
 // Status meters, status effects and status reactions (GDD 9.14).
 
+import { hasModifier } from './traits';
+import { ARCHIVE_RULES } from '../../data/archive';
 import type { DamageType } from '../../data/damageTypes';
 import {
   ARTIFICIAL_IMMUNE,
@@ -102,14 +104,17 @@ export function endStatus(enemy: Enemy, status: StatusEffect): void {
 }
 
 /** Weakness, resistance and immunity for a damage type (GDD 9.11), plus Overheated (GDD 9.14). */
-export function typeMultiplier(enemy: Enemy, type: DamageType): number {
+export function typeMultiplier(enemy: Enemy, type: DamageType, world?: World): number {
   const def = enemy.def;
   if (def.immune?.includes(type)) return 0;
   let multiplier = 1;
   if (def.weakTo.includes(type)) multiplier *= DAMAGE_STEP.weak;
   if (def.resists.includes(type)) multiplier *= DAMAGE_STEP.resist;
   // Resistant elites, the Anomaly's shifting resistance and Reactive Plating (GDD 9.11 to 9.13).
-  if (enemy.resistType === type) multiplier *= DAMAGE_STEP.resist;
+  // Physics Master: Electric and Cold ignore the Resistant elite modifier (GDD 8.13).
+  const ignoreResistant =
+    world !== undefined && (type === 'Electric' || type === 'Cold') && world.master('Physics') && hasModifier(enemy, 'resistant');
+  if (enemy.resistType === type && !ignoreResistant) multiplier *= DAMAGE_STEP.resist;
   if (enemy.plateType === type) multiplier *= DAMAGE_STEP.resist;
   if ((type === 'Electric' || type === 'Cold') && hasStatus(enemy, 'Overheated')) {
     multiplier *= 1 + tierValue('modifierSize', STATUS_RULES.overheated.extraDamage);
@@ -154,7 +159,7 @@ export function statusHit(
   if (!enemy.active || amount <= 0) return false;
   const dealt = computeDamage({
     base: amount * vulnerability(world, enemy),
-    typeMultiplier: typeMultiplier(enemy, type),
+    typeMultiplier: typeMultiplier(enemy, type, world),
     armour: ignoresArmour ? 0 : enemyArmour(enemy, type, world),
   });
   if (dealt <= 0) return false;
@@ -218,8 +223,17 @@ export function statusFor(enemy: Enemy, status: StatusEffect): StatusEffect | un
   return actual;
 }
 
+let masterBuilding = false;
+
 function announce(world: World, reaction: Reaction, enemy: Enemy): void {
   world.emit({ type: 'reaction', reaction, x: enemy.x, y: enemy.y });
+  world.findings.reactions.add(reaction);
+  // Chemistry Master: each reaction builds one further status of the player's choice (GDD 8.13).
+  if (world.master('Chemistry') && !masterBuilding && enemy.active) {
+    masterBuilding = true;
+    buildStatus(world, enemy, -1, world.perks.masterStatus, ARCHIVE_RULES.reactionBuild);
+    masterBuilding = false;
+  }
 }
 
 /** Damage multiplier for reactions from synergies: Thermal Shock and Catalytic Mix (GDD 7.19). */
@@ -312,7 +326,9 @@ export function buildStatus(
   }
 
   enemy.statusSince[index] = 0;
-  enemy.statusMeter[index] = (enemy.statusMeter[index] ?? 0) + share * world.player.stats.statusPotency;
+  // Toxicologist: Poisoned and Corroded meters fill faster (GDD 11.12).
+  const fill = 1 + (world.perks.statusFill.get(actual) ?? 0);
+  enemy.statusMeter[index] = (enemy.statusMeter[index] ?? 0) + share * world.player.stats.statusPotency * fill;
   if ((enemy.statusMeter[index] ?? 0) < meterSize(enemy, actual) - 1e-9) return false;
   enemy.statusMeter[index] = 0;
   triggerStatus(world, enemy, weaponIndex, actual);

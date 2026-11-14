@@ -11,7 +11,7 @@ import {
 } from '../src/data/research';
 import type { ResearchNodeDef } from '../src/data/research';
 import { STARTING_WEAPONS, WEAPONS, WEAPON_LIST } from '../src/data/weapons';
-import { createArchive, masteryRank, nextRank } from '../src/sim/archive';
+import { createArchive, createFullArchive, masteryRank, nextRank } from '../src/sim/archive';
 import { buildProblem, lockedBy, upgradeProblem } from '../src/sim/economy';
 import { createComponent, resolveLoadout } from '../src/sim/loadout';
 import {
@@ -41,7 +41,8 @@ function node(name: string): ResearchNodeDef {
 }
 
 function rich(points = 10000): RunState {
-  const run = createRun(5, CHARACTERS.inventor, WEAPONS.crossbow);
+  // Every node but the hidden ones discovered, so the tests reach the whole web.
+  const run = createRun(5, CHARACTERS.inventor, WEAPONS.crossbow, createFullArchive());
   run.research.points = points;
   run.materials = { Scrap: 500, Reagents: 500, Crystals: 500, Specimens: 500 };
   run.gold = 10000;

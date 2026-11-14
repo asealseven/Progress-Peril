@@ -18,11 +18,12 @@ import {
 } from '../data/research';
 import type { ResearchEffect, ResearchNodeDef, ResearchRule } from '../data/research';
 import type { Discipline } from '../data/weapons';
-import { masteryRank } from './archive';
+import { awardPoints, masteryRank, noteResearched } from './archive';
+import { AP_REWARDS } from '../data/archive';
 import type { ArchiveState } from './archive';
 
 /** The milestone the build has reached. Rules for later milestones stay inert. */
-export const RESEARCH_MILESTONE = 8;
+export const RESEARCH_MILESTONE = 9;
 
 export interface Payment {
   readonly points: number;
@@ -180,6 +181,8 @@ function markResearched(holder: ResearchHolder, node: ResearchNodeDef, payment: 
   research.researched.push(node.id);
   research.paid[node.id] = payment;
   // Mastery points go to each linked discipline, once per node per run (GDD 8.13).
+  // The first research of a technology in any run pays Archive Points (GDD 11.3).
+  noteResearched(holder.archive, node.id);
   if (!research.masteryAwarded.includes(node.id)) {
     research.masteryAwarded.push(node.id);
     for (const discipline of node.disciplines) holder.archive.mastery[discipline] += MASTERY_POINTS[node.ring];
@@ -288,6 +291,12 @@ export function captureChoices(holder: ResearchHolder): ResearchNodeDef[] {
   );
 }
 
+/** Researches a node for free: The Philosopher's Engine (GDD 8.12). */
+export function grantNode(holder: ResearchHolder, node: ResearchNodeDef): void {
+  if (isResearched(holder, node.id)) return;
+  markResearched(holder, node, { points: 0, materials: {} });
+}
+
 /** Takes a captured node for free. Returns true on success. */
 export function captureNode(holder: ResearchHolder, node: ResearchNodeDef): boolean {
   if (!captureChoices(holder).includes(node)) return false;
@@ -323,6 +332,8 @@ export function discoverHidden(holder: ResearchHolder, name: string): boolean {
   const node = researchNodeByName(name);
   if (!node || holder.archive.discovered.has(node.id)) return false;
   holder.archive.discovered.add(node.id);
+  // Discovering hidden technology pays Archive Points (GDD 11.3).
+  awardPoints(holder.archive, AP_REWARDS.hiddenTechnology);
   return true;
 }
 
@@ -348,6 +359,11 @@ export interface RoundFindings {
   sporeMotherKilled: boolean;
   unstableSuppressedKill: boolean;
   unstableKilled: boolean;
+  /** Mechanical enemies defeated, for Mechanical Menace (GDD 11.7). */
+  mechanicalKills: number;
+  /** Ids of enemies met and reactions set off, for the Codex (GDD 15.6). */
+  enemies: Set<string>;
+  reactions: Set<string>;
   /** A mini-boss died, and whether the player took no damage while it fought (GDD 8.12). */
   miniBossKilled: boolean;
   miniBossFlawless: boolean;
@@ -367,6 +383,9 @@ export function emptyFindings(): RoundFindings {
     unstableKilled: false,
     miniBossKilled: false,
     miniBossFlawless: false,
+    mechanicalKills: 0,
+    enemies: new Set(),
+    reactions: new Set(),
   };
 }
 

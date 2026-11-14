@@ -6,8 +6,7 @@ import { STRINGS } from '../data/strings';
 import { STARTING_WEAPONS } from '../data/weapons';
 import type { WeaponDef } from '../data/weapons';
 import { newSeed, parseSeed } from '../sim/rng';
-import { createArchive } from '../sim/archive';
-import type { ArchiveState } from '../sim/archive';
+import { archive, saveRun } from './session';
 import { createRun } from '../sim/run';
 import { drawPageFrame } from '../ui/frame';
 import { addText } from '../ui/text';
@@ -84,7 +83,7 @@ export class CharacterSelect extends Phaser.Scene {
       else if (event.key === 'ArrowDown' || event.key === 's') this.move(0, 1);
       else if (event.key === 'ArrowUp' || event.key === 'w') this.move(0, -1);
       else if (event.key === 'Enter' || event.key === ' ') this.choose(this.selected);
-      else if (event.key === 'Escape') this.scene.start('Boot');
+      else if (event.key === 'Escape') this.scene.start('Hub');
     };
     keyboard?.on('keydown', onKey);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => keyboard?.off('keydown', onKey));
@@ -153,15 +152,11 @@ export class CharacterSelect extends Phaser.Scene {
     // A seed in the address (?seed=ABC123) replays a run, for reproducing bugs (GDD 15.14).
     const requested = new URLSearchParams(window.location.search).get('seed');
     const seed = (requested ? parseSeed(requested) : undefined) ?? newSeed();
-    // One Archive lasts the whole session: mastery and hidden nodes carry between runs (GDD 8.13).
-    // Milestone 9 moves the Archive into the save.
-    let archive = this.registry.get('archive') as ArchiveState | undefined;
-    if (!archive) {
-      archive = createArchive();
-      this.registry.set('archive', archive);
-    }
+    // The profile's Grand Archive goes with the run (GDD 15.13). A new campaign replaces a saved run.
+    const run = createRun(seed, CHARACTERS.inventor, weapon, archive(this));
+    saveRun(this, run);
     // The map reveals the first kingdom before Round 1 (GDD 5.7, 5.8).
-    this.scene.start('Transition', { run: createRun(seed, CHARACTERS.inventor, weapon, archive) });
+    this.scene.start('Transition', { run });
   }
 
   /** Controller: stick or D-pad moves the highlight, A confirms (GDD 3.5). */

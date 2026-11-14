@@ -1,5 +1,7 @@
 // Entities and events of the combat simulation.
 
+import type { SpecialisationRule } from '../../data/specialisations';
+import type { Discipline } from '../../data/weapons';
 import type { ResearchRule } from '../../data/research';
 import type { EventId } from '../../data/events';
 import type { RelicRule } from '../../data/relics';
@@ -41,6 +43,21 @@ export interface PlayerStats {
   readonly fortune: number;
   /** Multiplier for construct health and damage (GDD 3.6). 1 at the base tier. */
   readonly constructStrength: number;
+  /** Multiplier for material drop chances (GDD 3.6). 1 at the base tier. */
+  readonly materialYield: number;
+}
+
+/** Grand Archive effects in a round (GDD 3.8, 8.13, 11.12). */
+export interface ArchivePerks {
+  readonly rules: ReadonlyMap<SpecialisationRule, number>;
+  /** Extra meter fill per status: the Toxicologist. */
+  readonly statusFill: ReadonlyMap<StatusEffect, number>;
+  /** Disciplines at Master: their rule change is on. */
+  readonly masters: readonly Discipline[];
+  /** The Chemistry Master status. */
+  readonly masterStatus: StatusEffect;
+  /** One revival waits this round (GDD 3.8). */
+  readonly revival: boolean;
 }
 
 export type AdaptationMap = Partial<Record<DamageType, number>>;
@@ -432,7 +449,7 @@ export interface Hazard extends Poolable {
 
 /** Gold, materials and components on the ground (GDD 14.1, 14.2). */
 export interface Pickup extends Poolable {
-  kind: 'gold' | 'material' | 'component';
+  kind: 'gold' | 'material' | 'component' | 'herb';
   x: number;
   y: number;
   amount: number;
@@ -546,6 +563,7 @@ export type WorldEvent =
   | { readonly type: 'bossNull'; readonly x: number; readonly y: number; readonly radius: number }
   | { readonly type: 'bossRepair'; readonly x: number; readonly y: number }
   | { readonly type: 'bossDefeated'; readonly x: number; readonly y: number; readonly name: string }
+  | { readonly type: 'revived' }
   | { readonly type: 'playerHit'; readonly amount: number; readonly damageType: DamageType }
   | { readonly type: 'playerEvaded' }
   | { readonly type: 'playerHealed'; readonly amount: number }
@@ -604,7 +622,7 @@ export type WorldEvent =
   | { readonly type: 'mutated'; readonly x: number; readonly y: number; readonly modifier: EliteModifierId }
   | {
       readonly type: 'pickup';
-      readonly kind: 'gold' | 'material' | 'component';
+      readonly kind: 'gold' | 'material' | 'component' | 'herb';
       readonly amount: number;
       readonly x: number;
       readonly y: number;
@@ -639,6 +657,8 @@ export interface WorldConfig {
   readonly localRound?: number;
   /** The territory event running this round (GDD 5.11). */
   readonly event?: EventId;
+  /** Grand Archive effects (GDD 3.8, 8.13, 11.12). */
+  readonly perks?: ArchivePerks;
   /** Relic rules held, with their summed amounts (GDD 5.12). */
   readonly relicRules?: ReadonlyMap<RelicRule, number>;
   /** The round's mini-boss, or boss and escort (GDD 4.10). */

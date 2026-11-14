@@ -1,4 +1,5 @@
 import { EVENTS } from '../data/events';
+import { endRun, saveNow } from './session';
 import Phaser from 'phaser';
 import { MATERIALS } from '../data/economy';
 import { KINGDOM_COLOURS, PALETTE, hexToNumber } from '../data/palette';
@@ -97,6 +98,9 @@ export class Results extends Phaser.Scene {
       this.drawRelicChoice();
       return;
     }
+    // The Grand Archive saves after every round and at the end of every run (GDD 15.13).
+    if (this.run.status === 'active') saveNow(this);
+    else endRun(this);
     const { width, height } = SCREEN;
     const centreX = width / 2;
     const s = uiScale();
@@ -123,6 +127,7 @@ export class Results extends Phaser.Scene {
         [STRINGS.results.criticalHits, `${result.stats.criticalHits}`],
         [STRINGS.results.damageTaken, `${Math.round(result.stats.damageTaken)}`],
         [STRINGS.results.time, formatTime(result.seconds)],
+        [STRINGS.results.archivePoints, `${run.archiveEarned}`],
         [STRINGS.results.gold, `${result.gold}`],
         [STRINGS.results.research, `${Math.round(result.research * 10) / 10}`],
         [STRINGS.results.materials, materialsLabel(result)],
@@ -149,9 +154,11 @@ export class Results extends Phaser.Scene {
         [STRINGS.results.damageDealt, `${Math.round(totals.damageDealt)}`],
         [STRINGS.results.damageTaken, `${Math.round(totals.damageTaken)}`],
         [STRINGS.results.time, formatTime(totals.seconds)],
+        // Archive Points from completed rounds stay with the player (GDD 3.8).
+        [STRINGS.results.archivePoints, `${run.archiveEarned}`],
       ];
       buttonLabel = STRINGS.results.toTitle;
-      this.confirm = () => this.scene.start('Boot');
+      this.confirm = () => this.scene.start('Hub');
     }
 
     addText(this, centreX, 96, heading, {

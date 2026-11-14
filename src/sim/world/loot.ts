@@ -2,6 +2,7 @@
 // an enemy dies. The player collects them through Pickup Radius. Everything
 // left flies to the player when the round ends.
 
+import { ARCHIVE_RULES } from '../../data/archive';
 import { RELIC_RULES } from '../../data/relics';
 import { COMPONENT_LIST, QUALITIES } from '../../data/components';
 import type { ComponentDef } from '../../data/components';
@@ -37,6 +38,10 @@ function collect(world: World, pickup: Pickup): void {
     world.loot.gold += pickup.amount;
   } else if (pickup.kind === 'material') {
     world.loot.materials[pickup.material] += pickup.amount;
+  } else if (pickup.kind === 'herb') {
+    // Biology Master: a healing herb (GDD 8.13).
+    const player = world.player;
+    if (player.health > 0) player.health = Math.min(player.stats.maxHealth, player.health + player.stats.maxHealth * ARCHIVE_RULES.herbHeal);
   } else if (pickup.component) {
     world.loot.components.push(pickup.component);
   }
@@ -49,10 +54,17 @@ function addPickup(
   kind: Pickup['kind'],
   x: number,
   y: number,
-  amount: number,
+  rawAmount: number,
   material: Material = 'Scrap',
   component?: ComponentDef,
 ): void {
+  // The Naturalist: gold drops down, Low. Fractions round by chance (GDD 11.12).
+  let amount = rawAmount;
+  if (kind === 'gold' && world.spec('goldDown') > 0) {
+    const kept = rawAmount * (1 - tierValue('modifierSize', 'Low'));
+    amount = Math.floor(kept) + (world.rng.chance(kept - Math.floor(kept)) ? 1 : 0);
+    if (amount <= 0) return;
+  }
   if (kind === 'gold') {
     // Gold close to another gold pickup joins the pile, so swarms leave few pickups.
     const reach = ECONOMY_RULES.pickupMergeDistance;
@@ -119,14 +131,23 @@ export function dropLoot(world: World, enemy: Enemy, weaponIndex: number): void 
   const { x, y } = enemy;
   // Bloom Crown: kills sometimes drop healing blooms (GDD 5.12).
   if (world.relic('bloomDrops') > 0 && world.luck(RELIC_RULES.bloomChance)) world.environment.addBloom(x, y, RELIC_RULES.bloomSeconds);
+  // Biology Master: Organic enemies sometimes drop healing herbs (GDD 8.13).
+  if (world.master('Biology') && enemy.def.properties.includes('Organic') && world.luck(ARCHIVE_RULES.herbChance)) {
+    addPickup(world, 'herb', x, y, 1);
+  }
   const rng = world.rng;
   const types = FACTION_MATERIALS[enemy.def.faction];
   const material = (): Material => rng.pick(types);
   // Fortune raises the odds of rare drops (GDD 3.6).
   const odds = 1 + world.player.stats.fortune;
+  // Material collection from the Grand Archive (GDD 11.11).
+  const materialYield = world.player.stats.materialYield;
   const drop = (amount: number, type: Material): void => {
-    // Natural History: Specimen yield up, Low.
-    const extra = type === 'Specimens' && world.rule('specimenYield') > 0 && world.luck(tierValue('modifierSize', 'Low')) ? 1 : 0;
+    // Natural History: Specimen yield up, Low. The Naturalist: up, Medium (GDD 11.12).
+    const specimenChance =
+      (world.rule('specimenYield') > 0 ? tierValue('modifierSize', 'Low') : 0) +
+      (world.spec('specimenYield') > 0 ? tierValue('modifierSize', 'Medium') : 0);
+    const extra = type === 'Specimens' && specimenChance > 0 && world.luck(specimenChance) ? 1 : 0;
     addPickup(world, 'material', x, y, amount + extra, type);
   };
 
@@ -175,7 +196,7 @@ export function dropLoot(world: World, enemy: Enemy, weaponIndex: number): void 
     }
   } else if (enemy.rank === 'elite') {
     addPickup(world, 'gold', x, y, GOLD_DROPS.elite);
-    const count = MATERIAL_DROPS.elite + (world.luck(MATERIAL_DROPS.eliteSecondChance * odds) ? 1 : 0);
+    const count = MATERIAL_DROPS.elite + (world.luck(MATERIAL_DROPS.eliteSecondChance * odds * materialYield) ? 1 : 0);
     drop(count, material());
     if (world.luck(MATERIAL_DROPS.eliteComponentChance * odds)) {
       const component = rollDroppedComponent(world.territory, rng);
@@ -183,7 +204,7 @@ export function dropLoot(world: World, enemy: Enemy, weaponIndex: number): void 
     }
   } else {
     addPickup(world, 'gold', x, y, GOLD_DROPS.normal);
-    if (world.luck(MATERIAL_DROPS.normalChance * odds)) drop(1, material());
+    if (world.luck(MATERIAL_DROPS.normalChance * odds * materialYield)) drop(1, material());
   }
 
   // Specimen Jar: kills with this weapon grant extra Specimens (GDD 7.18).

@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { endRun } from './session';
 import { BOSS_BY_KINGDOM } from '../data/bosses';
 import { KINGDOMS } from '../data/kingdoms';
 import { KINGDOM_COLOURS, PALETTE, hexToNumber } from '../data/palette';
@@ -71,6 +72,7 @@ export class Victory extends Phaser.Scene {
       [STRINGS.results.damageDealt, `${Math.round(totals.damageDealt)}`],
       [STRINGS.results.damageTaken, `${Math.round(totals.damageTaken)}`],
       [STRINGS.results.time, formatTime(totals.seconds)],
+      [STRINGS.results.archivePoints, `${run.archiveEarned}`],
       [STRINGS.victory.relics, run.relics.length > 0 ? run.relics.map((id) => RELICS[id].name).join(', ') : STRINGS.results.none],
     ];
     const lines = this.add.graphics();
@@ -84,8 +86,10 @@ export class Victory extends Phaser.Scene {
     }
 
     const toTitle = (): void => {
-      this.scene.start('Boot');
+      this.scene.start('Hub');
     };
+    // The run ends: the Archive keeps what it earned (GDD 15.13).
+    endRun(this);
     new Button(this, width / 2, height - 80, { label: STRINGS.results.toTitle, width: 360, height: 60, textSize: 26, onClick: toTitle });
     addText(this, width - 48, height - 40, STRINGS.results.seed(formatSeed(run.seed)), { role: 'hand', size: 22, colour: PALETTE.brass }).setOrigin(1, 1);
 

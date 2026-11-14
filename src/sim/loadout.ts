@@ -1,6 +1,8 @@
 // Weapon instances, component slot rules (GDD 7.12) and the resolution of a
 // weapon with its components into the numbers the combat simulation uses.
 
+import { specialisationEffects, specialisationRuleTotal } from '../data/specialisations';
+import type { SpecialisationId } from '../data/specialisations';
 import { relicEffects, relicRuleTotal } from '../data/relics';
 import type { RelicId } from '../data/relics';
 import { SCRAP_RETURN, componentFitsFamily } from '../data/components';
@@ -175,7 +177,7 @@ export function weaponTags(weapon: WeaponInstance): Tag[] {
 // --- Resolution --------------------------------------------------------------
 
 /** The milestone the build has reached. Effects marked for a later milestone stay inactive. */
-export const CURRENT_MILESTONE = 8;
+export const CURRENT_MILESTONE = 9;
 
 export function isActive(effect: Effect): boolean {
   return (effect.activeFrom ?? 0) <= CURRENT_MILESTONE;
@@ -418,6 +420,7 @@ export function resolveWeapon(
   research: ResolvedResearch = NO_RESEARCH,
   activeSynergies = 0,
   relics: readonly RelicId[] = [],
+  specialisations: readonly SpecialisationId[] = [],
 ): ResolvedWeapon {
   const def = weapon.def;
   const components = installedComponents(weapon);
@@ -638,6 +641,15 @@ export function resolveWeapon(
     else if (effect.damageType) researchTypeDamage.set(effect.damageType, (researchTypeDamage.get(effect.damageType) ?? 0) + size);
     else stack.addPercent(effect.stat, 'relics', size);
   }
+  // Specialisations (GDD 11.12): a bonus and a drawback each, under the archive source.
+  for (const effect of specialisationEffects(specialisations, 'weaponStat')) {
+    if (effect.family && def.family !== effect.family) continue;
+    const size = tierValue('modifierSize', effect.tier) * (effect.direction === 'up' ? 1 : -1);
+    if (effect.stat === 'criticalChance') criticalChanceBonus += tierValue('criticalChance', effect.tier) * Math.sign(size);
+    else if (effect.stat === 'knockback') knockbackFactor += size;
+    else if (effect.damageType) researchTypeDamage.set(effect.damageType, (researchTypeDamage.get(effect.damageType) ?? 0) + size);
+    else stack.addPercent(effect.stat, 'archive', size);
+  }
   for (const effect of research.statusDurations) {
     statusDurationFor[effect.status] = (statusDurationFor[effect.status] ?? 1) + tierValue('modifierSize', effect.tier);
   }
@@ -808,7 +820,7 @@ export function resolveWeapon(
     bonusAgainst,
     bonusAgainstAmount: tierValue('modifierSize', SYNERGY_RULES.resonanceBonus),
     synergies,
-    extraChainJumps: (active('conductive-strike') ? 1 : 0) + ruleCount('extraChainJump'),
+    extraChainJumps: (active('conductive-strike') ? 1 : 0) + ruleCount('extraChainJump') + specialisationRuleTotal(specialisations, 'chainJump'),
     explosionArea:
       (active('pressure-burst') ? 1 + tierValue('modifierSize', 'Medium') : 1) *
       (1 + tierValue('modifierSize', 'Low') * ruleCount('explosionArea')),
@@ -840,6 +852,8 @@ export interface LoadoutOptions {
   readonly noSynergies?: boolean;
   /** Kingdom Relics held (GDD 5.12). */
   readonly relics?: readonly RelicId[];
+  /** Specialisations equipped (GDD 11.12). */
+  readonly specialisations?: readonly SpecialisationId[];
 }
 
 /**
@@ -864,11 +878,22 @@ export function resolveLoadout(
   const armourSources = [base.armour];
   const rules = research.rules;
   const percent = { pickupRadius: 0, regeneration: 0, moveSpeed: 0 };
+  let fortuneBonus = 0;
+  let yieldBonus = 0;
   let evasion = base.evasion;
   let researchYield = base.researchYield;
   let fortune = base.fortune;
   const relics = options.relics ?? [];
   for (const effect of relicEffects(relics, 'playerStat')) percent[effect.stat] += tierValue('modifierSize', effect.tier);
+  const specialisations = options.specialisations ?? [];
+  const special = { maxHealth: 0, armour: 0, constructStrength: 0 };
+  for (const effect of specialisationEffects(specialisations, 'playerStat')) {
+    const size = tierValue('modifierSize', effect.tier) * (effect.direction === 'up' ? 1 : -1);
+    if (effect.stat === 'regeneration' || effect.stat === 'moveSpeed') percent[effect.stat] += size;
+    else if (effect.stat === 'fortune') fortuneBonus += size;
+    else if (effect.stat === 'researchYield') yieldBonus += size;
+    else special[effect.stat] += size;
+  }
   for (const effect of research.playerStats) {
     const size = tierValue('modifierSize', effect.tier);
     if (effect.stat === 'armour') armourSources.push(tierValue('armour', effect.tier));
@@ -886,10 +911,15 @@ export function resolveLoadout(
     }
   }
   const armourCap = tierValue('armour', PLAYER_STAT_CAPS.armour);
+  researchYield += yieldBonus;
+  fortune += fortuneBonus;
   const adaptive = synergies.includes('adaptive-armour') ? SYNERGY_RULES.adaptiveFactor : 1;
   const playerStats: PlayerStats = {
     ...base,
-    armour: Math.min(armourCap, stackArmour(armourSources)),
+    // The Gambler's drawback lowers Armour by a share. The Electrician's lowers Max Health.
+    armour: Math.min(armourCap, stackArmour(armourSources)) * (1 + special.armour),
+    maxHealth: base.maxHealth * (1 + special.maxHealth),
+    constructStrength: base.constructStrength + special.constructStrength,
     // Magnetic Field: Pickup Radius up, High.
     pickupRadius:
       base.pickupRadius *
@@ -910,7 +940,7 @@ export function resolveLoadout(
   };
   return {
     playerStats,
-    weapons: weapons.map((weapon, index) => resolveWeapon(weapon, playerStats, forWeapon(index), research, synergies.length, relics)),
+    weapons: weapons.map((weapon, index) => resolveWeapon(weapon, playerStats, forWeapon(index), research, synergies.length, relics, specialisations)),
     report,
     synergies,
   };

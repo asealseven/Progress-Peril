@@ -156,7 +156,7 @@ export function harmEnemy(world: World, enemy: Enemy, amount: number, damageType
   if (!enemy.active || amount <= 0) return false;
   const dealt = computeDamage({
     base: amount,
-    typeMultiplier: typeMultiplier(enemy, damageType),
+    typeMultiplier: typeMultiplier(enemy, damageType, world),
     armour: enemyArmour(enemy, damageType, world),
   });
   if (dealt <= 0) return false;

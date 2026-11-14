@@ -1,6 +1,9 @@
 // The fixed-step combat simulation. No Phaser imports (CLAUDE.md rule 1).
 // A scene owns one World, feeds input in, calls step() and draws the state.
 
+import { ARCHIVE_RULES } from '../../data/archive';
+import type { SpecialisationRule } from '../../data/specialisations';
+import type { Discipline } from '../../data/weapons';
 import type { DamageType } from '../../data/damageTypes';
 import { ENEMIES } from '../../data/enemies';
 import { roundInTerritory, territoryIndex } from '../../data/rounds';
@@ -33,6 +36,7 @@ import { clampToArena, pushOutOfObstacles } from './movement';
 import { Pool } from './pool';
 import { createProjectile, updateProjectiles } from './projectiles';
 import type {
+  ArchivePerks,
   Construct,
   Enemy,
   EnemyShot,
@@ -58,6 +62,8 @@ import { createTrap, createZone, updateTraps, updateZones } from './zones';
 
 /** Seconds per simulation step. */
 export const STEP_SECONDS = 1 / COMBAT.stepsPerSecond;
+
+const NO_PERKS: ArchivePerks = { rules: new Map(), statusFill: new Map(), masters: [], masterStatus: 'Burning', revival: false };
 
 const NO_SYNERGIES: ReadonlySet<string> = new Set();
 
@@ -179,6 +185,12 @@ export class World {
   /** Named research rules (GDD 8.12). */
   readonly research: ReadonlyMap<ResearchRule, number>;
   private readonly relicRules: ReadonlyMap<RelicRule, number>;
+  /** Grand Archive effects: specialisations, Master mechanics and the revival (GDD 3.8, 8.13, 11.12). */
+  readonly perks: ArchivePerks;
+  /** The revival came this round (GDD 3.8). */
+  revived = false;
+  /** Engineering Master: weapons whose first construct starts at half health. */
+  readonly carryHalf = new Set<number>();
   /** What the round showed for the hidden node conditions (GDD 8.12). */
   readonly findings: RoundFindings = emptyFindings();
   /** Times of recent critical hits, for Probability Storm. */
@@ -219,6 +231,7 @@ export class World {
     this.gold = config.gold ?? 0;
     this.research = config.research ?? new Map();
     this.relicRules = config.relicRules ?? new Map();
+    this.perks = config.perks ?? NO_PERKS;
     this.spawns = [...config.spawns].sort((a, b) => a.time - b.time);
 
     this.player = {
@@ -240,6 +253,15 @@ export class World {
     this.weapons = config.weapons.map((weapon, index) =>
       createWeaponState(weapon, config.suppressedWeapons?.[index], config.nulledWeapons?.[index]),
     );
+    // Engineering Master: constructs keep half their health between rounds and start deployed (GDD 8.13).
+    if ((config.perks?.masters ?? []).includes('Engineering')) {
+      this.weapons.forEach((weapon, index) => {
+        const delivery = weapon.resolved.delivery;
+        if (delivery !== 'turret' && delivery !== 'companion') return;
+        weapon.deployTimer = 0;
+        this.carryHalf.add(index);
+      });
+    }
     this.allSynergies = new Set(config.synergies ?? []);
     this.bossPlan = config.bosses;
 
@@ -278,6 +300,16 @@ export class World {
   /** Threat units the director has not sent in yet. */
   get spawnsLeft(): number {
     return this.spawns.length - this.nextSpawn + (this.wave ? 1 : 0);
+  }
+
+  /** True when a discipline's Master mechanic is on (GDD 8.13). */
+  master(discipline: Discipline): boolean {
+    return this.perks.masters.includes(discipline);
+  }
+
+  /** The summed amount of a specialisation rule (GDD 11.12). */
+  spec(rule: SpecialisationRule): number {
+    return this.perks.rules.get(rule) ?? 0;
   }
 
   /** The summed amount of a relic rule held. 0 means the rule is off (GDD 5.12). */
@@ -386,7 +418,13 @@ export class World {
 
     this.steps++;
 
-    if (this.player.health <= 0) {
+    if (this.player.health <= 0 && this.perks.revival && !this.revived) {
+      // One revival per campaign: partial health and a short invulnerability window (GDD 3.8).
+      this.revived = true;
+      this.player.health = this.player.stats.maxHealth * ARCHIVE_RULES.revivalHealth;
+      this.player.invulnerable = ARCHIVE_RULES.revivalInvulnerable;
+      this.emit({ type: 'revived' });
+    } else if (this.player.health <= 0) {
       this.phase = 'defeat';
     } else if (this.bossFallen) {
       // The boss falls: remaining enemies flee and the round ends (GDD 5.8 step 1).

@@ -2,6 +2,9 @@
 // merging (GDD 6.1 to 6.6, 7.8 to 7.10, 7.22, 7.23). Plain rules on the run
 // state. The Preparation scene calls these and draws the result.
 
+import { specialisationRuleTotal } from '../data/specialisations';
+import { OPENED_BY } from '../data/research';
+import { hasRank } from './archive';
 import { relicRuleTotal } from '../data/relics';
 import type { RelicId } from '../data/relics';
 import { COMPONENT_LIST, QUALITIES, SCRAP_RETURN, componentFitsFamily } from '../data/components';
@@ -86,10 +89,21 @@ export function recipeCost(
   return { gold: Math.round(cost.gold * (1 - half)), material: materialFor(def.tags), amount: cost.materials };
 }
 
-/** Shop prices after the Royal Writ (GDD 5.12). */
+/** Shop prices after the Royal Writ (GDD 5.12) and the Accountant (GDD 11.12). */
 function relicPrice(run: RunState, price: number): number {
-  const discount = relicRuleTotal(run.relics, 'shopDiscount');
+  const discount = relicRuleTotal(run.relics, 'shopDiscount') + specialisationRuleTotal(run.specialisations, 'shopDiscount');
   return discount > 0 ? Math.round(price * (1 - discount)) : price;
+}
+
+/**
+ * Experimental components of a discipline appear in shops from Expert mastery
+ * (GDD 8.13). A component's discipline is the discipline of the node opening it.
+ */
+export function experimentalOpen(run: RunState, component: ComponentDef): boolean {
+  if (component.quality !== 'Experimental') return true;
+  const node = OPENED_BY.get(component.name);
+  if (!node) return true;
+  return node.disciplines.some((discipline) => hasRank(run.archive, discipline, 'Expert'));
 }
 
 // --- Research gates ----------------------------------------------------------------
@@ -228,7 +242,8 @@ function rollItem(
         shopForComponent(component) === shopId &&
         // An Extraordinary component needs its outer node and a free milestone shop (GDD 6.6, 8.12).
         // Other locked items show with the node's name.
-        (rolled !== 'Extraordinary' || (milestone && !lockedBy(run, component))),
+        (rolled !== 'Extraordinary' || (milestone && !lockedBy(run, component))) &&
+        experimentalOpen(run, component),
     );
     const wantComponent =
       components.length > 0 &&

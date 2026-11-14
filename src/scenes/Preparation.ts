@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { saveRun } from './session';
 import { SLOT_TYPES } from '../data/components';
 import type { ComponentDef, SlotType } from '../data/components';
 import {
@@ -135,8 +136,12 @@ export class Preparation extends Phaser.Scene {
     super('Preparation');
   }
 
+  /** The run saved when this preparation phase began. Redraws reuse the scene and skip the save. */
+  private saved = false;
+
   init(data: PreparationData): void {
     this.run = data.run;
+    this.saved = data.view !== undefined;
     // A free visit opens on the Shop tab, so the choice of door comes first.
     this.view = data.view ?? {
       tab: data.run.freeVisit ? 'shop' : 'workbench',
@@ -147,6 +152,11 @@ export class Preparation extends Phaser.Scene {
   }
 
   create(): void {
+    // The run saves at the start of every preparation phase (GDD 15.13).
+    if (this.view.tab !== undefined && !this.saved) {
+      this.saved = true;
+      saveRun(this, this.run);
+    }
     this.cameras.main.setBackgroundColor(PALETTE.parchment);
     // The research web draws first, so the bar and the node card cover its edges.
     if (this.view.tab === 'research') this.drawResearch();

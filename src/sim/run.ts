@@ -21,7 +21,12 @@ import type { WeaponDef } from '../data/weapons';
 import type { ShopId } from '../data/shop';
 import { RESEARCH_RULES } from '../data/research';
 import type { UpgradeStat } from '../data/economy';
-import { createArchive } from './archive';
+import { awardPoints, createArchive, masterDisciplines, progressChallenge, upgradeValue } from './archive';
+import { AP_REWARDS } from '../data/archive';
+import { specialisationEffects } from '../data/specialisations';
+import type { SpecialisationId, SpecialisationRule } from '../data/specialisations';
+import type { StatusEffect } from '../data/statusEffects';
+import { RESEARCH_NODES, researchNodeByName } from '../data/research';
 import type { ArchiveState } from './archive';
 import { BOSS_BY_KINGDOM } from '../data/bosses';
 import { MINI_BOSS_BY_KINGDOM } from '../data/miniBosses';
@@ -32,7 +37,7 @@ import { beginPreparation, createShops, recordRound } from './economy';
 import type { RoundLedger, ShopState } from './economy';
 import { WEAPON_SLOTS, cloneWeapon, createComponent, createWeapon, installedComponents, resolveLoadout, weaponTags } from './loadout';
 import type { ComponentInstance, WeaponInstance } from './loadout';
-import { applyFindings, createResearch, hasRule, queueCapture, resolveResearch } from './research';
+import { applyFindings, createResearch, grantNode, hasRule, queueCapture, resolveResearch } from './research';
 import type { ResearchState } from './research';
 import { Rng } from './rng';
 import type { AdaptationMap, PlayerStats, RoundStats } from './world/types';
@@ -118,6 +123,13 @@ export interface RunState {
   /** The stat the Mutagen Flask raised this round, for the HUD. */
   flaskStat: FlaskStat | undefined;
   readonly history: RoundResult[];
+  /** Specialisations equipped for this campaign (GDD 11.12). */
+  readonly specialisations: readonly SpecialisationId[];
+  /** One revival per campaign, from the Grand Archive (GDD 3.8). */
+  readonly revival: boolean;
+  revivalUsed: boolean;
+  /** Archive Points earned this run, for the results screens (GDD 11.3). */
+  archiveEarned: number;
 }
 
 export function createRun(
@@ -128,20 +140,21 @@ export function createRun(
 ): RunState {
   const firstCampaign = archive.campaigns === 0;
   archive.campaigns++;
-  return {
+  const run: RunState = {
     seed: seed >>> 0,
     character,
     weapons: [createWeapon(startingWeapon)],
     kingdoms: [],
     events: [],
     firstCampaign,
-    gold: 0,
+    // Starting advantages from the Grand Archive (GDD 11.4, 11.11).
+    gold: upgradeValue(archive, 'starting-gold'),
     materials: emptyMaterials(),
     inventory: [],
     reserve: [],
     shops: createShops(),
     freeVisit: false,
-    freeRerolls: 0,
+    freeRerolls: upgradeValue(archive, 'shop-rerolls'),
     ledger: [],
     round: 1,
     status: 'active',
@@ -153,7 +166,21 @@ export function createRun(
     relicChoices: [],
     flaskStat: undefined,
     history: [],
+    specialisations: [...archive.equipped],
+    revival: archive.upgrades.revival > 0,
+    revivalUsed: false,
+    archiveEarned: 0,
   };
+  run.research.points = upgradeValue(archive, 'starting-research');
+  // The Philosopher's Engine: once researched, each campaign starts with one
+  // random middle-ring node from the Archive already researched (GDD 8.12, NOTES.md).
+  const engine = researchNodeByName("The Philosopher's Engine");
+  if (engine && archive.researchedEver.has(engine.id)) {
+    const middles = RESEARCH_NODES.filter((node) => node.ring === 'Middle' && archive.discovered.has(node.id));
+    const node = middles.length > 0 ? new Rng(run.seed).fork(8800).pick(middles) : undefined;
+    if (node) grantNode(run, node);
+  }
+  return run;
 }
 
 /** Base stats the Mutagen Flask can raise for a round (GDD 5.12). */
@@ -199,6 +226,7 @@ export function resolvePlayerStats(character: CharacterDef, relics: readonly Rel
     // Fortune and Construct Strength have no number row: each step adds a share (NOTES.md).
     fortune: RELIC_RULES.stepShare * steps('fortune'),
     constructStrength: 1 + RELIC_RULES.stepShare * steps('constructStrength'),
+    materialYield: 1,
   };
 }
 
@@ -310,11 +338,27 @@ export function createWorldForRound(run: RunState, limits: PerformanceLimits = P
     copy.roundTags = choices.length > 0 ? [relicRng.pick(choices)] : [];
     return copy;
   });
-  const base = resolvePlayerStats(run.character, relics, run.flaskStat);
+  const archive = run.archive;
+  const rolled = resolvePlayerStats(run.character, relics, run.flaskStat);
+  // Permanent upgrades (GDD 11.11): health, research efficiency and material collection.
+  const base: PlayerStats = {
+    ...rolled,
+    maxHealth: rolled.maxHealth * (1 + upgradeValue(archive, 'max-health')),
+    researchYield: rolled.researchYield + upgradeValue(archive, 'research-efficiency'),
+    materialYield: rolled.materialYield + upgradeValue(archive, 'material-collection'),
+  };
   const research = resolveResearch(run.research.researched);
-  const loadout = resolveLoadout(equipped, base, { research, relics });
-  const suppressed = resolveLoadout(withoutAuxiliary(equipped), base, { research, relics });
-  const nulled = resolveLoadout(withoutAuxiliary(equipped), base, { research, relics, noSynergies: true });
+  const specialisations = run.specialisations;
+  const options = { research, relics, specialisations };
+  const loadout = resolveLoadout(equipped, base, options);
+  const suppressed = resolveLoadout(withoutAuxiliary(equipped), base, options);
+  const nulled = resolveLoadout(withoutAuxiliary(equipped), base, { ...options, noSynergies: true });
+  const specRules = new Map<SpecialisationRule, number>();
+  for (const effect of specialisationEffects(specialisations, 'rule')) specRules.set(effect.rule, (specRules.get(effect.rule) ?? 0) + effect.amount);
+  const statusFill = new Map<StatusEffect, number>();
+  for (const effect of specialisationEffects(specialisations, 'statusFill')) {
+    for (const status of effect.statuses) statusFill.set(status, (statusFill.get(status) ?? 0) + tierValue('modifierSize', effect.tier));
+  }
   const relicRules = new Map<RelicRule, number>();
   for (const id of relics) {
     for (const effect of RELICS[id].effects) {
@@ -341,6 +385,13 @@ export function createWorldForRound(run: RunState, limits: PerformanceLimits = P
     ),
     nulledWeapons: nulled.weapons,
     relicRules,
+    perks: {
+      rules: specRules,
+      statusFill,
+      masters: masterDisciplines(archive),
+      masterStatus: archive.masterStatus,
+      revival: run.revival && !run.revivalUsed,
+    },
     ...(bosses ? { bosses } : {}),
     gold: run.gold,
     synergies: loadout.synergies,
@@ -376,6 +427,8 @@ export function finishRound(run: RunState, world: World): RoundResult {
   };
   run.history.push(result);
   run.research.points += loot.research;
+  if (world.revived) run.revivalUsed = true;
+  recordArchive(run, world, survived);
   // Loot collected before a defeat still counts for the campaign statistics.
   run.gold = world.gold + eventGold;
   let materialsEarned = 0;
@@ -424,10 +477,41 @@ export function finishRound(run: RunState, world: World): RoundResult {
   return result;
 }
 
+/**
+ * The Grand Archive after a round (GDD 3.8, 11.3, 11.7, 15.6): Archive Points
+ * for completed rounds and bosses, challenge progress and the Codex. Points
+ * from completed rounds stay after a death.
+ */
+function recordArchive(run: RunState, world: World, survived: boolean): void {
+  const archive = run.archive;
+  const before = archive.earned;
+  const findings = world.findings;
+  for (const id of findings.enemies) archive.codex.enemies.add(id);
+  for (const reaction of findings.reactions) archive.codex.reactions.add(reaction);
+  for (const id of world.synergies) archive.codex.synergies.add(id);
+  for (const kingdom of run.kingdoms) if (kingdom) archive.codex.kingdoms.add(kingdom);
+  progressChallenge(archive, 'mechanical-menace', findings.mechanicalKills);
+  if (survived) {
+    const kind = roundKind(run.round);
+    let points: number = AP_REWARDS.round;
+    if (kind === 'mini-boss') points = AP_REWARDS.miniBoss;
+    else if (kind === 'boss') points = run.round >= PLAYABLE_ROUNDS ? AP_REWARDS.finalBoss + AP_REWARDS.campaign : AP_REWARDS.boss;
+    awardPoints(archive, points);
+    // Against All Odds: a boss beaten with all three weapons at their base grade (GDD 11.7).
+    const equipped = run.weapons.slice(0, WEAPON_SLOTS);
+    if (kind === 'boss' && world.bossFallen && equipped.length === WEAPON_SLOTS && equipped.every((weapon) => weapon.grade === 0)) {
+      progressChallenge(archive, 'against-all-odds', 1);
+    }
+    if (kind === 'boss' && run.round >= PLAYABLE_ROUNDS) archive.codex.endings.add(kingdomForRound(run));
+  }
+  run.archiveEarned += archive.earned - before;
+}
+
 /** Takes one relic from the choice on offer (GDD 5.12). Returns false when the relic is not on offer. */
 export function takeRelic(run: RunState, id: RelicId): boolean {
   if (!run.relicChoices.includes(id)) return false;
   run.relics.push(id);
+  run.archive.codex.relics.add(id);
   run.relicChoices = [];
   return true;
 }
