@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { assetKey } from '../data/assets';
+import { assetKey, constructAssetKey } from '../data/assets';
 import { CombatAudio } from '../audio/combatAudio';
 import { music } from '../audio/music';
 import { SPRITE_IMAGE_SCALE, fitImage, hasImage } from '../render/images';
@@ -143,6 +143,8 @@ export class Combat extends Phaser.Scene {
   private enemySprites: Array<Phaser.GameObjects.Image | undefined> = [];
   private ghosts: Phaser.GameObjects.Image[] = [];
   private statusIcons: Phaser.GameObjects.Image[] = [];
+  private artSprites: Phaser.GameObjects.Image[] = [];
+  private artCount = 0;
   private audio!: CombatAudio;
   private captionText!: Phaser.GameObjects.Text;
   private captions: string[] = [];
@@ -217,6 +219,7 @@ export class Combat extends Phaser.Scene {
     this.enemySprites = [];
     this.ghosts = [];
     this.statusIcons = [];
+    this.artSprites = [];
     this.captions = [];
     this.weaponLabels = [];
     this.debugButtons = [];
@@ -1095,8 +1098,10 @@ export class Combat extends Phaser.Scene {
     drawEnvironment(this.hazardLayer, this.sim.environment, this.sim.elapsed);
     this.drawPlayer();
     this.drawEnemies();
+    this.artCount = 0;
     this.drawUnder();
     this.drawOver();
+    for (let index = this.artCount; index < this.artSprites.length; index++) this.artSprites[index]?.setVisible(false);
     this.drawFloaters(frame);
     this.drawDamageNumbers(frame);
     this.drawWarnings(frame);
@@ -1135,6 +1140,21 @@ export class Combat extends Phaser.Scene {
     sprite.setPosition(x, y + bob);
     sprite.setRotation((vx / Math.max(1, speed)) * LEAN);
     sprite.setScale(baseX * (1 + squash * 0.6), baseY * (1 - squash));
+  }
+
+  /**
+   * One pooled image for a construct or trap. `flip` 1 mirrors the image to face left.
+   */
+  private artSprite(key: string, x: number, y: number, size: number, alpha: number, flip: number, depth: number): void {
+    let sprite = this.artSprites[this.artCount];
+    if (!sprite) {
+      sprite = this.inWorld(this.add.image(0, 0, key));
+      this.artSprites[this.artCount] = sprite;
+    }
+    this.artCount++;
+    sprite.setTexture(key).setPosition(x, y).setAlpha(alpha).setDepth(depth).setVisible(true);
+    fitImage(sprite, size);
+    sprite.setFlipX(flip === 1);
   }
 
   /** One pooled status icon above an enemy, from the baked icon textures. */
@@ -1256,7 +1276,7 @@ export class Combat extends Phaser.Scene {
       // Bosses and mini-bosses draw in the kingdom colour with a thick outline. Parts keep the faction circle.
       // A generated image per phase replaces the circle (GDD 15.3).
       const boss = enemy.boss && (enemy.boss.role !== 'part' || enemy.boss.partId === 'unmaking-copy') ? enemy.boss : undefined;
-      const art = boss ? bossImageKey(boss) : undefined;
+      const art = enemy.boss ? bossImageKey(enemy.boss) : undefined;
       const key = art ?? (boss ? bossKey(enemy.def) : enemyKey(enemy.def));
       const ensure = (): void => {
         if (boss) ensureBossTexture(this, enemy.def, bossKingdom(boss));
@@ -1702,9 +1722,15 @@ export class Combat extends Phaser.Scene {
       }
     }
 
+    const trapArt = constructAssetKey('trap');
     for (const trap of sim.traps.items) {
       if (!trap.active) continue;
       const armed = trap.arming <= 0;
+      // A generated trap image replaces the shape (ART_PROMPTS.md).
+      if (hasImage(trapArt)) {
+        this.artSprite(trapArt, trap.x, trap.y, 28, armed ? 1 : 0.45, 0, DEPTH.under + 0.5);
+        continue;
+      }
       g.fillStyle(GOLD, armed ? 0.9 : 0.35);
       g.fillTriangle(trap.x - 9, trap.y, trap.x, trap.y - 9, trap.x + 9, trap.y);
       g.fillTriangle(trap.x - 9, trap.y, trap.x, trap.y + 9, trap.x + 9, trap.y);
@@ -1723,7 +1749,11 @@ export class Combat extends Phaser.Scene {
     for (const construct of sim.constructs.items) {
       if (!construct.active) continue;
       const fill = construct.kind === 'creature' ? CREATURE : construct.kind === 'hound' ? BRASS : GOLD;
-      if (construct.kind === 'turret') {
+      const art = constructAssetKey(construct.kind);
+      if (hasImage(art)) {
+        // A generated construct image replaces the shape. Companions face their heading (ART_PROMPTS.md).
+        this.artSprite(art, construct.x, construct.y, construct.radius * 2 * SPRITE_IMAGE_SCALE, 1, construct.kind === 'turret' ? 0 : (construct.faceX < 0 ? 1 : 0), DEPTH.projectile - 0.5);
+      } else if (construct.kind === 'turret') {
         g.fillStyle(PILLAR, 1);
         g.fillCircle(construct.x, construct.y, construct.radius + 3);
         g.lineStyle(5, INK, 1);
@@ -1738,10 +1768,12 @@ export class Combat extends Phaser.Scene {
         g.fillStyle(INK, 1);
         g.fillCircle(construct.x + construct.faceX * construct.radius, construct.y + construct.faceY * construct.radius, 5);
       }
-      g.fillStyle(fill, 1);
-      g.fillCircle(construct.x, construct.y, construct.radius);
-      g.lineStyle(3, INK, 1);
-      g.strokeCircle(construct.x, construct.y, construct.radius);
+      if (!hasImage(art)) {
+        g.fillStyle(fill, 1);
+        g.fillCircle(construct.x, construct.y, construct.radius);
+        g.lineStyle(3, INK, 1);
+        g.strokeCircle(construct.x, construct.y, construct.radius);
+      }
       if (construct.health < construct.maxHealth) {
         const width = construct.radius * 2 + 4;
         g.fillStyle(INK, 1);

@@ -31,6 +31,10 @@ const MAP_POSITIONS: Readonly<Record<KingdomName, { x: number; y: number }>> = {
   Myrathis: { x: 260, y: 480 },
 };
 
+/** The map area on the left of the reveal screen, around the kingdom markers. */
+const MAP_CENTRE = { x: 410, y: 345 } as const;
+const MAP_SIZE = { width: 740, height: 500 } as const;
+
 const INK = hexToNumber(PALETTE.ink);
 const BRASS = hexToNumber(PALETTE.brass);
 const DANGER = hexToNumber(PALETTE.danger);
@@ -115,10 +119,14 @@ export class Transition extends Phaser.Scene {
       colour: PALETTE.brass,
       weight: '700',
     }).setOrigin(0.5);
-    // Endless mode shows a short card at each new loop (GDD 2.4).
+    // Endless mode shows a short card at each new loop (GDD 2.4). Its illustration sits faintly behind the map.
     if (run.endless && territory % 5 === 0) {
+      addImageIfPresent(this, assetKey('card', 'endless-loop'), SCREEN.width / 2, SCREEN.height / 2, SCREEN.width - 60, SCREEN.height - 60)?.setAlpha(0.25);
       addText(this, centreX, 650, `${STRINGS.modes.endlessLoop}: ${STORY.endlessLoop}`, { role: 'hand', size: 24, colour: PALETTE.brass }).setOrigin(0.5);
     }
+
+    // The illustrated map of the five kingdoms, when generated, sits under the markers (ART_PROMPTS.md).
+    addImageIfPresent(this, assetKey('card', 'kingdom-map'), MAP_CENTRE.x, MAP_CENTRE.y, MAP_SIZE.width, MAP_SIZE.height);
 
     // The route so far, in the order visited.
     const map = this.add.graphics();

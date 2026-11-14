@@ -175,6 +175,11 @@
 - Download: 2.3 MB before art and music.
 - 545 tests pass. Hard-coded expectations now follow the new tier values.
 
+### After Milestone 12
+
+- The README explains the game for players, with the play link.
+- ART_PROMPTS.md gains 10 prompts, for 174 images: four boss parts (arm turret, belt motor, war banner, pylon), four constructs in the arena (Clockwork Turret, Clockwork Hound, Living Arsenal, Spring Trap), the map of the five kingdoms and the endless loop card. Each new image replaces its placeholder with no code change.
+
 ### Asset folders
 
 - ART_PROMPTS.md sits in the repo root.
@@ -186,7 +191,7 @@
 - Difficulty has no human playtest. The bot dies by Round 4 to 7 when it can be hit, mostly to the first mini-boss, but it dodges far worse than a person. Enemy Damage stays at the CLAUDE.md values.
 - A full campaign by a person likely runs 30 to 35 minutes: about 22 to 25 minutes of combat plus preparation. That sits at the top of the GDD 5.1 target.
 - Sounds are untuned. Headless checks cannot hear them.
-- With all 164 images, the download grows past 2.3 MB. Arenas, cards and the hub as large PNG files could approach the 40 MB budget in GDD 15.11.
+- With all 174 images, the download grows past 2.3 MB. Arenas, cards and the hub as large PNG files could approach the 40 MB budget in GDD 15.11.
 
 - Phone checks ran in an emulated phone viewport with touch events. No test on a physical phone yet.
 - Controller input has no automated test. The preparation screen has no controller navigation yet.
