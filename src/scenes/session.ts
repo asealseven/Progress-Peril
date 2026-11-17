@@ -6,7 +6,7 @@
 import type Phaser from 'phaser';
 import type { ArchiveState } from '../sim/archive';
 import type { RunState } from '../sim/run';
-import { browserStorage, loadSave, writeSave } from '../sim/save';
+import { browserStorage, decodeSave, encodeSave, loadSave, memoryStorage, newSaveFile, writeSave } from '../sim/save';
 import type { ProfileSave, SaveFile, SaveStorage } from '../sim/save';
 import { DAMAGE_PALETTES, TEXT_SCALE } from '../data/modes';
 import type { GameSettings } from '../data/modes';
@@ -21,6 +21,8 @@ interface Session {
   readonly storage: SaveStorage | undefined;
   file: SaveFile;
   readonly fromBackup: boolean;
+  /** Dev tools sandbox: a copy of the save in memory, never written to the browser. */
+  readonly sandbox?: boolean;
 }
 
 export function session(scene: Phaser.Scene): Session {
@@ -67,6 +69,30 @@ export function endRun(scene: Phaser.Scene): void {
 export function replaceSave(scene: Phaser.Scene, file: SaveFile): void {
   session(scene).file = file;
   saveNow(scene);
+}
+
+/**
+ * Dev tools: swaps the save for a copy held in memory. Test runs, Archive
+ * Points and records then never reach browser storage. Lasts until
+ * leaveSandbox or a page reload.
+ */
+export function enterSandbox(scene: Phaser.Scene): void {
+  const current = session(scene);
+  if (current.sandbox) return;
+  const copy = decodeSave(encodeSave(current.file));
+  const file = 'file' in copy ? copy.file : newSaveFile();
+  scene.registry.set(KEY, { storage: memoryStorage(), file, fromBackup: false, sandbox: true } satisfies Session);
+}
+
+/** Dev tools: drops the sandbox copy and reloads the real save. */
+export function leaveSandbox(scene: Phaser.Scene): void {
+  if (!inSandbox(scene)) return;
+  scene.registry.remove(KEY);
+  session(scene);
+}
+
+export function inSandbox(scene: Phaser.Scene): boolean {
+  return session(scene).sandbox === true;
 }
 
 /** Player settings for this device (GDD 3.10). */

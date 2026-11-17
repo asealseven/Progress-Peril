@@ -3,6 +3,7 @@ import { kingdomForRound } from '../sim/run';
 import { music } from '../audio/music';
 import { playSound } from '../audio/sfx';
 import { saveRun } from './session';
+import { DEV_TOOLS } from './devTools';
 import { SLOT_TYPES } from '../data/components';
 import type { ComponentDef, SlotType } from '../data/components';
 import {
@@ -200,7 +201,9 @@ export class Preparation extends Phaser.Scene {
 
     const keyboard = this.input.keyboard;
     const start = (): void => this.startRound();
-    const debug = (): void => this.redraw((view) => (view.debug = !view.debug));
+    const debug = (): void => {
+      if (DEV_TOOLS) this.redraw((view) => (view.debug = !view.debug));
+    };
     keyboard?.on('keydown-ENTER', start);
     keyboard?.on('keydown-F3', debug);
     keyboard?.addCapture('F3');

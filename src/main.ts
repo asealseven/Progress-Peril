@@ -21,6 +21,8 @@ import { Transition } from './scenes/Transition';
 import { Victory } from './scenes/Victory';
 import { Hub } from './scenes/Hub';
 import { Settings } from './scenes/Settings';
+import { TestLab } from './scenes/TestLab';
+import { ArtGallery } from './scenes/ArtGallery';
 
 const FONT_TIMEOUT_MS = 3000;
 
@@ -66,7 +68,7 @@ async function start(): Promise<void> {
     input: {
       activePointers: 3,
     },
-    scene: [Boot, Hub, CharacterSelect, Transition, Combat, Results, Preparation, Victory, Settings, DebugMenu],
+    scene: [Boot, Hub, CharacterSelect, Transition, Combat, Results, Preparation, Victory, Settings, DebugMenu, TestLab, ArtGallery],
   });
 
   // Development builds expose the game for browser test scripts.
