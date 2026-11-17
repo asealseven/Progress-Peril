@@ -45,7 +45,7 @@ export const MASTERY_POINTS: Readonly<Record<Ring, number>> = {
 
 export const MASTERY_RANKS = [
   { name: 'Novice', points: 0 },
-  { name: 'Practitioner', points: 20 },
+  { name: 'Practitioner', points: 13 },
   { name: 'Expert', points: 60 },
   { name: 'Master', points: 140 },
   { name: 'Grandmaster', points: 280 },

@@ -170,6 +170,30 @@ export function discoveryProblem(archive: ArchiveState, node: ResearchNodeDef): 
   return undefined;
 }
 
+/**
+ * Nodes one step beyond the known tree (GDD 15.8): undiscovered, not hidden,
+ * with every required node discovered. The research web shows them as
+ * Archive only, to buy in the Grand Archive.
+ */
+export function archivePreview(archive: ArchiveState, node: ResearchNodeDef): boolean {
+  if (archive.discovered.has(node.id) || !DISCOVERY[node.ring]) return false;
+  return node.requires.every((name) => {
+    const required = researchNodeByName(name);
+    return required !== undefined && archive.discovered.has(required.id);
+  });
+}
+
+/** The mastery rank a discovery needs in each linked discipline, if any (GDD 11.10). */
+export function discoveryRank(node: ResearchNodeDef): MasteryRank | undefined {
+  const condition = DISCOVERY[node.ring]?.condition;
+  return condition === 'practitioner' ? 'Practitioner' : condition === 'expert' ? 'Expert' : undefined;
+}
+
+/** Inner nodes of a discipline still waiting for discovery, the path to Practitioner (GDD 8.13). */
+export function innerToDiscover(archive: ArchiveState, discipline: Discipline): ResearchNodeDef[] {
+  return RESEARCH_NODES.filter((node) => node.ring === 'Inner' && node.disciplines[0] === discipline && !archive.discovered.has(node.id));
+}
+
 /** Discovers a node for Archive Points. Discoveries never refund (GDD 11.8). */
 export function discoverNode(archive: ArchiveState, node: ResearchNodeDef): DiscoveryProblem | undefined {
   const problem = discoveryProblem(archive, node);

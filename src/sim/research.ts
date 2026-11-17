@@ -18,7 +18,7 @@ import {
 } from '../data/research';
 import type { ResearchEffect, ResearchNodeDef, ResearchRule } from '../data/research';
 import type { Discipline } from '../data/weapons';
-import { awardPoints, masteryRank, noteResearched } from './archive';
+import { archivePreview, awardPoints, masteryRank, noteResearched } from './archive';
 import { AP_REWARDS } from '../data/archive';
 import type { ArchiveState } from './archive';
 
@@ -57,7 +57,8 @@ export interface ResearchHolder {
   researchSynergies: string[];
 }
 
-export type NodeState = 'undiscovered' | 'blocked' | 'discovered' | 'available' | 'researched';
+/** 'archive': undiscovered, one step beyond the known tree, bought in the Grand Archive (GDD 15.8). */
+export type NodeState = 'undiscovered' | 'archive' | 'blocked' | 'discovered' | 'available' | 'researched';
 
 export function isResearched(holder: ResearchHolder, id: string): boolean {
   return holder.research.researched.includes(id);
@@ -158,7 +159,7 @@ export function researchProblem(holder: ResearchHolder, node: ResearchNodeDef): 
 export function nodeState(holder: ResearchHolder, node: ResearchNodeDef): NodeState {
   const problem = researchProblem(holder, node);
   if (problem === undefined) return 'available';
-  if (problem === 'undiscovered') return 'undiscovered';
+  if (problem === 'undiscovered') return archivePreview(holder.archive, node) ? 'archive' : 'undiscovered';
   if (problem === 'researched') return 'researched';
   if (problem === 'requirements') return 'blocked';
   return 'discovered';

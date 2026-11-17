@@ -274,6 +274,10 @@ export const STRINGS = {
     endless: (round: number) => `Endless mode best: ${round > 0 ? `Round ${round}` : 'none yet'}`,
     mastery: 'Mastery',
     toNext: (points: number, next: number, rank: string) => `${points} of ${next} to ${rank}`,
+    masteryPath: (discipline: string, rank: string, points: number, next: { points: number; name: string } | undefined) =>
+      next ? `${discipline} mastery: ${rank}, ${points} of ${next.points} to ${next.name}` : `${discipline} mastery: ${rank}, ${points}`,
+    innerToDiscover: (names: readonly string[]) =>
+      names.length > 0 ? `Discover for more mastery each run: ${names.join(', ')}` : 'Every inner node discovered: 13 mastery a run from centre and inner',
     masterOn: 'Master mechanic on',
     atMaster: 'At Master',
     statusChosen: (status: string) => `Chemistry Master builds ${status}.`,
@@ -428,6 +432,7 @@ export const STRINGS = {
   research: {
     states: {
       undiscovered: 'Unknown',
+      archive: 'Buy in the Grand Archive first',
       blocked: 'Blocked by requirements',
       discovered: 'Discovered',
       available: 'Available',
@@ -450,6 +455,12 @@ export const STRINGS = {
     noRequirements: 'No requirements',
     opens: 'Opens',
     condition: 'Found by',
+    archiveCost: 'Grand Archive discovery',
+    archivePoints: (points: number) => `${points} Archive Points`,
+    archiveRank: (rank: string, discipline: string, points: number, needed: number) =>
+      points >= needed ? `${rank} in ${discipline}: reached` : `Needs ${rank} in ${discipline}: ${points} of ${needed}`,
+    archiveNote: 'Discover this node in the Grand Archive between runs. Then research opens in every run.',
+    archiveButton: 'Buy in the Grand Archive',
     hintTitle: 'An ink smudge',
     hintNote: 'Something waits here. The notebook holds one line:',
     researchNow: 'Research',

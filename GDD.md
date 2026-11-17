@@ -2435,15 +2435,17 @@ Hidden nodes stay off the research web until the player meets the condition in a
 
 ### 8.13 Mastery thresholds
 
-**Status: Proposed.** Mastery is permanent and tracked per discipline. Researching a node in a run earns mastery points: centre 1, inner 2, middle 3, outer 5. Cross-discipline and hidden nodes give 2 to each linked discipline. A focused winning run earns about 30 points in the main discipline.
+**Status: Proposed.** Mastery is permanent and tracked per discipline. Researching a node in a run earns mastery points: centre 1, inner 2, middle 3, outer 5. Cross-discipline and hidden nodes give 2 to each linked discipline. A focused winning run earns about 30 points in the main discipline once its middle ring is discovered. Before then, a run earns at most 7 points per discipline from starting knowledge, or 13 with all five inner nodes discovered.
 
 | Rank     | Points | Opens                                                                              |
 |--------------|------------|----------------------------------------------------------------------------------------|
 | Novice       | 0          | Centre and inner rings                                                                 |
-| Practitioner | 20         | Middle-ring discovery in the Grand Archive                                             |
+| Practitioner | 13         | Middle-ring discovery in the Grand Archive                                             |
 | Expert       | 60         | Outer-ring discovery. Experimental components of the discipline appear in shops        |
 | Master       | 140        | A discipline mechanic: one rule change, listed below                                   |
 | Grandmaster  | 280        | Discipline title, Archive decoration and one extra specialisation slot (Section 11.12) |
+
+Practitioner sits at 13 points, the value of every centre and inner node in one discipline, so two runs always reach the rank on a fresh profile (confirmed after playtesting version 1.0). The Grand Archive shows each discipline's points to the next rank and the inner nodes still to discover.
 
 | Discipline | Master mechanic                                                                |
 |----------------|------------------------------------------------------------------------------------|
@@ -3757,7 +3759,9 @@ Section 15.1 sets the core design system: palettes, damage type colours, typogra
 
 - The research web is a circle split into five coloured discipline sectors, with rings from centre to outer edge. Cross-discipline nodes sit on the borders between sectors.
 
-- Node states: undiscovered (hidden), discovered (ink outline), available (glowing), researched (filled), and blocked by requirements (greyed with linking lines).
+- Node states: undiscovered (hidden), Archive only (dashed outline), discovered (ink outline), available (glowing), researched (filled), and blocked by requirements (greyed with linking lines).
+
+- Archive only: an undiscovered node, other than a hidden node, whose required nodes are all discovered. The web shows the node one step beyond the known tree. Its card shows the effect, the Archive Point price and the mastery rank needed, with progress, and says to buy the node in the Grand Archive. Research stays closed until the discovery.
 
 - Selecting a node opens a card with the effect, cost and requirements. A second press researches the node, instantly.
 
