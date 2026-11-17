@@ -12,7 +12,7 @@ import { ENEMY_RULES, PERFORMANCE_LIMITS } from '../data/tiers';
 import { Effects } from '../render/effects';
 import { drawArenaFloor, drawEnvironment } from '../render/environment';
 import { bossImageKey, bossKey, bossKingdom, bossTextureSize, drawBossMarks, drawBossTelegraphs, ensureBossTexture } from '../render/bosses';
-import { mainBoss } from '../sim/world/bosses';
+import { forceBossPhase, mainBoss } from '../sim/world/bosses';
 import type { BossBody } from '../sim/world/bosses';
 import { roundKind } from '../data/rounds';
 import { EVENTS } from '../data/events';
@@ -32,7 +32,8 @@ import { auraRadius, currentAttackSpeed, orbitHeadRadius, orbitRadius } from '..
 import { hasShield, shieldBlocks, spawnGroup } from '../sim/world/enemies';
 import { CHAMPION_TRAITS } from '../data/champions';
 import { ELITE_MODIFIERS } from '../data/eliteModifiers';
-import { ENEMIES, ENEMY_LIST } from '../data/enemies';
+import { ENEMIES, ENEMY_LIST, enemiesOfFaction } from '../data/enemies';
+import { KINGDOMS } from '../data/kingdoms';
 import type { EnemyId } from '../data/enemies';
 import { territorySlot } from '../data/rounds';
 import { REACTION_DEFS, STATUS_DEFS, STATUS_EFFECTS } from '../data/statusEffects';
@@ -52,9 +53,13 @@ import { RESEARCH_NODES } from '../data/research';
 import { RELICS } from '../data/relics';
 import { installedComponents } from '../sim/loadout';
 import { MOBILE_EFFECT_SHARE, isTouchPrimary, uiScale } from './platform';
+import { DEV_TOOLS } from './devTools';
+import type { TestSetup } from './devTools';
 
 export interface CombatData {
   run: RunState;
+  /** A Test Lab round (dev tools only). */
+  test?: TestSetup;
 }
 
 const INK = hexToNumber(PALETTE.ink);
@@ -200,8 +205,14 @@ export class Combat extends Phaser.Scene {
     super('Combat');
   }
 
+  /** A Test Lab round (dev tools only), and whether its boss phase jump ran. */
+  private test: TestSetup | undefined;
+  private testPhaseDone = false;
+
   init(data: CombatData): void {
     this.run = data.run;
+    this.test = DEV_TOOLS ? data.test : undefined;
+    this.testPhaseDone = false;
   }
 
   create(): void {
@@ -209,6 +220,7 @@ export class Combat extends Phaser.Scene {
     this.fastForward = this.prefs.fastForward;
     this.damageNumbers = [];
     this.sim = createWorldForRound(this.run, isTouchPrimary() ? PERFORMANCE_LIMITS.mobile : PERFORMANCE_LIMITS.pc);
+    if (this.test) this.applyTest(this.test);
     this.accumulator = 0;
     this.paused = false;
     this.ended = false;
@@ -302,6 +314,7 @@ export class Combat extends Phaser.Scene {
     keyboard?.on('keydown-K', this.spawnTestEnemies, this);
     keyboard?.on('keydown-N', this.nextDebugEnemy, this);
     keyboard?.on('keydown-R', this.nextDebugRank, this);
+    keyboard?.on('keydown-B', this.nextBossPhase, this);
     keyboard?.addCapture('TAB,F3');
     this.input.on('pointerdown', this.onPointerDown, this);
     this.game.events.on(Phaser.Core.Events.HIDDEN, this.pauseOnHide, this);
@@ -316,6 +329,7 @@ export class Combat extends Phaser.Scene {
       keyboard?.off('keydown-K', this.spawnTestEnemies, this);
       keyboard?.off('keydown-N', this.nextDebugEnemy, this);
       keyboard?.off('keydown-R', this.nextDebugRank, this);
+      keyboard?.off('keydown-B', this.nextBossPhase, this);
       this.input.off('pointerdown', this.onPointerDown, this);
       this.game.events.off(Phaser.Core.Events.HIDDEN, this.pauseOnHide, this);
     });
@@ -559,7 +573,7 @@ export class Combat extends Phaser.Scene {
     this.suppressedText.setStroke(PALETTE.parchment, 5);
 
     this.debugText = this.inHud(
-      addText(this, HUD_MARGIN, SCREEN.height - HUD_MARGIN - 104 * s, '', { size: 14 * s, weight: '500' }),
+      addText(this, HUD_MARGIN, SCREEN.height - HUD_MARGIN - 154 * s, '', { size: 14 * s, weight: '500' }),
     )
       .setOrigin(0, 1)
       .setDepth(DEPTH.hudText)
@@ -589,6 +603,7 @@ export class Combat extends Phaser.Scene {
     const enemyWidth = toolWidth * 2 + 8;
     this.enemyButton = addTool('', HUD_MARGIN + enemyWidth / 2, upperY, enemyWidth, () => this.nextDebugEnemy());
     this.rankButton = addTool('', HUD_MARGIN + enemyWidth + 8 + toolWidth / 2, upperY, toolWidth, () => this.nextDebugRank());
+    addTool(STRINGS.debug.bossPhase, HUD_MARGIN + toolWidth / 2, upperY - 50 * s, toolWidth, () => this.nextBossPhase());
     this.refreshDebugTools();
 
     // Touch devices get a pause button in the top right corner (GDD 15.7).
@@ -722,8 +737,8 @@ export class Combat extends Phaser.Scene {
       width: buttonWidth,
       height: 64 * s,
       textSize: 28 * s,
-      // The run stays saved at its last preparation phase (GDD 15.13).
-      onClick: () => this.scene.start('Hub'),
+      // The run stays saved at its last preparation phase (GDD 15.13). Test Lab rounds go back to the lab.
+      onClick: () => this.scene.start(this.test ? 'TestLab' : 'Hub'),
     });
 
     this.pauseObjects = [dim, panel, title, seed, synergies];
@@ -762,6 +777,7 @@ export class Combat extends Phaser.Scene {
   }
 
   private toggleDebug(): void {
+    if (!DEV_TOOLS) return;
     this.debugVisible = !this.debugVisible;
     this.debugText.setVisible(this.debugVisible);
     for (const button of this.debugButtons) button.setVisible(this.debugVisible);
@@ -794,6 +810,40 @@ export class Combat extends Phaser.Scene {
   private refreshDebugTools(): void {
     this.enemyButton?.setLabel(STRINGS.debug.spawnEnemy(ENEMY_LIST[this.debugEnemy]?.name ?? ''));
     this.rankButton?.setLabel(STRINGS.debug.spawnRank(DEBUG_RANKS[this.debugRank] ?? 'normal'));
+  }
+
+  /** Debug tool: moves the boss or mini-boss on to its next phase (B on a keyboard). */
+  private nextBossPhase(): void {
+    if (!this.debugVisible || this.ended) return;
+    const body = mainBoss(this.sim);
+    if (body) forceBossPhase(body, body.phase + 1);
+  }
+
+  /** Test Lab round: invincibility, a held round and the enemies picked in the lab. */
+  private applyTest(test: TestSetup): void {
+    const sim = this.sim;
+    sim.invincible = test.invincible;
+    sim.hold = test.hold;
+    if (test.enemies === 'director') return;
+    sim.clearSpawnPlan();
+    if (test.enemies === 'quiet') return;
+    const count = test.rank === 'normal' ? 3 : 1;
+    if (test.enemies === 'roster') {
+      // One group of every enemy in the kingdom's home and guest factions.
+      const kingdom = KINGDOMS[kingdomForRound(this.run)];
+      for (const def of [...enemiesOfFaction(kingdom.homeFaction), ...enemiesOfFaction(kingdom.guestFaction)]) spawnGroup(sim, def, 1, test.rank);
+      return;
+    }
+    spawnGroup(sim, ENEMIES[test.enemies], count, test.rank);
+  }
+
+  /** Test Lab round: jumps the boss to the picked phase once it enters. */
+  private applyTestPhase(): void {
+    if (!this.test || this.testPhaseDone || this.test.bossPhase <= 1) return;
+    const body = mainBoss(this.sim);
+    if (!body) return;
+    this.testPhaseDone = true;
+    forceBossPhase(body, this.test.bossPhase);
   }
 
   /** Debug tool: opens the loadout menu over the paused round. */
@@ -832,6 +882,7 @@ export class Combat extends Phaser.Scene {
         this.sim.step(input);
         this.accumulator -= STEP_SECONDS;
       }
+      this.applyTestPhase();
       this.playEvents();
       this.audio.frame(this.sim);
       this.followMusic();

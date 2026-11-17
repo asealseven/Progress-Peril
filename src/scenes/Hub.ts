@@ -35,7 +35,8 @@ import { Button } from '../ui/button';
 import { drawPageFrame } from '../ui/frame';
 import { addText } from '../ui/text';
 import { isTouchPrimary } from './platform';
-import { archive, profile, saveNow } from './session';
+import { archive, inSandbox, profile, saveNow } from './session';
+import { DEV_TOOLS } from './devTools';
 
 type View = 'hall' | 'archive' | 'codex' | 'trophies';
 type ArchiveTab = 'discoveries' | 'upgrades' | 'specialisations';
@@ -161,6 +162,23 @@ export class Hub extends Phaser.Scene {
       })
         .setOrigin(0.5)
         .setStroke(PALETTE.ink, 4);
+    }
+
+    // Dev tools only: the Test Lab, for jumping to any kingdom, round or screen.
+    if (DEV_TOOLS) {
+      new Button(this, SCREEN.width - 150, 52, {
+        label: inSandbox(this) ? STRINGS.lab.openSandbox : STRINGS.lab.open,
+        width: 240,
+        height: 44,
+        textSize: 18,
+        onClick: () => this.scene.start('TestLab'),
+      }).setDepth(20);
+      const keyboard = this.input.keyboard;
+      const open = (): void => {
+        this.scene.start('TestLab');
+      };
+      keyboard?.once('keydown-T', open);
+      this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => keyboard?.off('keydown-T', open));
     }
 
     // Phones add a list menu along the side (GDD 15.6). PC keys: Enter starts, C continues.

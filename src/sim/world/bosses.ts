@@ -363,6 +363,17 @@ function enterPhase(world: World, body: BossBody): void {
   if (body.role === 'boss' && phase === 3 && body.borrowed.length > 0) body.convergence = true;
 }
 
+/**
+ * Dev tools: drops a boss body's health just under the threshold of a phase,
+ * so the normal phase changes run up to it. Phases already passed stay.
+ */
+export function forceBossPhase(body: BossBody, phase: number): void {
+  const threshold = body.thresholds[Math.min(phase, body.phases.length) - 2];
+  if (threshold === undefined) return;
+  const enemy = body.enemy;
+  enemy.health = Math.min(enemy.health, enemy.maxHealth * threshold - 1);
+}
+
 function checkPhase(world: World, body: BossBody): void {
   const enemy = body.enemy;
   const next = body.thresholds[body.phase - 1];

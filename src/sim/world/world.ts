@@ -211,6 +211,8 @@ export class World {
   /** Largest radius among spawned enemies, for grid queries. */
   maxEnemyRadius = 0;
   invincible: boolean;
+  /** Dev tools: the round stays open after every enemy falls, so a test arena never ends by itself. */
+  hold = false;
   /** Manual focus point while the focus input is held (GDD 3.4). */
   focus: { x: number; y: number } | undefined;
 
@@ -444,6 +446,8 @@ export class World {
       this.emit({ type: 'revived' });
     } else if (this.player.health <= 0) {
       this.phase = 'defeat';
+    } else if (this.hold) {
+      // Dev tools: a held test round only ends through the pause screen.
     } else if (this.bossFallen) {
       // The boss falls: remaining enemies flee and the round ends (GDD 5.8 step 1).
       this.stragglersFlee();
@@ -533,6 +537,12 @@ export class World {
   }
 
   /** Remaining enemies flee: they leave with no loot and no death effects. Ends the round. */
+  /** Dev tools: drops the director's spawn plan, for a quiet arena or a hand-picked roster. */
+  clearSpawnPlan(): void {
+    this.nextSpawn = this.spawns.length;
+    this.wave = undefined;
+  }
+
   private stragglersFlee(): void {
     for (const enemy of this.enemies.items) {
       if (!enemy.active) continue;
