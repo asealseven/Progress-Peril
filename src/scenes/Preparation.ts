@@ -53,7 +53,8 @@ import {
 import type { ShopItem, ShopProblem, WorkbenchProblem } from '../sim/economy';
 import { WEAPON_SLOTS, auxiliaryOpen, installProblem, resolveLoadout } from '../sim/loadout';
 import type { ComponentInstance, ResolvedWeapon, WeaponInstance } from '../sim/loadout';
-import { masteryRank, nextRank } from '../sim/archive';
+import { discoveryCost, discoveryRank, masteryRank, nextRank } from '../sim/archive';
+import { MASTERY_RANKS } from '../data/research';
 import {
   captureChoices,
   captureNode,
@@ -487,6 +488,33 @@ export class Preparation extends Phaser.Scene {
       line(STRINGS.research.hintTitle, { role: 'heading', size: 30 });
       line(STRINGS.research.hintNote, { colour: PALETTE.brass });
       line(node.hint ?? '', { role: 'hand', size: 26 });
+    } else if (state === 'archive') {
+      // Archive only: one step beyond the known tree, bought in the Grand Archive (GDD 15.8).
+      line(node.name, { role: 'heading', size: 30 }, 2);
+      line(`${STRINGS.research.rings[node.ring]}  ·  ${node.disciplines.join(', ')}`, { colour: PALETTE.brass, size: 15 }, 2);
+      line(STRINGS.research.states.archive, { weight: '700', colour: PALETTE.danger }, 10);
+      line(STRINGS.research.effect, { role: 'hand', size: 22, colour: PALETTE.brass }, 0);
+      line(node.effect, { size: 17 }, 8);
+      line(STRINGS.research.archiveCost, { role: 'hand', size: 22, colour: PALETTE.brass }, 0);
+      line(STRINGS.research.archivePoints(discoveryCost(node) ?? 0), { size: 17 }, 2);
+      const rank = discoveryRank(node);
+      const needed = MASTERY_RANKS.find((entry) => entry.name === rank)?.points;
+      if (rank && needed !== undefined) {
+        for (const discipline of node.disciplines) {
+          const points = run.archive.mastery[discipline];
+          line(STRINGS.research.archiveRank(rank, discipline, points, needed), {
+            size: 16,
+            weight: '700',
+            colour: points >= needed ? PALETTE.ink : PALETTE.danger,
+          }, 2);
+        }
+      }
+      y += 6;
+      line(STRINGS.research.requires, { role: 'hand', size: 22, colour: PALETTE.brass }, 0);
+      line(node.requires.length > 0 ? node.requires.join(', ') : STRINGS.research.noRequirements, { size: 17 }, 8);
+      line(STRINGS.research.archiveNote, { size: 15, colour: PALETTE.brass }, 10);
+      new Button(this, left + width / 2, y + 26, { label: STRINGS.research.archiveButton, width: inner, height: 52, textSize: 20, enabled: false, onClick: () => undefined });
+      y += 60;
     } else {
       line(node.name, { role: 'heading', size: 30 }, 2);
       line(`${STRINGS.research.rings[node.ring]}  ·  ${node.disciplines.join(', ')}`, { colour: PALETTE.brass, size: 15 }, 2);

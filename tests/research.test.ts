@@ -265,10 +265,10 @@ describe('mastery (GDD 8.13)', () => {
     expect(run.archive.mastery.Engineering).toBeGreaterThanOrEqual(2);
   });
 
-  it('names ranks at 0, 20, 60, 140 and 280 points', () => {
+  it('names ranks at 0, 13, 60, 140 and 280 points', () => {
     expect(masteryRank(0)).toBe('Novice');
-    expect(masteryRank(19)).toBe('Novice');
-    expect(masteryRank(20)).toBe('Practitioner');
+    expect(masteryRank(12)).toBe('Novice');
+    expect(masteryRank(13)).toBe('Practitioner');
     expect(masteryRank(60)).toBe('Expert');
     expect(masteryRank(140)).toBe('Master');
     expect(masteryRank(280)).toBe('Grandmaster');

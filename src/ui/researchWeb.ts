@@ -29,6 +29,7 @@ const LABEL_ZOOM = 0.85;
 
 const INK = hexToNumber(PALETTE.ink);
 const PARCHMENT = hexToNumber(PALETTE.parchment);
+const BRASS = hexToNumber(PALETTE.brass);
 const GOLD = hexToNumber(PALETTE.playerEffects);
 const DANGER = hexToNumber(PALETTE.danger);
 const GREY = 0xb9b0a0;
@@ -386,6 +387,19 @@ export class ResearchWeb {
           shape.fillStyle(GREY, 0.75);
           shape.fillCircle(point.x, point.y, radius);
           shape.lineStyle(2, INK, 0.4);
+        } else if (state === 'archive') {
+          // Archive only: a faint page with a dashed brass outline, bought in the Grand Archive (GDD 15.8).
+          shape.fillStyle(PARCHMENT, 0.55);
+          shape.fillCircle(point.x, point.y, radius);
+          shape.lineStyle(2.5, BRASS, 0.9);
+          const dashes = 10;
+          for (let dash = 0; dash < dashes; dash++) {
+            const from = (dash / dashes) * Math.PI * 2;
+            shape.beginPath();
+            shape.arc(point.x, point.y, radius, from, from + (Math.PI / dashes) * 1.1, false);
+            shape.strokePath();
+          }
+          shape.lineStyle(0, INK, 0);
         } else {
           shape.fillStyle(PARCHMENT, 1);
           shape.fillCircle(point.x, point.y, radius);
@@ -395,7 +409,7 @@ export class ResearchWeb {
         if (state !== 'researched') {
           // A small pip in the discipline colour keeps the sector readable on every state.
           colours.forEach((colour, index) => {
-            shape.fillStyle(colour, state === 'blocked' ? 0.5 : 1);
+            shape.fillStyle(colour, state === 'blocked' || state === 'archive' ? 0.5 : 1);
             shape.fillCircle(point.x + (index - (colours.length - 1) / 2) * 7, point.y, colours.length > 2 ? 2.5 : 4);
           });
         }
@@ -419,7 +433,7 @@ export class ResearchWeb {
           colour: PALETTE.ink,
         }).setOrigin(0.5, 0),
       );
-      label.setAlpha(state === 'blocked' ? 0.55 : 1);
+      label.setAlpha(state === 'blocked' ? 0.55 : state === 'archive' ? 0.6 : 1);
       label.setData('always', picked);
       this.labels.push(label);
 

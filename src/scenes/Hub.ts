@@ -21,6 +21,7 @@ import {
   discoveryCost,
   discoveryProblem,
   hasRank,
+  innerToDiscover,
   masteryRank,
   nextRank,
   refundSpecialisation,
@@ -243,8 +244,8 @@ export class Hub extends Phaser.Scene {
     });
   }
 
-  private pager(total: number): number {
-    const pages = Math.max(1, Math.ceil(total / ROWS));
+  private pager(total: number, perPage: number = ROWS): number {
+    const pages = Math.max(1, Math.ceil(total / perPage));
     const page = Math.min(this.state.page, pages - 1);
     if (pages > 1) {
       const y = LIST_TOP + ROWS * ROW_HEIGHT + 24;
@@ -306,8 +307,31 @@ export class Hub extends Phaser.Scene {
       if (state.area === 'Interdisciplinary') return node.ring === 'Cross';
       return node.ring !== 'Cross' && node.disciplines[0] === state.area;
     });
-    const page = this.pager(nodes.length);
-    nodes.slice(page * ROWS, page * ROWS + ROWS).forEach((node, index) => this.discoveryRow(index, node));
+    if (state.area === 'Interdisciplinary') {
+      const page = this.pager(nodes.length);
+      nodes.slice(page * ROWS, page * ROWS + ROWS).forEach((node, index) => this.discoveryRow(index, node));
+      return;
+    }
+    // A discipline's first row shows the path to its next mastery rank (GDD 8.13).
+    this.masteryPath(state.area);
+    const perPage = ROWS - 1;
+    const page = this.pager(nodes.length, perPage);
+    nodes.slice(page * perPage, page * perPage + perPage).forEach((node, index) => this.discoveryRow(index + 1, node));
+  }
+
+  /** Mastery rank, points to the next rank and the inner nodes still to discover. */
+  private masteryPath(discipline: (typeof DISCIPLINES)[number]): void {
+    const book = archive(this);
+    const points = book.mastery[discipline];
+    const y = LIST_TOP;
+    const g = this.add.graphics();
+    g.fillStyle(PANEL, 1);
+    g.fillRect(60, y, SCREEN.width - 120, ROW_HEIGHT - 6);
+    g.lineStyle(3, hexToNumber(PALETTE.playerEffects), 1);
+    g.strokeRect(60, y, SCREEN.width - 120, ROW_HEIGHT - 6);
+    addText(this, 76, y + 6, STRINGS.hub.masteryPath(discipline, masteryRank(points), points, nextRank(points)), { role: 'heading', size: 20 });
+    const inner = innerToDiscover(book, discipline).map((node) => node.name);
+    addText(this, 76, y + 32, STRINGS.hub.innerToDiscover(inner), { size: 14, weight: '700', colour: PALETTE.brass, wrapWidth: 1100 });
   }
 
   private discoveryRow(index: number, node: ResearchNodeDef): void {

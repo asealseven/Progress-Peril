@@ -86,7 +86,9 @@ describe('Grand Archive catalogue (GDD 11.10, 11.14)', () => {
     expect(discoveryProblem(archive, node('Iron Lung'))).toBe('hidden');
     expect(discoveryProblem(archive, node('Corrosive Acids'))).toBeUndefined();
     expect(discoveryProblem(archive, node('Incendiary Engineering'))).toBe('mastery');
-    archive.mastery.Chemistry = 20;
+    archive.mastery.Chemistry = 12;
+    expect(discoveryProblem(archive, node('Incendiary Engineering'))).toBe('mastery');
+    archive.mastery.Chemistry = 13;
     expect(discoveryProblem(archive, node('Incendiary Engineering'))).toBeUndefined();
     expect(discoveryProblem(archive, node('Thermite'))).toBe('mastery');
     archive.mastery.Chemistry = 60;
